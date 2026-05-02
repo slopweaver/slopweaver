@@ -1,0 +1,35 @@
+{
+  "name": "slopweaver-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SlopWeaver workspace root. The shipped binary is published as `slopweaver` from apps/mcp-local/.",
+  "license": "MIT",
+  "homepage": "https://slopweaver.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/slopweaver/slopweaver.git"
+  },
+  "author": "lachiejames",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "compile": "turbo run compile",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "test": "turbo run test",
+    "test:unit": "turbo run test:unit",
+    "dev": "turbo run dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.13",
+    "eslint": "10.2.1",
+    "eslint-plugin-boundaries": "6.0.2",
+    "turbo": "2.9.6",
+    "typescript": "6.0.3"
+  }
+}
