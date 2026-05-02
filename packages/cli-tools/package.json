@@ -1,0 +1,22 @@
+{
+  "name": "@slopweaver/cli-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SlopWeaver developer CLI. Subcommand pattern (`pnpm cli <subcommand>`). v1 subcommands: worktree.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "slopweaver-cli": "./src/cli.ts"
+  },
+  "main": "./src/cli.ts",
+  "scripts": {
+    "compile": "tsc --noEmit",
+    "test": "echo 'no tests yet' && exit 0"
+  },
+  "dependencies": {
+    "cac": "7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}
