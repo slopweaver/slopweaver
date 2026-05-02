@@ -1,0 +1,65 @@
+name: Task
+description: A unit of work for an AI agent (or human contributor) to pick up
+labels: [task, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for AI-actionable tasks — work items sized to one PR. The body should include enough context for an agent to execute without asking for clarification.
+
+        For bug reports use `bug_report.yml`. For feature requests use `feature_request.yml`. For decisions use `decision_record.yml`.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs to be done
+      description: A clear description of the work. Be specific. The agent will execute against this.
+      placeholder: e.g. Add a `slopweaver doctor` CLI subcommand that checks Node version, pnpm version, port 60701 availability, and whether ~/.slopweaver/ exists.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What has to be true for this to be considered done. Use a checklist.
+      placeholder: |
+        - [ ] `pnpm cli doctor` runs and exits 0 on a healthy machine
+        - [ ] Reports red status for missing Node 22, missing pnpm, port conflict, missing data dir
+        - [ ] README updated with usage example
+        - [ ] CI green
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Anything an agent needs to know that isn't in the codebase already. Link relevant files, prior decisions, related PRs.
+      placeholder: |
+        Relevant files: packages/cli-tools/src/cli.ts, packages/cli-tools/src/worktree/index.ts (use as a reference for command structure).
+
+        Decision: see #N for the doctor-output-format decision.
+
+  - type: textarea
+    id: ai-prompt
+    attributes:
+      label: AI agent prompt (copy-paste into Claude Code)
+      description: Pre-filled prompt to invoke the `/fix-issue` slash command. Replace ISSUE-NUMBER with this issue's number after you create it.
+      value: |
+        /fix-issue https://github.com/slopweaver/slopweaver/issues/ISSUE-NUMBER
+      render: text
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Are you taking this on yourself?
+      options:
+        - "I'm filing this; happy for an agent or contributor to pick it up"
+        - "I'm working on this myself"
+        - "I want to discuss before anyone implements"
+    validations:
+      required: true
