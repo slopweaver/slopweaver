@@ -1,0 +1,63 @@
+name: Bug report
+description: Something isn't working as expected
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. SlopWeaver is pre-alpha; expect rough edges, but specific reports help a lot.
+
+        Before filing: please confirm the issue isn't already in the [v1.0.0 roadmap](https://github.com/slopweaver/slopweaver/issues/2) as a known TODO.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug.
+      placeholder: e.g. `slopweaver connect github` exits with code 1 immediately
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, in order. The smaller the reproducer, the faster the fix.
+      placeholder: |
+        1. `npx -y slopweaver@latest init`
+        2. `slopweaver connect github`
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: SlopWeaver version
+      description: Output of `slopweaver --version` (or `npm view slopweaver version` if you can't run the CLI).
+      placeholder: e.g. 0.1.0-alpha.3
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, MCP client (Claude Code / Cursor / Cline / other).
+      placeholder: e.g. macOS 15.3 (arm64), Node 22.12.0, Claude Code 2.0.5
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Output from `~/.slopweaver/logs/` or terminal output. Please redact any tokens or secrets.
+      render: text

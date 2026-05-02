@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a new feature or improvement
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Before filing, please check if this is already on the [v1.0.0 roadmap](https://github.com/slopweaver/slopweaver/issues/2).
+
+        SlopWeaver is intentionally narrow in scope — see the README for the v1 hook ("help Claude Code answer 'what should I work on next?'") and CLAUDE.md for development principles. Suggestions outside that scope may be politely declined or moved to v2+.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The user problem you're hitting. Be concrete.
+      placeholder: e.g. I want to ask Claude about a Linear ticket but SlopWeaver only knows about GitHub + Slack.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: What you'd like SlopWeaver to do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or alternative approaches you've thought about.
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Are you willing to contribute this?
+      options:
+        - "I'd be happy to send a PR"
+        - "I could help review or test"
+        - "I'm just suggesting; not able to contribute the code"
+    validations:
+      required: true
