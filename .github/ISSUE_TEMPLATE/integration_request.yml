@@ -1,0 +1,47 @@
+name: Integration request
+description: Request support for a new platform (Linear, Gmail, Notion, etc.)
+labels: [integration-request, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the request. Integrations roll out incrementally — see [v1.0.0 roadmap](https://github.com/slopweaver/slopweaver/issues/2) for what's planned.
+
+        v1.0 ships with GitHub + Slack only. Linear, Gmail, and Calendar are planned for v1.1+. Other platforms get prioritized by demand + how well they fit the "context for AI agents" use case.
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Which platform? Include the URL.
+      placeholder: e.g. Notion (https://www.notion.so)
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Why you need it
+      description: How does this platform fit into your work? What would you ask Claude Code about it?
+      placeholder: e.g. I keep all my engineering specs in Notion. When I review a PR, I want Claude to find the linked spec.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tools
+    attributes:
+      label: What MCP tools would you want from it?
+      description: e.g. "search docs", "fetch a page", "list pages I've recently edited"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Are you willing to contribute this integration?
+      options:
+        - "I'd build the package and send a PR"
+        - "I could help test against my workspace"
+        - "I'm just requesting; not able to contribute the code"
+    validations:
+      required: true
