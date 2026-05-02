@@ -4,7 +4,7 @@ Instructions for Claude Code working in the SlopWeaver public repo.
 
 ## What is SlopWeaver
 
-Open-source local-first MCP server that gives Claude Code (and any MCP client) the GitHub + Slack context behind any PR. Pre-alpha; v1.0.0 in development. See [README.md](README.md) and the [v1.0.0 roadmap tracking issue](https://github.com/slopweaver/slopweaver/issues/1).
+Open-source local-first MCP server that helps Claude Code answer "what should I work on next?" by searching across your work tools. Pre-alpha; v1.0.0 in development. See [README.md](README.md) and the [v1.0.0 roadmap tracking issue](https://github.com/slopweaver/slopweaver/issues/2).
 
 ## Repo state (pre-alpha)
 
