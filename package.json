@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "cli": "tsx packages/cli-tools/src/cli.ts",
     "compile": "turbo run compile",
     "lint": "biome lint .",
     "format": "biome format --write .",
@@ -26,10 +27,12 @@
     "dev": "turbo run dev"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.13",
-    "eslint": "10.2.1",
+    "@biomejs/biome": "2.4.14",
+    "@types/node": "22.10.5",
+    "eslint": "10.3.0",
     "eslint-plugin-boundaries": "6.0.2",
-    "turbo": "2.9.6",
+    "tsx": "4.21.0",
+    "turbo": "2.9.7",
     "typescript": "6.0.3"
   }
 }
