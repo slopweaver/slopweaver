@@ -44,7 +44,7 @@ describe('orchestration core', () => {
     expect(getProfile({ profileId: 'generic' }).implementationSlices).toHaveLength(1);
   });
 
-  it('derives run slugs from the full chain path instead of the basename', () => {
+  it('derives run slugs from the full chain path with -- as a path separator', () => {
     const repoRoot = '/repo/slopweaver';
 
     expect(
@@ -52,14 +52,14 @@ describe('orchestration core', () => {
         chainPath: '/repo/slopweaver/.claude/orchestration/other/refactor.md',
         repoRoot,
       }),
-    ).toBe('claude-orchestration-other-refactor');
+    ).toBe('claude--orchestration--other--refactor');
 
     expect(
       resolveRunSlug({
         chainPath: '/repo/slopweaver/.claude/orchestration/refactors/README.md',
         repoRoot,
       }),
-    ).toBe('claude-orchestration-refactors-readme');
+    ).toBe('claude--orchestration--refactors--readme');
 
     expect(
       resolveChainRelativePath({
@@ -67,6 +67,54 @@ describe('orchestration core', () => {
         repoRoot,
       }),
     ).toBe(path.normalize('docs/orchestration/examples/refactor-example.md'));
+  });
+
+  it('does not collapse path-separator markers and so distinct chains never alias', () => {
+    const repoRoot = '/repo/slopweaver';
+    // foo/bar-baz vs foo-bar/baz must produce distinct slugs.
+    expect(resolveRunSlug({ chainPath: '/repo/slopweaver/foo/bar-baz.md', repoRoot })).toBe(
+      'foo--bar-baz',
+    );
+    expect(resolveRunSlug({ chainPath: '/repo/slopweaver/foo-bar/baz.md', repoRoot })).toBe(
+      'foo-bar--baz',
+    );
+  });
+
+  it('ignores structural headings that appear inside a fenced prompt block', () => {
+    const markdown = [
+      '# Chain with prompt that quotes structural headings',
+      '',
+      '## Variables',
+      '',
+      '- `{worktree}`: `outer-worktree`',
+      '',
+      '## Step 1: Plan (codex-plan)',
+      '',
+      '```prompt',
+      'Investigate the issue. Note: do not write headings like',
+      '## Step 99: Bogus Step',
+      'or',
+      '## Variables',
+      '- `{worktree}`: `bogus-worktree`',
+      'in your reply, since the parser used to mistake them for chain structure.',
+      '```',
+      '',
+      '## Step 2: Review (codex-review)',
+      '',
+      '```prompt',
+      'Review the work.',
+      '```',
+    ].join('\n');
+
+    const chain = parseOrchestrationChain({
+      chainPath: '/repo/slopweaver/test-chain.md',
+      markdown,
+    });
+
+    expect(chain.steps).toHaveLength(2);
+    expect(chain.steps[0]?.title).toBe('Plan');
+    expect(chain.steps[1]?.title).toBe('Review');
+    expect(chain.variables['worktree']).toBe('outer-worktree');
   });
 
   it('builds executor-specific runtime plans and dry-runs', () => {

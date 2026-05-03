@@ -137,13 +137,24 @@ export function resolveChainRelativePath({
   return path.normalize(relativePath);
 }
 
-function sanitizeSlug({ value }: { value: string }): string {
-  return value
+function sanitizeSlug({
+  preserveDoubleHyphen = false,
+  value,
+}: {
+  preserveDoubleHyphen?: boolean;
+  value: string;
+}): string {
+  // When preserveDoubleHyphen is true, `--` is a meaningful path-separator
+  // marker (used by resolveRunSlug to encode `/`). Only collapse runs of 3+
+  // hyphens so distinct chain paths don't alias to the same slug.
+  const trimmed = value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/--+/g, '-')
-    .replace(/(^-|-$)/g, '');
+    .replace(/[^a-z0-9-_]+/g, '-');
+  const collapsed = preserveDoubleHyphen
+    ? trimmed.replace(/---+/g, '--')
+    : trimmed.replace(/--+/g, '-');
+  return collapsed.replace(/(^-+|-+$)/g, '');
 }
 
 export function resolveRunSlug({
@@ -158,7 +169,7 @@ export function resolveRunSlug({
   const withoutExtension =
     extension.length > 0 ? relativePath.slice(0, -extension.length) : relativePath;
   const slugSource = withoutExtension.replace(/[\\/]+/g, '--');
-  return sanitizeSlug({ value: slugSource });
+  return sanitizeSlug({ value: slugSource, preserveDoubleHyphen: true });
 }
 
 export function parseOrchestrationChain({
@@ -183,6 +194,7 @@ export function parseOrchestrationChain({
     title: string;
   } | null = null;
   let inVariablesSection = false;
+  let inFencedBlock = false;
   const variables: Record<string, string> = {};
 
   const finalizeStep = ({ endExclusive }: { endExclusive: number }): void => {
@@ -207,6 +219,17 @@ export function parseOrchestrationChain({
   };
 
   lines.forEach((line, lineIndex) => {
+    // Track fenced code blocks so structural headings inside a `prompt`
+    // block (e.g. `## Step 5: ...` quoted in a planning prompt) don't get
+    // parsed as chain structure.
+    if (line.trimStart().startsWith('```')) {
+      inFencedBlock = !inFencedBlock;
+      return;
+    }
+    if (inFencedBlock) {
+      return;
+    }
+
     const headingMatch = line.match(STEP_HEADING_REGEX);
     if (headingMatch) {
       finalizeStep({ endExclusive: lineIndex });

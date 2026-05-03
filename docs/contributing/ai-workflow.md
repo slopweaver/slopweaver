@@ -192,7 +192,7 @@ export PATH="$HOME/.codex-orchestrator/bin:$HOME/.bun/bin:$PATH"
 
 **tmux config** — add to `~/.tmux.conf`:
 
-```
+```text
 set -g allow-passthrough on
 ```
 
