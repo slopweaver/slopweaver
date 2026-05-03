@@ -30,16 +30,49 @@ You get oriented in 60 seconds instead of 20 minutes of tab-flipping.
 
 SlopWeaver runs as a local subprocess of your MCP client over **stdio** — no HTTP server, no token paste, no auth dance.
 
+**Claude Code:**
+
 ```bash
-# Claude Code
 claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
 ```
 
-Then ask Claude Code: *"What should I work on next?"*
+**Cursor** — add to `~/.cursor/mcp.json` (or `.cursor/mcp.json` in your project):
 
-For Cursor / Cline / Codex, point the client's MCP config at the same stdio command — full per-client snippets land alongside the v1.0.0 release. If anything fails, run `slopweaver doctor`.
+```json
+{
+  "mcpServers": {
+    "slopweaver": {
+      "command": "npx",
+      "args": ["-y", "@slopweaver/mcp-local"]
+    }
+  }
+}
+```
 
-> **Note:** Connecting SlopWeaver to GitHub (so it can poll your PRs and mentions) uses GitHub's own OAuth or a personal access token — that's separate from the MCP transport between Claude Code and SlopWeaver. The MCP layer itself has no auth in v1; stdio inherits the user's trust context.
+**Cline** — add to your Cline MCP settings file (same JSON shape as Cursor):
+
+```json
+{
+  "mcpServers": {
+    "slopweaver": {
+      "command": "npx",
+      "args": ["-y", "@slopweaver/mcp-local"]
+    }
+  }
+}
+```
+
+**Codex CLI** — add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.slopweaver]
+command = "npx"
+args = ["-y", "@slopweaver/mcp-local"]
+```
+
+Then ask your client: *"What should I work on next?"* If anything fails, run `slopweaver doctor`.
+
+> **Note:** Connecting SlopWeaver to GitHub (so it can poll your PRs and mentions) uses GitHub's own OAuth or a personal access token — that's separate from the MCP transport between your client and SlopWeaver. The MCP layer itself has no auth in v1; stdio inherits the user's trust context.
 
 ---
 
