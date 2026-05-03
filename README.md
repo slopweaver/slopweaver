@@ -49,7 +49,7 @@ claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
 }
 ```
 
-**Cline** — add to your Cline MCP settings file (same JSON shape as Cursor):
+**Cline** — add to `~/.cline/data/settings/cline_mcp_settings.json` (or `$CLINE_DIR/data/settings/cline_mcp_settings.json` if you've set `CLINE_DIR`):
 
 ```json
 {
