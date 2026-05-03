@@ -1,11 +1,9 @@
 import { z } from 'zod';
 
 const NonEmptyStringSchema = z.string().min(1);
-const IsoDatetimeSchema = z.string().datetime({ offset: true });
+const IsoDatetimeSchema = z.iso.datetime({ offset: true });
 
 type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[];
-
-type JsonObject = { [key: string]: JsonValue };
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
@@ -17,8 +15,6 @@ const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
     z.record(z.string(), JsonValueSchema),
   ]),
 );
-
-const JsonObjectSchema: z.ZodType<JsonObject> = z.record(z.string(), JsonValueSchema);
 
 export const PingArgs = z.object({}).strict();
 export type PingArgs = z.infer<typeof PingArgs>;
@@ -36,7 +32,7 @@ export const Reference = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('url'),
-      url: z.string().url(),
+      url: z.url(),
     })
     .strict(),
   z
@@ -65,8 +61,8 @@ export const EvidenceLogEntry = z
     kind: NonEmptyStringSchema,
     ref: Reference,
     occurred_at: IsoDatetimeSchema,
-    payload_json: JsonObjectSchema,
-    citation_url: z.string().url().nullable(),
+    payload_json: JsonValueSchema,
+    citation_url: z.url().nullable(),
   })
   .strict();
 export type EvidenceLogEntry = z.infer<typeof EvidenceLogEntry>;
