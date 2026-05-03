@@ -53,7 +53,11 @@ cli
     'orchestration <subcommand> <chainPath>',
     'Run an orchestration chain. Subcommands: prepare | run',
   )
-  .option('--executor <mode>', 'Launcher mode: hybrid or codex-only', { default: 'hybrid' })
+  .option(
+    '--executor <mode>',
+    'Launcher mode: hybrid or codex-only (prepare only; run is always codex-only)',
+    { default: 'hybrid' },
+  )
   .option('--dry-run', 'Print the resolved phase order and exit (run only)')
   .option('--restart', 'Discard saved runner state before starting')
   .option('--notify', 'Send cmux notifications at the manual stop point (run only)')
@@ -76,9 +80,14 @@ cli
           return;
         }
         if (subcommand === 'run') {
+          // `run` is the codex-only fallback runner. The hybrid (Claude-implements)
+          // path is driven by `prepare` + a Claude-side launcher, which is the
+          // maintainer's external tool. Hardcode codex-only here so passing
+          // `--executor hybrid` to `run` doesn't silently behave as codex-only
+          // with hybrid prompt wording.
           await run(chainPath, {
             dryRun: options.dryRun === true,
-            executor: normalizeExecutor(options.executor),
+            executor: 'codex-only',
             notify: options.notify === true,
             restart: options.restart === true,
           });

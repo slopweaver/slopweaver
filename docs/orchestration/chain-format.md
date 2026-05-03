@@ -92,14 +92,24 @@ Review {pr_url}. Reply LGTM - ready for local testing. when clean.
 
 ## Lifecycle
 
+`prepare` and `run` are different entrypoints:
+
+- **`prepare`** bootstraps the worktree + prompt artifacts. The Claude-side
+  launcher (a maintainer-external tool) consumes the resulting
+  `launcher-manifest.json` and drives implementation as Claude. This is the
+  "codex plans, Claude implements" hybrid path.
+- **`run`** is the codex-only fallback runner. It executes every phase
+  (planning, implementation, review, CI fix) through codex with no Claude
+  in the loop. Use it when Claude is rate-limited or unavailable.
+
 ```bash
-# Preview the resolved phase order without running anything
+# Preview the resolved phase order without running anything (codex-only fallback)
 pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md --dry-run
 
-# Bootstrap the worktree + write artifacts (no codex calls)
+# Bootstrap the worktree + write artifacts for the hybrid path (no codex calls)
 pnpm cli orchestration prepare @docs/orchestration/examples/refactor-example.md
 
-# Full end-to-end run (requires codex-agent on PATH)
+# Codex-only fallback: end-to-end run through codex (requires codex-agent on PATH)
 pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md
 
 # Resume is automatic. Use --restart to clear saved state and start over.
@@ -108,6 +118,10 @@ pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md --re
 # Send a cmux notification when the run pauses for human review
 pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md --notify
 ```
+
+`run` is hardcoded to `codex-only`. The `--executor` flag (`hybrid` |
+`codex-only`) only applies to `prepare`, where it's recorded in the
+launcher manifest for the Claude-side launcher to consume.
 
 The leading `@` on the chain path is optional; the parser strips it for
 ergonomics with shell completion.

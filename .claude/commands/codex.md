@@ -16,27 +16,34 @@ Do not substitute generic Explore agents for codex on these tasks — they don't
 - `gh` for PR creation and CI tailing.
 - The `pnpm cli orchestration` runner ships in this repo and drives the full loop. See [chain file format](../../docs/orchestration/chain-format.md) for the schema.
 
-## Two ways to run
+## Three ways to drive a chain
 
-**Direct (codex-agent CLI).** Drive each phase yourself with `codex-agent start/await-turn/send/quit`. Best for one-off planning sessions or ad-hoc review.
+**Direct (codex-agent CLI), Claude-driven.** Claude Code itself drives each phase with `codex-agent start/await-turn/send/quit`. This is the **hybrid loop** the rest of this doc describes — codex plans, Claude implements, codex reviews. No chain file required; works ad hoc.
 
-**Chain runner.** Author a chain file under `.claude/orchestration/<category>/<name>.md` and run:
+**Hybrid via `prepare` + Claude launcher.** Author a chain file under `.claude/orchestration/<category>/<name>.md`, then bootstrap the worktree and prompt artifacts:
+
+```bash
+pnpm cli orchestration prepare @.claude/orchestration/<chain>.md
+```
+
+`prepare` sets up the worktree, syncs `.env*`, and writes a `launcher-manifest.json` plus the planning/review prompt files. A separate Claude-side launcher (the maintainer's external tool — not in this repo) consumes the manifest and drives the implementation phase as Claude. This is the "Codex plans, Claude implements" path.
+
+**Codex-only fallback.** `pnpm cli orchestration run` runs the entire chain through codex without Claude in the loop:
 
 ```bash
 # Preview phases (no codex calls, no side effects)
 pnpm cli orchestration run @.claude/orchestration/<chain>.md --dry-run
 
-# Scaffold worktree + prompt artifacts only
-pnpm cli orchestration prepare @.claude/orchestration/<chain>.md
-
-# Full hybrid loop end to end
+# Full codex-only run (codex plans + codex implements + codex reviews)
 pnpm cli orchestration run @.claude/orchestration/<chain>.md
 
 # Resume is automatic. Use --restart to clear saved state.
 pnpm cli orchestration run @.claude/orchestration/<chain>.md --restart
 ```
 
-State and artifacts persist under `$CODEX_HOME/orchestration-runs/<slug>/`.
+Use this when Claude is rate-limited or unavailable and you'd rather have codex implement than wait. `run` is hardcoded to `codex-only`; the `--executor` flag only applies to `prepare`.
+
+State and artifacts for both `prepare` and `run` persist under `$CODEX_HOME/orchestration-runs/<slug>/`.
 
 ## Execution flow
 

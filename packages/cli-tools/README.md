@@ -81,6 +81,40 @@ All good. You are ready to develop.
 
 Exit code is 0 when everything is green or only warnings remain, 1 when any check fails.
 
+### `orchestration <subcommand> <chainPath>`
+
+Drives the maintainer's hybrid Codex + Claude workflow described in
+[`.claude/commands/codex.md`](../../.claude/commands/codex.md). Two
+subcommands:
+
+- **`prepare`** — bootstraps the worktree + writes prompt artifacts under
+  `$CODEX_HOME/orchestration-runs/<slug>/`. Designed to be consumed by a
+  Claude-side launcher (maintainer-external). No codex calls during
+  `prepare`.
+- **`run`** — codex-only fallback runner. Executes every phase (plan,
+  implement, review, CI fix) through `codex-agent` with no Claude in the
+  loop. Use when Claude is rate-limited.
+
+```bash
+pnpm cli orchestration prepare @docs/orchestration/examples/refactor-example.md
+pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md --dry-run
+pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md
+pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md --restart
+```
+
+Flags: `--executor hybrid|codex-only` (prepare only — `run` is always
+codex-only), `--dry-run` (run only), `--restart` (clears saved state),
+`--notify` (run only — fires `cmux notify` at the manual-QA stop point).
+
+`run` requires `codex-agent` on `PATH`. See
+[Codex install (optional)](../../docs/contributing/ai-workflow.md#codex-install-optional)
+in the contributor docs. Chain-file format:
+[`docs/orchestration/chain-format.md`](../../docs/orchestration/chain-format.md).
+
+`orchestration` uses a single top-level cac command with internal
+subcommand routing (`<subcommand>` is a positional arg) because cac 7 does
+not dispatch multi-word command names — see the convention note below.
+
 ## Adding a subcommand
 
 1. Create `src/<subcommand>/index.ts` exporting a `run<Subcommand>(...)` function.
