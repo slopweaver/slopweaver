@@ -6,11 +6,15 @@ Instructions for Claude Code working in the SlopWeaver public repo.
 
 Open-source local-first MCP server that helps Claude Code answer "what should I work on next?" by searching across your work tools. Pre-alpha; v1.0.0 in development. See [README.md](README.md) and the [v1.0.0 roadmap tracking issue](https://github.com/slopweaver/slopweaver/issues/2).
 
+## Codebase Overview
+
+A Turborepo monorepo with four packages — three runtime (`db`, `contracts`, `mcp-server`) and one maintainer CLI (`cli-tools`). The eventual published binary `apps/mcp-local/` will compose the runtime three; it does not exist yet. Stack is Node 22, pnpm 10, TypeScript 6 strict, Biome (format + lint), ESLint (boundaries only), Vitest, Drizzle ORM + better-sqlite3, MCP SDK, Zod 4.
+
+For the full architecture, module guide, data flow diagrams, conventions, and navigation guide, see [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md).
+
 ## Repo state (pre-alpha)
 
-This repo is in active scaffolding. Most packages and apps don't exist yet. Don't assume code is here unless you've verified.
-
-Current files: `LICENSE`, `README.md`, `CLAUDE.md`, `SECURITY.md`, `.github/`, `.gitignore`. Everything else is upcoming.
+This repo is in active scaffolding. Many packages and apps named below don't exist yet. Don't assume code is here unless you've verified — see `docs/CODEBASE_MAP.md` for what is actually present.
 
 ## Stack (target shape for v1.0.0)
 

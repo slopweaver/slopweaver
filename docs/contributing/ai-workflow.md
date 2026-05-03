@@ -210,6 +210,35 @@ pnpm cli doctor
 
 `codex-orchestrator` is a third-party tool that wraps `codex` in tmux sessions for non-interactive use. The `pnpm cli orchestration run` runner shells out to `codex-agent`, so it must be on `PATH` before the runner can spawn agents.
 
+### Codebase map (recommended)
+
+The orchestration runner always passes `--map` to `codex-agent start`. With `--map`, `codex-agent` looks for a codebase map file in the repo root, in this order:
+
+1. `docs/CODEBASE_MAP.md`
+2. `CODEBASE_MAP.md`
+3. `docs/ARCHITECTURE.md`
+
+If none exist, you'll see `No codebase map found` on stderr. The run still succeeds — codex just doesn't get a project-context prompt prefix, which is fine for trivial tasks but lossy for non-trivial ones.
+
+**Recommended generator:** [Cartographer](https://github.com/kingbootoshi/cartographer) — a Claude Code plugin that spawns parallel Sonnet subagents to analyze the repo and writes `docs/CODEBASE_MAP.md` (and a summary block in `CLAUDE.md`).
+
+```
+/plugin marketplace add kingbootoshi/cartographer
+/plugin install cartographer
+# restart Claude Code so the skill loads
+/cartographer
+```
+
+Run `/cartographer` again later to refresh — it diffs against git history and only re-analyzes changed modules.
+
+Requires `tiktoken` for token counting:
+
+```bash
+pip install tiktoken    # or: uv pip install tiktoken
+```
+
+The generated `docs/CODEBASE_MAP.md` is checked in. Treat it as documentation: review the diff before committing, and don't paste in anything that doesn't belong in a public repo.
+
 ---
 
 ## What's intentionally NOT here
