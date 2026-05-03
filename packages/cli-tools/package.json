@@ -2,7 +2,7 @@
   "name": "@slopweaver/cli-tools",
   "version": "0.0.0",
   "private": true,
-  "description": "SlopWeaver developer CLI. Subcommand pattern (`pnpm cli <subcommand>`). v1 subcommands: worktree, doctor.",
+  "description": "SlopWeaver developer CLI. Subcommand pattern (`pnpm cli <subcommand>`). v1 subcommands: worktree-new, doctor, orchestration.",
   "license": "MIT",
   "type": "module",
   "bin": {

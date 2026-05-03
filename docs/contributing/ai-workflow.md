@@ -61,6 +61,12 @@ Second-opinion review on an open PR. Posts a structured review comment (good / c
 
 The slash command does NOT approve or merge — only the founder does that. The review comment is informational input.
 
+### `/codex`
+
+The maintainer's hybrid loop: codex plans, Claude implements, codex reviews. Drives a chain end to end via `pnpm cli orchestration prepare/run` (see [chain file format](../orchestration/chain-format.md)). Contributors don't need this — `/fix-issue`, `/investigate`, and `/review-pr` work fine without codex installed.
+
+Full prompt and CLI quick reference in [`.claude/commands/codex.md`](../../.claude/commands/codex.md).
+
 ---
 
 ## Issues
@@ -157,6 +163,52 @@ CI runs the same four checks on every PR. Don't open for review until they're al
 `/review-pr` can optionally invoke [Codex CLI](https://github.com/openai/codex) for a second-opinion review. This is opt-in — if `codex` isn't on PATH, the slash command skips it and just posts the Claude-only review.
 
 The founder's prior workflow used Codex as a planner with Claude as executor. The current Claude (Opus 4.7 high thinking) is strong enough to do both planning and execution for most tasks; Codex is a useful second perspective for complex PRs.
+
+### Codex install (optional)
+
+Needed only if you want to drive the maintainer's hybrid loop locally (`/codex` and `pnpm cli orchestration run`). The `prepare` subcommand and the `--dry-run` flag work without these.
+
+**Prerequisites:**
+
+```bash
+brew install tmux
+curl -fsSL https://bun.sh/install | bash
+npm install -g @openai/codex
+codex --login
+```
+
+**Install `codex-orchestrator`:**
+
+```bash
+git clone https://github.com/kingbootoshi/codex-orchestrator.git ~/.codex-orchestrator
+cd ~/.codex-orchestrator && bun install
+```
+
+**Shell setup** — add to `~/.zshrc`:
+
+```bash
+export PATH="$HOME/.codex-orchestrator/bin:$HOME/.bun/bin:$PATH"
+```
+
+**tmux config** — add to `~/.tmux.conf`:
+
+```text
+set -g allow-passthrough on
+```
+
+This is **required** if you run `codex-agent` inside tmux or cmux. Without it, `codex-agent await-turn` hangs silently and the orchestration runner times out.
+
+**Verify:**
+
+```bash
+codex-agent health
+# Should report: tmux: OK, codex: codex-cli X.Y.Z, Status: Ready
+
+pnpm cli doctor
+# Will include a "Codex orchestrator" line if codex-agent is on PATH (silent if not).
+```
+
+`codex-orchestrator` is a third-party tool that wraps `codex` in tmux sessions for non-interactive use. The `pnpm cli orchestration run` runner shells out to `codex-agent`, so it must be on `PATH` before the runner can spawn agents.
 
 ---
 

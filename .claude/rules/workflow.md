@@ -85,5 +85,6 @@ Available slash commands for AI agents:
 - `/fix-issue <issue-url>` — read an issue, spawn a worktree, implement, open a PR
 - `/investigate <topic>` — research-only; no code changes; output as issue comment or doc
 - `/review-pr <pr-url>` — second-opinion review on an open PR
+- `/codex` — maintainer's hybrid loop: codex plans, Claude implements, codex reviews. Drives `pnpm cli orchestration prepare/run`. Optional for contributors.
 
 See `.claude/commands/` for the prompts.

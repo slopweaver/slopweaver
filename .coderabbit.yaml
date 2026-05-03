@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration for the public slopweaver repo.
+#
+# CLAUDE.md sets the project style as "default to writing no comments — only
+# add one when the WHY is non-obvious." Docstrings on every function would
+# violate that convention, so the docstring-coverage pre-merge check is
+# disabled. Reviews still run normally.
+language: en-US
+reviews:
+  pre_merge_checks:
+    docstrings:
+      mode: off

@@ -158,6 +158,81 @@ export async function checkPortFree({
   };
 }
 
+export const CODEX_HEALTH_TIMEOUT_MS = 10_000;
+
+export type CodexHealthResult =
+  | { kind: 'not-installed' }
+  | { kind: 'healthy'; summary: string }
+  | { kind: 'unhealthy'; detail: string }
+  | { kind: 'timeout' }
+  | { kind: 'error'; detail: string };
+
+function defaultGetCodexHealth(): CodexHealthResult {
+  const result = spawnSync('codex-agent', ['health'], {
+    encoding: 'utf8',
+    timeout: CODEX_HEALTH_TIMEOUT_MS,
+  });
+  if (result.error) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return { kind: 'not-installed' };
+    return { kind: 'error', detail: code ?? result.error.message };
+  }
+  if (result.signal === 'SIGTERM') return { kind: 'timeout' };
+  if (result.status !== 0) {
+    const detail = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+    return { kind: 'unhealthy', detail };
+  }
+  const summary = (result.stdout ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(', ')
+    .slice(0, 120);
+  return { kind: 'healthy', summary };
+}
+
+/**
+ * Returns null when `codex-agent` is not on PATH — codex is optional, so
+ * contributors who don't use it see no noise in `pnpm cli doctor` output.
+ * Returns a CheckResult only when the binary is installed (healthy or not).
+ */
+export function checkCodexAgent({
+  getHealth = defaultGetCodexHealth,
+}: {
+  getHealth?: () => CodexHealthResult;
+} = {}): CheckResult | null {
+  const result = getHealth();
+  if (result.kind === 'not-installed') {
+    return null;
+  }
+  if (result.kind === 'healthy') {
+    return {
+      name: 'Codex orchestrator',
+      status: 'ok',
+      detail: result.summary || 'codex-agent health: Ready',
+    };
+  }
+  if (result.kind === 'timeout') {
+    return {
+      name: 'Codex orchestrator',
+      status: 'fail',
+      detail: `codex-agent health timed out after ${CODEX_HEALTH_TIMEOUT_MS}ms (likely tmux passthrough; add 'set -g allow-passthrough on' to ~/.tmux.conf)`,
+    };
+  }
+  if (result.kind === 'unhealthy') {
+    return {
+      name: 'Codex orchestrator',
+      status: 'fail',
+      detail: `codex-agent health failed: ${result.detail || 'unknown'}`,
+    };
+  }
+  return {
+    name: 'Codex orchestrator',
+    status: 'fail',
+    detail: `codex-agent health error: ${result.detail || 'unknown'}`,
+  };
+}
+
 export function checkDataDir({
   dataDir = resolveDataDir(),
 }: {

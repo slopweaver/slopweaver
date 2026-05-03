@@ -56,6 +56,8 @@ codex review <pr-url>
 
 Compare Codex's findings to your own. Where they overlap, that's high-confidence feedback. Where they differ, surface both views in your review and let the founder weigh.
 
+For deeper iteration on review findings (multi-round fix loops driven by codex), see [`./codex.md`](./codex.md) phase 3.
+
 ### 3. Write the review comment
 
 Post a single comment on the PR (don't spam multiple inline comments unless they're file-specific concerns):
