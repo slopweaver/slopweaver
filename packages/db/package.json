@@ -23,7 +23,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "compile": "tsc --noEmit",
     "drizzle-kit": "drizzle-kit",
     "test": "vitest run"
