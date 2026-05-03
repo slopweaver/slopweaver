@@ -1,0 +1,25 @@
+{
+  "name": "@slopweaver/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SlopWeaver SQLite package. Drizzle schema, generated migrations, and createDb helper.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "compile": "tsc --noEmit",
+    "drizzle-kit": "drizzle-kit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.2.0",
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "drizzle-kit": "0.31.10",
+    "typescript": "6.0.3",
+    "vitest": "4.1.5"
+  }
+}
