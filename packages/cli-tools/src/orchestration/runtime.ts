@@ -32,7 +32,7 @@ import {
   resolveWorktreeName,
 } from './core.ts';
 
-export interface RunOrchestrationOptions {
+interface RunOrchestrationOptions {
   chainInputPath: string;
   dryRun: boolean;
   executor: ExecutorMode;
@@ -40,13 +40,13 @@ export interface RunOrchestrationOptions {
   restart: boolean;
 }
 
-export interface PrepareOrchestrationOptions {
+interface PrepareOrchestrationOptions {
   chainInputPath: string;
   executor: ExecutorMode;
   restart: boolean;
 }
 
-export interface LauncherManifest {
+interface LauncherManifest {
   chainPath: string;
   chainTitle: string;
   executor: ExecutorMode;
@@ -59,7 +59,7 @@ export interface LauncherManifest {
   worktreeStatusSummary: string;
 }
 
-export interface RunState {
+interface RunState {
   branchName: string | null;
   chainPath: string;
   chainTitle: string;
@@ -80,7 +80,7 @@ export interface RunState {
   worktreePath: string;
 }
 
-export interface RunOrchestrationEnvironment {
+interface RunOrchestrationEnvironment {
   awaitCodexTurn(args: { cwd: string; jobId: string }): string;
   closeCodexJob(args: { cwd: string; jobId: string }): void;
   commitAll(args: { cwd: string; ignoredPaths: string[]; message: string }): boolean;
@@ -1168,7 +1168,7 @@ function collectEnvFiles({
   }
 }
 
-export function createDefaultEnvironment(): RunOrchestrationEnvironment {
+function createDefaultEnvironment(): RunOrchestrationEnvironment {
   return {
     awaitCodexTurn: ({ cwd, jobId }) => {
       const result = runProcess({

@@ -68,7 +68,7 @@ codex-agent send <jobId> "/quit"
 
 Hand the final plan to Claude with this preamble:
 
-```
+```text
 I am interfacing between codex for planning and reviewing, and claude code for implementation.
 
 Codex already wrote the plan below. You don't need to change the plan. You just need to make this your plan so that you can implement. And then once you're fully done implementing, then I will ask Codex to review your implementation.

@@ -10,12 +10,12 @@
 import type { ExecutorMode } from './core.ts';
 import { prepareOrchestration, runOrchestration } from './runtime.ts';
 
-export interface PrepareCliOptions {
+interface PrepareCliOptions {
   executor: ExecutorMode;
   restart: boolean;
 }
 
-export interface RunCliOptions {
+interface RunCliOptions {
   executor: ExecutorMode;
   dryRun: boolean;
   notify: boolean;

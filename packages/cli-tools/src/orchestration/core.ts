@@ -21,7 +21,7 @@ export type ProfileId = 'generic';
 export type ModelTaskKind = 'planning' | 'implementation' | 'review' | 'diagnosis';
 export type ReasoningLevel = 'low' | 'medium' | 'high' | 'xhigh';
 
-export interface ParsedChainStep {
+interface ParsedChainStep {
   body: string;
   headingLevel: number;
   index: number;
@@ -37,13 +37,13 @@ export interface ParsedChain {
   variables: Record<string, string>;
 }
 
-export interface PlannerDefinition {
+interface PlannerDefinition {
   focus: string;
   id: string;
   label: string;
 }
 
-export interface ImplementationSliceDefinition {
+interface ImplementationSliceDefinition {
   commitMessage: string;
   focus: string;
   id: string;
@@ -62,7 +62,7 @@ export interface ModelSelection {
   reasoning: ReasoningLevel;
 }
 
-export interface RuntimePlan {
+interface RuntimePlan {
   executor: ExecutorMode;
   phases: string[];
   profile: ChainProfile;
@@ -137,7 +137,7 @@ export function resolveChainRelativePath({
   return path.normalize(relativePath);
 }
 
-export function sanitizeSlug({ value }: { value: string }): string {
+function sanitizeSlug({ value }: { value: string }): string {
   return value
     .trim()
     .toLowerCase()
@@ -333,42 +333,6 @@ export function formatDryRunPlan({
     `Profile: ${profile.id}`,
     'Phases:',
     ...runtimePlan.phases.map((phase, index) => `${index + 1}. ${phase}`),
-  ].join('\n');
-}
-
-export function findFirstStepByRole({
-  chain,
-  role,
-}: {
-  chain: ParsedChain;
-  role: OrchestrationRole;
-}): ParsedChainStep | null {
-  return chain.steps.find((step) => step.role === role) ?? null;
-}
-
-export function findStepsByRole({
-  chain,
-  role,
-}: {
-  chain: ParsedChain;
-  role: OrchestrationRole;
-}): ParsedChainStep[] {
-  return chain.steps.filter((step) => step.role === role);
-}
-
-export function buildPlannerPrompt({
-  planner,
-  stepPrompt,
-}: {
-  planner: PlannerDefinition;
-  stepPrompt: string;
-}): string {
-  return [
-    stepPrompt.trim(),
-    '',
-    `Focus slice: ${planner.label}.`,
-    planner.focus,
-    'Do not drift outside this focus area.',
   ].join('\n');
 }
 

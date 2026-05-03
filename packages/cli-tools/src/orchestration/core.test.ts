@@ -45,26 +45,25 @@ describe('orchestration core', () => {
   });
 
   it('derives run slugs from the full chain path instead of the basename', () => {
-    const repoRoot = '/Users/lachiejames/dev/slopweaver';
+    const repoRoot = '/repo/slopweaver';
 
     expect(
       resolveRunSlug({
-        chainPath: '/Users/lachiejames/dev/slopweaver/.claude/orchestration/other/refactor.md',
+        chainPath: '/repo/slopweaver/.claude/orchestration/other/refactor.md',
         repoRoot,
       }),
     ).toBe('claude-orchestration-other-refactor');
 
     expect(
       resolveRunSlug({
-        chainPath: '/Users/lachiejames/dev/slopweaver/.claude/orchestration/refactors/README.md',
+        chainPath: '/repo/slopweaver/.claude/orchestration/refactors/README.md',
         repoRoot,
       }),
     ).toBe('claude-orchestration-refactors-readme');
 
     expect(
       resolveChainRelativePath({
-        chainPath:
-          '/Users/lachiejames/dev/slopweaver/docs/orchestration/examples/refactor-example.md',
+        chainPath: '/repo/slopweaver/docs/orchestration/examples/refactor-example.md',
         repoRoot,
       }),
     ).toBe(path.normalize('docs/orchestration/examples/refactor-example.md'));
