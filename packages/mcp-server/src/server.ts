@@ -12,7 +12,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SlopweaverDatabase } from '@slopweaver/db';
-import type { Tool } from './tools/registry.ts';
+import type { Tool } from './tools/registry.js';
 
 export type CreateMcpServerArgs = {
   db: SlopweaverDatabase;

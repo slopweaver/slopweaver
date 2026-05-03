@@ -17,8 +17,8 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDb } from './index.ts';
-import { evidenceLog, workspaces } from './schema/index.ts';
+import { createDb } from './index.js';
+import { evidenceLog, workspaces } from './schema/index.js';
 
 describe('createDb', () => {
   it('runs migrations and can insert/read an evidence_log row', () => {

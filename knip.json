@@ -2,10 +2,5 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreExportsUsedInFile": {
     "type": true
-  },
-  "workspaces": {
-    "apps/mcp-local": {
-      "ignoreDependencies": ["better-sqlite3", "@types/better-sqlite3"]
-    }
   }
 }

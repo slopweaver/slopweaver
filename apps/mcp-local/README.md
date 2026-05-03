@@ -15,28 +15,27 @@ For Cursor, Cline, and Codex CLI configs, see the
 
 ## What ships
 
-- `dist/cli.js` — bundled, single-file ESM entry with a `#!/usr/bin/env node`
-  shebang. Built by `build.mjs` (esbuild). The `bin: { slopweaver }` field
-  points at this file.
-- `migrations/` — copy of `packages/db/migrations/`, placed alongside `dist/`
-  so `migrate(db, { migrationsFolder })` resolves correctly under the
-  bundled `import.meta.url`.
-- `better-sqlite3` is the only runtime `dependencies` entry: it ships native
-  bindings that can't be bundled, so esbuild marks it `external` and Node's
-  resolver picks it up at runtime.
+- `dist/cli.js` — single-file ESM entry compiled from `src/cli.ts` by `tsc`.
+  The `#!/usr/bin/env node` shebang at the top of the source is preserved
+  through emit; npm sets the executable bit on install via the `bin` field.
+- Runtime deps: `@slopweaver/db` (which transitively pulls
+  `better-sqlite3` + the Drizzle migrations folder) and
+  `@slopweaver/mcp-server`.
+- No bundler. No dist/ commit. `tsc` is the only build step.
 
 ## Local development
 
 ```bash
 pnpm --filter @slopweaver/mcp-local compile   # tsc --noEmit type-check
-pnpm --filter @slopweaver/mcp-local build     # esbuild bundle + chmod
-pnpm --filter @slopweaver/mcp-local test      # build then smoke test
+pnpm --filter @slopweaver/mcp-local build     # tsc emit → dist/cli.js
+pnpm --filter @slopweaver/mcp-local test      # builds, then runs smoke test
 ```
 
-The smoke test in `src/cli.smoke.test.ts` spawns the built `dist/cli.js`,
-points its data dir at a per-test tmp directory via `XDG_DATA_HOME`, sends
-an MCP `tools/list` over stdio, and asserts `ping` is advertised. CI runs
-this via `pnpm test`.
+`pnpm test` at the repo root runs the same gate. Turbo's `test` task depends
+on `build` so the smoke test always runs against fresh emit. The smoke test
+in `src/cli.smoke.test.ts` spawns `node dist/cli.js`, points the data dir at
+a per-test tmp directory via `XDG_DATA_HOME`, and asserts `ping` round-trips
+over stdio.
 
 ## Scope
 

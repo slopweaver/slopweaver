@@ -35,9 +35,12 @@ importers:
 
   apps/mcp-local:
     dependencies:
-      better-sqlite3:
-        specifier: 12.2.0
-        version: 12.2.0
+      '@slopweaver/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@slopweaver/mcp-server':
+        specifier: workspace:*
+        version: link:../../packages/mcp-server
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
@@ -45,18 +48,6 @@ importers:
       '@slopweaver/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@slopweaver/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@slopweaver/mcp-server':
-        specifier: workspace:*
-        version: link:../../packages/mcp-server
-      '@types/better-sqlite3':
-        specifier: 7.6.13
-        version: 7.6.13
-      esbuild:
-        specifier: 0.27.7
-        version: 0.27.7
       typescript:
         specifier: 6.0.3
         version: 6.0.3

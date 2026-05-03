@@ -1,15 +1,15 @@
 /**
  * End-to-end smoke test for the published `slopweaver` binary.
  *
- * Spawns the bundled `dist/cli.js` via `StdioClientTransport` (which uses
+ * Spawns the compiled `dist/cli.js` via `StdioClientTransport` (which uses
  * `child_process.spawn` under the hood), drives the real MCP wire protocol
  * over the child's stdio, and asserts that `tools/list` advertises `ping`
  * and that `tools/call ping` returns the v1 PingResult shape.
  *
  * This catches packaging regressions that the in-memory test in
- * `@slopweaver/mcp-server` cannot — bundle entry, shebang, executable bit,
- * Drizzle migrations folder layout, and the better-sqlite3 native module
- * resolution from the bundled file.
+ * `@slopweaver/mcp-server` cannot — package wiring, the shebang round-trip
+ * through tsc, the Drizzle migrations folder shipped by `@slopweaver/db`,
+ * and better-sqlite3 native module resolution from the published layout.
  *
  * `XDG_DATA_HOME` is repointed at a per-test tmp dir so the SQLite file
  * never lands in the developer's real `~/.slopweaver/`.
@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(here, '../dist/cli.js');
 
-describe('slopweaver bin (built CLI)', () => {
+describe('slopweaver bin (compiled CLI)', () => {
   let dataHome: string;
 
   beforeEach(() => {
@@ -38,11 +38,9 @@ describe('slopweaver bin (built CLI)', () => {
     rmSync(dataHome, { recursive: true, force: true });
   });
 
-  it('has a built dist/cli.js with the executable bit set', () => {
+  it('has a compiled dist/cli.js (chmod +x is set by npm at install time)', () => {
     const stat = statSync(cliPath);
     expect(stat.isFile()).toBe(true);
-    // chmod 0o755 → owner/group/other have execute. Bit 0o100 is owner-execute.
-    expect(stat.mode & 0o111).not.toBe(0);
   });
 
   it('advertises ping over stdio and returns a valid PingResult on tools/call', async () => {

@@ -13,9 +13,9 @@ import { PingResult } from '@slopweaver/contracts';
 import { createDb } from '@slopweaver/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createMcpServer } from './server.ts';
-import { createPingTool } from './tools/builtin/ping.ts';
-import { defineTool, type Tool } from './tools/registry.ts';
+import { createMcpServer } from './server.js';
+import { createPingTool } from './tools/builtin/ping.js';
+import { defineTool, type Tool } from './tools/registry.js';
 
 describe('createMcpServer + ping', () => {
   let dbHandle: ReturnType<typeof createDb>;

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * `slopweaver` CLI entry. Parses minimal args (`--version`, `--help`),
  * otherwise opens the local SQLite DB at the XDG-resolved location, registers
@@ -14,14 +15,30 @@
  * land in subsequent issues.
  */
 
+import { readFileSync } from 'node:fs';
 import { argv, exit, stderr, stdout } from 'node:process';
 import { createDb, resolveDbPath } from '@slopweaver/db';
 import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
 
-// Replaced at bundle time by build.mjs from package.json#version. Declared
-// as a global so tsc can type-check the source without an inlined string.
-declare const __SLOPWEAVER_VERSION__: string;
-const VERSION = __SLOPWEAVER_VERSION__;
+// Read the bin's own version from its package.json at runtime. dist/cli.js
+// sits one directory below package.json (apps/mcp-local/package.json in the
+// workspace, node_modules/@slopweaver/mcp-local/package.json once
+// installed), so `../package.json` resolves the same way in both layouts.
+function readVersion(): string {
+  const packageJsonUrl = new URL('../package.json', import.meta.url);
+  const raw: unknown = JSON.parse(readFileSync(packageJsonUrl, 'utf-8'));
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    !('version' in raw) ||
+    typeof (raw as { version: unknown }).version !== 'string'
+  ) {
+    throw new Error('package.json must define a string `version`');
+  }
+  return (raw as { version: string }).version;
+}
+
+const VERSION = readVersion();
 
 const HELP = `slopweaver — local MCP server (v${VERSION}).
 

@@ -7,7 +7,7 @@ import {
   Reference,
   StartSessionArgs,
   StartSessionResult,
-} from './index.ts';
+} from './index.js';
 
 describe('contracts surface', () => {
   it('exports the v1 schema surface', () => {

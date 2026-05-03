@@ -6,7 +6,7 @@
  */
 
 import { PingArgs, PingResult } from '@slopweaver/contracts';
-import { defineTool, type Tool } from '../registry.ts';
+import { defineTool, type Tool } from '../registry.js';
 
 export type CreatePingToolArgs = {
   /** Server version string surfaced in the response. */
