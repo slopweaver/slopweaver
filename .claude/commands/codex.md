@@ -88,6 +88,46 @@ codex-agent send <jobId> "/quit"
 
 If the reviewer surfaces P0/P1 issues → feed the review into Claude → Claude fixes → push → spawn a new review agent. Repeat until the reviewer returns the success sentinel `LGTM - ready for local testing.` (or `REVIEW_STATUS: PASS`).
 
+#### Post the review to the PR (single edited comment, CodeRabbit-style)
+
+After each codex review iteration, post or update **one** review comment on the PR so the deliberation is visible to onlookers. Don't spam a new comment per iteration — find the existing codex-review comment and PATCH it.
+
+**First iteration** (creates the comment):
+
+```bash
+gh pr comment <pr-number> --body "$(cat <<'EOF'
+<!-- codex-review -->
+**Codex review** — gpt-5.4 (high reasoning) · iteration 1
+
+<paste codex output verbatim — REVIEW_STATUS line, findings, or LGTM>
+EOF
+)"
+```
+
+**Subsequent iterations** (edit the same comment via the marker):
+
+```bash
+COMMENT_ID=$(gh api repos/slopweaver/slopweaver/issues/<pr-number>/comments --paginate \
+  --jq '.[] | select(.body | contains("<!-- codex-review -->")) | .id' | head -1)
+
+gh api -X PATCH repos/slopweaver/slopweaver/issues/comments/$COMMENT_ID \
+  --field body="$(cat <<'EOF'
+<!-- codex-review -->
+**Codex review** — gpt-5.4 (high reasoning) · iteration N
+
+<paste latest codex output verbatim>
+EOF
+)"
+```
+
+Rules:
+
+- The `<!-- codex-review -->` HTML comment is the marker the next iteration uses to find the comment. Don't change it.
+- Quote the codex output verbatim — don't summarize. The point is transparency.
+- Bump the iteration number in the header each pass.
+- When the reviewer returns `REVIEW_STATUS: PASS`, the final comment shows the LGTM line so anyone scanning the PR sees the verdict at the top.
+- This is the maintainer's loop. If you're a contributor and don't have codex installed, ignore this — your `/review-pr` flow already posts a Claude-only comment.
+
 ### 4. CI watch + auto-fix loop
 
 ```bash
