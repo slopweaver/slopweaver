@@ -147,6 +147,11 @@ State persists per chain at `$CODEX_HOME/orchestration-runs/<run-slug>/`
 - `pnpm cli orchestration run` requires `codex-agent` on `PATH`. See
   [Codex install](../contributing/ai-workflow.md#codex-install-optional) in
   the contributor docs.
+- `docs/CODEBASE_MAP.md` is auto-injected as a prompt prefix when
+  present (the runner always passes `--map`). Without it, codex still
+  runs but starts with no project context. See
+  [Codebase map](../contributing/ai-workflow.md#codebase-map-recommended)
+  for setup.
 - `gh` (GitHub CLI) is required for PR creation and CI watching.
 - `--notify` requires `cmux` (otherwise the call no-ops via the `enabled`
   guard in the runner's notify hook).
