@@ -1,0 +1,75 @@
+name: Decision record
+description: A design or architectural decision that needs deliberation in public
+labels: [decision-record, triage]
+title: "Decision: <topic>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for **significant design decisions** — auth model, library choices, scope cuts, naming conventions, anything that future contributors should be able to look up the reasoning for.
+
+        The discussion happens in this issue's comments. The closing comment captures the resolution.
+
+        This is the public alternative to a private `DECISIONS.md` doc.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What's the question being decided. State the problem before any options.
+      placeholder: e.g. v1 needs an auth mechanism for the local MCP server. PAT (long-lived bearer) and OAuth 2.1 (short-lived access + refresh) are both viable. Which do we ship?
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: Options considered
+      description: Each option as a heading with pros/cons. Be concrete; don't waffle.
+      placeholder: |
+        ### Option A: PAT (personal access token)
+
+        **Pros**:
+        - Simpler implementation
+        - Familiar pattern (GitHub PAT, npm token)
+
+        **Cons**:
+        - Long-lived; bigger blast radius if leaked
+        - No automatic rotation
+
+        ### Option B: OAuth 2.1 with localhost callback
+
+        **Pros**:
+        - Auto-rotation via refresh tokens
+        - Industry standard
+        - MCP SDK provides scaffolding
+
+        **Cons**:
+        - More implementation work
+        - Doesn't help vs full filesystem compromise (both tokens stored in same config file)
+    validations:
+      required: true
+
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recommendation (proposer's view)
+      description: Your initial recommendation, even if you're not sure. Helps anchor the discussion.
+      placeholder: e.g. Lean OAuth 2.1 because it future-proofs the year-2 cloud tier and the MCP SDK gives us scaffolding. Cost is bounded.
+
+  - type: textarea
+    id: resources
+    attributes:
+      label: Relevant resources
+      description: Links to comparable projects, MCP SDK docs, prior PRs, etc.
+      placeholder: |
+        - MCP SDK auth: https://github.com/modelcontextprotocol/typescript-sdk/tree/main/src/server/auth
+        - Cal.com auth model: ...
+        - Prior closed decision: #N
+
+  - type: textarea
+    id: deciders
+    attributes:
+      label: Who needs to weigh in
+      description: Which roles / people. For a solo project it's usually just the founder; flag if external input would help.
+      placeholder: e.g. Founder. Optional: feedback from anyone running similar local-first MCP servers.
