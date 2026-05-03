@@ -1,17 +1,12 @@
 {
-  "name": "@slopweaver/mcp-server",
+  "name": "@slopweaver/mcp-local",
   "version": "0.0.0",
   "private": false,
-  "description": "Framework-agnostic MCP server for SlopWeaver. Tool registry, builtin tools, stdio transport.",
+  "description": "SlopWeaver local MCP server. Publishable npm binary that wires @slopweaver/db + @slopweaver/mcp-server and exposes the `slopweaver` command over stdio.",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+  "bin": {
+    "slopweaver": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -27,12 +22,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "@slopweaver/contracts": "workspace:*",
     "@slopweaver/db": "workspace:*",
-    "zod": "4.4.2"
+    "@slopweaver/mcp-server": "workspace:*"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@slopweaver/contracts": "workspace:*",
     "typescript": "6.0.3",
     "vitest": "4.1.5"
   }

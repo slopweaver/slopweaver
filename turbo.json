@@ -4,27 +4,14 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "build/**"],
-      "cache": true
+      "outputs": ["dist/**"]
     },
     "compile": {
-      "dependsOn": ["^compile"],
-      "outputs": ["dist/**", "*.tsbuildinfo"],
-      "cache": true
+      "dependsOn": ["^build"]
     },
-    "lint": {
-      "cache": true
-    },
+    "lint": {},
     "test": {
-      "dependsOn": ["^build"],
-      "cache": true
-    },
-    "test:unit": {
-      "cache": true
-    },
-    "dev": {
-      "cache": false,
-      "persistent": true
+      "dependsOn": ["build"]
     }
   }
 }
