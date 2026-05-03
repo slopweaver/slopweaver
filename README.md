@@ -70,7 +70,7 @@ command = "npx"
 args = ["-y", "@slopweaver/mcp-local"]
 ```
 
-Then ask your client: *"What should I work on next?"* If anything fails, run `slopweaver doctor`.
+Then ask your client: *"What should I work on next?"* If anything fails, [open an issue](https://github.com/slopweaver/slopweaver/issues/new) — a `doctor` subcommand ships with v1.0.0.
 
 > **Note:** Connecting SlopWeaver to GitHub (so it can poll your PRs and mentions) uses GitHub's own OAuth or a personal access token — that's separate from the MCP transport between your client and SlopWeaver. The MCP layer itself has no auth in v1; stdio inherits the user's trust context.
 
