@@ -107,10 +107,11 @@ EOF
 **Subsequent iterations** (edit the same comment via the marker):
 
 ```bash
-COMMENT_ID=$(gh api repos/slopweaver/slopweaver/issues/<pr-number>/comments --paginate \
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+COMMENT_ID=$(gh api "repos/$REPO/issues/<pr-number>/comments" --paginate \
   --jq '.[] | select(.body | contains("<!-- codex-review -->")) | .id' | head -1)
 
-gh api -X PATCH repos/slopweaver/slopweaver/issues/comments/$COMMENT_ID \
+gh api -X PATCH "repos/$REPO/issues/comments/$COMMENT_ID" \
   --field body="$(cat <<'EOF'
 <!-- codex-review -->
 **Codex review** — gpt-5.4 (high reasoning) · iteration N

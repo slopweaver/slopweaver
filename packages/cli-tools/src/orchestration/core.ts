@@ -474,7 +474,10 @@ export function buildCiFixPrompt({
 }
 
 export function parseCodexJobId({ output }: { output: string }): string {
-  const match = output.match(/Job started:\s+([a-z0-9]+)/i);
+  // Defensive: widen the character class beyond plain hex so this still works
+  // if codex-orchestrator ever returns UUID-style ids (with `-`) or
+  // underscored ids. Today's wrapper emits 8-char lowercase hex.
+  const match = output.match(/Job started:\s+([a-zA-Z0-9_-]+)/);
   if (!match?.[1]) {
     throw new Error(`Could not parse codex-agent job id from output:\n${output}`);
   }
