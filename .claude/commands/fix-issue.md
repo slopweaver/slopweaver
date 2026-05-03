@@ -27,7 +27,7 @@ If the issue is ambiguous or under-specified, **don't guess**. Comment on the is
 Use the project CLI:
 
 ```bash
-pnpm cli worktree new fix-issue-<N>
+pnpm cli worktree-new fix-issue-<N>
 # creates ~/dev/worktrees/fix-issue-<N> on branch worktree/fix-issue-<N>
 # runs pnpm install
 ```

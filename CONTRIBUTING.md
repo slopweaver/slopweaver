@@ -7,6 +7,16 @@ Thanks for your interest. SlopWeaver is **pre-alpha** and built by one person �
 - v1.0.0 is in active scaffolding. Most packages and apps **don't exist yet** — see the [v1.0.0 roadmap](https://github.com/slopweaver/slopweaver/issues/2) for what's coming and in what order.
 - The architecture is documented in [CLAUDE.md](CLAUDE.md). Skim it before contributing — it explains the package boundaries, dev principles, and what's intentionally NOT in scope for v1.
 
+## First-time local setup
+
+After `pnpm install`, run the environment health check:
+
+```bash
+pnpm cli doctor
+```
+
+This verifies your Node and pnpm versions, that port `60701` (the local API port) is free, and that the `~/.slopweaver/` data directory exists -- offering to create it for you. It's the fastest way to confirm your machine is ready before you touch any code. See [`packages/cli-tools/README.md`](packages/cli-tools/README.md#doctor) for sample output.
+
 ## How to engage
 
 - **Questions, ideas, use-case discussion** → [GitHub Discussions](https://github.com/slopweaver/slopweaver/discussions). Not Issues.

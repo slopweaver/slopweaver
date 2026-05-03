@@ -1,84 +1,95 @@
 /**
- * `pnpm cli worktree new <name>`
+ * `pnpm cli worktree-new <name>`
  *
  * Creates a fresh git worktree from the latest `origin/main`, one directory
  * above the monorepo root, on a new branch `worktree/<name>`. Optionally
  * runs `pnpm install` in the new worktree (default: yes).
  *
- * Adapted from slopweaver-private/packages/cli-tools/src/worktree/index.ts.
- * Simpler here — no .env sync, no platform-specific patches; just create
- * the worktree and install deps.
+ * Pure plan-building lives in `./plan.ts`. This file orchestrates: it
+ * resolves the monorepo root, builds the plan, then runs git + pnpm via
+ * the injected `exec` so tests can stub the subprocess layer.
  */
 
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
 import { findMonorepoRoot, resolveWorktreesRoot } from '../lib/paths.ts';
-
-/** Sanitises a free-text task name into a slug-safe branch + path component. */
-export function sanitiseTaskName({ input }: { input: string }): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/--+/g, '-')
-    .replace(/(^-|-$)/g, '');
-}
+import { buildWorktreePlan } from './plan.ts';
 
 export type WorktreeNewOptions = { install: boolean };
+
+export type ExecResult = { status: number };
+
+export type ExecFn = (cmd: string, args: string[], opts: { cwd: string }) => ExecResult;
+
+export type RunWorktreeNewResult =
+  | { ok: true; worktreePath: string }
+  | { ok: false; error: string; exitCode: number };
+
+export type RunWorktreeNewDeps = {
+  exec?: ExecFn;
+  log?: (line: string) => void;
+  resolveRoots?: () => { repoRoot: string; worktreesRoot: string };
+};
+
+const defaultExec: ExecFn = (cmd, args, opts) => {
+  const result = spawnSync(cmd, args, { cwd: opts.cwd, stdio: 'inherit' });
+  return { status: result.status ?? 1 };
+};
+
+const defaultResolveRoots = (): { repoRoot: string; worktreesRoot: string } => {
+  const repoRoot = findMonorepoRoot();
+  return { repoRoot, worktreesRoot: resolveWorktreesRoot({ repoRoot }) };
+};
 
 export function runWorktreeNew({
   rawName,
   options,
+  deps = {},
 }: {
   rawName: string;
   options: WorktreeNewOptions;
-}): void {
-  const safeName = sanitiseTaskName({ input: rawName });
-  if (!safeName) {
-    console.error('error: task name produced an empty slug after sanitisation');
-    process.exit(1);
+  deps?: RunWorktreeNewDeps;
+}): RunWorktreeNewResult {
+  const exec = deps.exec ?? defaultExec;
+  const log = deps.log ?? console.log;
+  const resolveRoots = deps.resolveRoots ?? defaultResolveRoots;
+
+  const { repoRoot, worktreesRoot } = resolveRoots();
+  const planResult = buildWorktreePlan({ rawName, worktreesRoot });
+  if (!planResult.ok) {
+    return { ok: false, error: planResult.error, exitCode: 1 };
   }
+  const { plan } = planResult;
 
-  const repoRoot = findMonorepoRoot();
-  const worktreesRoot = resolveWorktreesRoot({ repoRoot });
-  const worktreePath = join(worktreesRoot, safeName);
-  const branchName = `worktree/${safeName}`;
-  const baseRef = 'origin/main';
+  log(`creating worktree: ${plan.worktreePath}`);
+  log(`new branch:        ${plan.branchName}`);
+  log(`from:              ${plan.baseRef}`);
+  log('');
 
-  console.log(`creating worktree: ${worktreePath}`);
-  console.log(`new branch:        ${branchName}`);
-  console.log(`from:              ${baseRef}`);
-  console.log('');
-
-  const fetchResult = spawnSync('git', ['fetch', 'origin', 'main'], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  });
+  const fetchResult = exec('git', ['fetch', 'origin', 'main'], { cwd: repoRoot });
   if (fetchResult.status !== 0) {
-    process.exit(fetchResult.status ?? 1);
+    return { ok: false, error: 'git fetch origin main failed', exitCode: fetchResult.status };
   }
 
-  const addResult = spawnSync('git', ['worktree', 'add', '-b', branchName, worktreePath, baseRef], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  });
+  const addResult = exec(
+    'git',
+    ['worktree', 'add', '-b', plan.branchName, plan.worktreePath, plan.baseRef],
+    { cwd: repoRoot },
+  );
   if (addResult.status !== 0) {
-    process.exit(addResult.status ?? 1);
+    return { ok: false, error: 'git worktree add failed', exitCode: addResult.status };
   }
 
   if (options.install) {
-    console.log('');
-    console.log(`installing deps in ${worktreePath}`);
-    const installResult = spawnSync('pnpm', ['install'], {
-      cwd: worktreePath,
-      stdio: 'inherit',
-    });
+    log('');
+    log(`installing deps in ${plan.worktreePath}`);
+    const installResult = exec('pnpm', ['install'], { cwd: plan.worktreePath });
     if (installResult.status !== 0) {
-      process.exit(installResult.status ?? 1);
+      return { ok: false, error: 'pnpm install failed', exitCode: installResult.status };
     }
   }
 
-  console.log('');
-  console.log('✓ worktree ready');
-  console.log(`next: cd ${worktreePath}`);
+  log('');
+  log('✓ worktree ready');
+  log(`next: cd ${plan.worktreePath}`);
+  return { ok: true, worktreePath: plan.worktreePath };
 }
