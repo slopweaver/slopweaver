@@ -1,12 +1,13 @@
 /**
  * `createMcpServer` — wires the SlopWeaver tool registry onto an MCP SDK
- * `McpServer`. Returns the high-level wrapper; advanced consumers can reach
- * the underlying `Server` via `result.server`.
+ * `McpServer` and returns it directly. Advanced consumers can reach the
+ * underlying low-level `Server` via the returned instance's `.server`
+ * property.
  *
  * The function is transport-agnostic: callers attach a transport via
- * {@link startStdio} (or by calling `result.connect(transport)` themselves).
- * The app layer owns lifecycle so that `createMcpServer` can be exercised
- * from in-memory tests without spawning a child process.
+ * {@link startStdio} or by calling `.connect(transport)` on the returned
+ * server themselves. The app layer owns lifecycle so that `createMcpServer`
+ * can be exercised from in-memory tests without spawning a child process.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
