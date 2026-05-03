@@ -7,7 +7,7 @@ How AI agents (and humans) work in this repo.
 Never edit files in the main checkout (`~/dev/slopweaver` on the `main` branch). All work happens in a git worktree:
 
 ```bash
-pnpm cli worktree new fix-issue-42
+pnpm cli worktree-new fix-issue-42
 # → ~/dev/worktrees/fix-issue-42 on branch worktree/fix-issue-42, deps installed
 ```
 

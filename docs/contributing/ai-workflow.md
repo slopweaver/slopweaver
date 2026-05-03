@@ -33,7 +33,7 @@ Read an issue, spawn a worktree, implement the work, open a PR. The default for 
 What the agent does:
 
 1. Fetches the issue body and any existing comments
-2. Creates a worktree via `pnpm cli worktree new fix-issue-42`
+2. Creates a worktree via `pnpm cli worktree-new fix-issue-42`
 3. Implements changes against the acceptance criteria in the issue
 4. Runs the four CI checks locally (`format:check`, `lint`, `compile`, `test`)
 5. Opens a PR with `closes #42` in the body
@@ -118,8 +118,8 @@ To open a decision-record:
 The CLI provides:
 
 ```bash
-pnpm cli worktree new <name>          # create ~/dev/worktrees/<name>, install deps
-pnpm cli worktree new <name> --no-install  # skip pnpm install
+pnpm cli worktree-new <name>          # create ~/dev/worktrees/<name>, install deps
+pnpm cli worktree-new <name> --no-install  # skip pnpm install
 ```
 
 The convention: one worktree = one branch = one PR. Branch is named `worktree/<name>`. Main checkout (`~/dev/slopweaver` on `main`) stays clean and read-only.
