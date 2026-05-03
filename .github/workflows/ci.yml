@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   ci:
-    name: lint + compile + test
+    name: format + lint + knip + compile + test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -41,6 +41,9 @@ jobs:
 
       - name: Lint
         run: pnpm lint
+
+      - name: Knip
+        run: pnpm knip
 
       - name: Compile
         run: pnpm compile

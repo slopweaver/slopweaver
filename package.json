@@ -22,8 +22,10 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
+    "knip": "knip",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
+    "validate": "pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip",
     "dev": "turbo run dev"
   },
   "devDependencies": {
@@ -31,6 +33,7 @@
     "@types/node": "22.10.5",
     "eslint": "10.3.0",
     "eslint-plugin-boundaries": "6.0.2",
+    "knip": "6.7.0",
     "tsx": "4.21.0",
     "turbo": "2.9.7",
     "typescript": "6.0.3"
