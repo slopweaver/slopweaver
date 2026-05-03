@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  CODEX_HEALTH_TIMEOUT_MS,
+  type CodexHealthResult,
+  checkCodexAgent,
   checkDataDir,
   checkNodeVersion,
   checkPnpmVersion,
@@ -148,5 +151,51 @@ describe('checkDataDir', () => {
     const result = checkDataDir({ dataDir: filePath });
     expect(result.status).toBe('fail');
     expect(result.detail).toContain('not a directory');
+  });
+});
+
+describe('checkCodexAgent', () => {
+  function getHealth(result: CodexHealthResult): () => CodexHealthResult {
+    return () => result;
+  }
+
+  it('returns null when codex-agent is not on PATH (optional tool, silent skip)', () => {
+    const result = checkCodexAgent({ getHealth: getHealth({ kind: 'not-installed' }) });
+    expect(result).toBeNull();
+  });
+
+  it('returns ok with the health summary when codex-agent is healthy', () => {
+    const result = checkCodexAgent({
+      getHealth: getHealth({
+        kind: 'healthy',
+        summary: 'tmux: OK, codex: codex-cli 0.125.0, Status: Ready',
+      }),
+    });
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe('ok');
+    expect(result?.detail).toContain('codex-cli');
+  });
+
+  it('returns fail with a tmux passthrough hint on timeout', () => {
+    const result = checkCodexAgent({ getHealth: getHealth({ kind: 'timeout' }) });
+    expect(result?.status).toBe('fail');
+    expect(result?.detail).toContain('allow-passthrough');
+    expect(result?.detail).toContain(`${CODEX_HEALTH_TIMEOUT_MS}ms`);
+  });
+
+  it('returns fail with the underlying detail when codex-agent health exits non-zero', () => {
+    const result = checkCodexAgent({
+      getHealth: getHealth({ kind: 'unhealthy', detail: 'tmux not running' }),
+    });
+    expect(result?.status).toBe('fail');
+    expect(result?.detail).toContain('tmux not running');
+  });
+
+  it('returns fail when the spawn itself errors with a non-ENOENT code', () => {
+    const result = checkCodexAgent({
+      getHealth: getHealth({ kind: 'error', detail: 'EACCES' }),
+    });
+    expect(result?.status).toBe('fail');
+    expect(result?.detail).toContain('EACCES');
   });
 });

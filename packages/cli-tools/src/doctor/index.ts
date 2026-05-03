@@ -20,6 +20,7 @@ import { resolveDataDir } from '../lib/data-dir.ts';
 import {
   type CheckResult,
   LOCAL_API_PORT,
+  checkCodexAgent,
   checkDataDir,
   checkNodeVersion,
   checkPnpmVersion,
@@ -59,11 +60,13 @@ export async function runDoctor({
   log(pc.bold('SlopWeaver doctor'));
   log('');
 
+  const codexResult = checkCodexAgent();
   const results: CheckResult[] = [
     checkNodeVersion(),
     checkPnpmVersion(),
     await checkPortFree({ port: LOCAL_API_PORT }),
     checkDataDir(),
+    ...(codexResult ? [codexResult] : []),
   ];
 
   for (const result of results) {

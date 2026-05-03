@@ -189,3 +189,15 @@ codex-agent health                                          # Verify install
 4. Claude implements each (sequential or parallel via subagents).
 5. Spawn N review agents in parallel (one per PR).
 6. Claude fixes each (sequential).
+
+## Troubleshooting
+
+| Symptom                                                            | Likely cause                                                                                  | Fix                                                                                                                                              |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `codex-agent: command not found`                                   | PATH missing the orchestrator bin dir.                                                        | Add `export PATH="$HOME/.codex-orchestrator/bin:$HOME/.bun/bin:$PATH"` to `~/.zshrc` and restart the shell.                                      |
+| `codex-agent health` reports `tmux: FAILED`                        | tmux not installed or not running.                                                            | `brew install tmux`. Verify with `tmux -V`.                                                                                                      |
+| `await-turn` hangs forever or times out                            | Running inside cmux/tmux without passthrough. The agent's stdout never reaches the host pane. | Add `set -g allow-passthrough on` to `~/.tmux.conf` and restart the tmux server (`tmux kill-server`).                                            |
+| Plan output looks truncated mid-sentence                           | You used `capture` instead of `await-turn`.                                                   | Use `await-turn` in the foreground. Long plans run past the visible tmux pane and `capture` only reads what's visible.                          |
+| Review keeps surfacing the same finding                            | Codex saw stale code; the worktree didn't pick up the fix push.                               | `git status` in the worktree, confirm the fix landed, then spawn a fresh review agent (don't reuse the prior `jobId`).                          |
+| `codex` CLI complains about authentication                         | `codex --login` not run, or token expired.                                                    | `codex --login` again. Tokens persist in `~/.codex/`.                                                                                            |
+| Quick check: is anything broken with my install?                   | —                                                                                             | `pnpm cli doctor` — when `codex-agent` is on PATH, it runs `codex-agent health` and surfaces the same diagnostics inside the doctor output.     |
