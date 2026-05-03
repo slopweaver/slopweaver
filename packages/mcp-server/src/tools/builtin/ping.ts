@@ -12,11 +12,16 @@ export type CreatePingToolArgs = {
   /** Server version string surfaced in the response. */
   version: string;
   /**
-   * `performance.now()`-style monotonic millisecond timestamp captured when
-   * the server was created. Injected so tests can pin uptime deterministically.
+   * Wall-clock millisecond timestamp (Unix epoch, as returned by
+   * `Date.now()`) captured when the server started. Must share a clock
+   * domain with `now`; mixing `Date.now()` with `performance.now()` produces
+   * nonsense uptime values.
    */
   startedAtMs: number;
-  /** Clock used to compute uptime; defaults to `Date.now`. */
+  /**
+   * Clock used to compute uptime. Must share a domain with `startedAtMs`.
+   * Defaults to `Date.now`. Injected so tests can pin uptime deterministically.
+   */
   now?: () => number;
 };
 
@@ -29,7 +34,7 @@ export function createPingTool({ version, startedAtMs, now = Date.now }: CreateP
     handler: async () => {
       const elapsedMs = Math.max(0, now() - startedAtMs);
       return {
-        ok: true,
+        ok: true as const,
         version,
         uptime_s: Math.floor(elapsedMs / 1000),
       };
