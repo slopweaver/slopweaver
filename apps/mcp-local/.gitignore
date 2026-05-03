@@ -1,0 +1,5 @@
+# Build artefact: migrations are copied here from packages/db/migrations/ by
+# build.mjs at bundle time. The published tarball ships them (`files` field
+# in package.json), but they are never tracked in git — packages/db is the
+# single source of truth.
+migrations/
