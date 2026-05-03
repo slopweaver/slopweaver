@@ -1,0 +1,95 @@
+name: Release
+
+# Triggered by publishing a GitHub Release in the UI. The release page is
+# the human checkpoint — its auto-generated changelog becomes the user-facing
+# changelog for v1; no separate CHANGELOG tooling.
+on:
+  release:
+    types: [published]
+
+# Default to read-only at the workflow level. Each job opts in to more.
+permissions:
+  contents: read
+
+# Never cancel a release mid-publish — queue subsequent runs instead.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Ungated. Runs the same four checks ci.yml runs. No id-token, no
+  # environment — so any postinstall scripts pulled in by `pnpm install`
+  # cannot mint an npm OIDC token from here.
+  verify:
+    name: verify (format + lint + compile + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Compile
+        run: pnpm compile
+
+      - name: Test
+        run: pnpm test
+
+  # Gated. Runs only after `verify` passes. This is the only job with
+  # `id-token: write` and the `npm-publish` environment, so the OIDC token
+  # is scoped to a job that does NOT execute arbitrary install scripts —
+  # `--ignore-scripts` on the install blocks transitive postinstall.
+  # `pnpm publish` still runs the publishing package's own lifecycle hooks
+  # (prepublishOnly etc), which is fine because we control those.
+  publish:
+    name: publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-publish # manual approval gate; configured in repo settings
+    permissions:
+      contents: read
+      id-token: write # required for npm provenance + Trusted Publisher OIDC
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies (no scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # `pnpm -r publish` skips packages with `"private": true`, so this is a
+      # safe no-op until a package is flipped to publishable. `--no-git-checks`
+      # is required because release-event runs check out a detached HEAD on
+      # the tag, which trips pnpm's default "is this on a branch?" check.
+      - name: Publish
+        run: pnpm -r publish --access public --provenance --no-git-checks
