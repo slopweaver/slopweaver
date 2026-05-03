@@ -111,6 +111,31 @@ const FINAL_PLAN_FILENAME = 'final-plan.md';
 const HYBRID_INITIAL_PLAN_PROMPT_FILENAME = 'hybrid-plan-initial.prompt.md';
 const HYBRID_REVIEW_PROMPT_FILENAME = 'hybrid-review.prompt.md';
 const HYBRID_SEND_PROMPT_PREFIX = 'hybrid-plan-send';
+const MAX_REVIEW_ATTEMPTS = 5;
+const MAX_CI_ATTEMPTS = 5;
+
+const PHASE_ORDER: OrchestrationPhase[] = [
+  'initial',
+  'planning',
+  'implementation',
+  'pr',
+  'review',
+  'ci',
+  'awaiting_manual_qa',
+];
+
+function phaseIndex(phase: OrchestrationPhase): number {
+  return PHASE_ORDER.indexOf(phase);
+}
+
+// Phase functions only ever move state.phase forward — never regress it on
+// resume. Without this, calling runPlanningPhase (idempotent via cache) on a
+// resumed run that was already in 'ci' would rewind state.phase to 'planning'.
+function advancePhase({ state, target }: { state: RunState; target: OrchestrationPhase }): void {
+  if (phaseIndex(state.phase) < phaseIndex(target)) {
+    state.phase = target;
+  }
+}
 
 function getCodexHome(): string {
   return process.env['CODEX_HOME'] ?? path.join(os.homedir(), '.codex');
@@ -597,7 +622,7 @@ function runPlanningPhase({
   runDirectory: string;
   state: RunState;
 }): string {
-  state.phase = 'planning';
+  advancePhase({ state, target: 'planning' });
   const cachedPlan = readArtifact({ filename: FINAL_PLAN_FILENAME, runDirectory });
   if (cachedPlan) {
     return cachedPlan;
@@ -622,7 +647,7 @@ function runImplementationPhase({
   runDirectory: string;
   state: RunState;
 }): void {
-  state.phase = 'implementation';
+  advancePhase({ state, target: 'implementation' });
 
   profile.implementationSlices.forEach((slice) => {
     if (state.completedSlices.includes(slice.id)) {
@@ -673,7 +698,7 @@ function ensurePr({
   env: RunOrchestrationEnvironment;
   state: RunState;
 }): string {
-  state.phase = 'pr';
+  advancePhase({ state, target: 'pr' });
   if (state.prUrl) {
     return state.prUrl;
   }
@@ -705,13 +730,27 @@ function runReviewPhase({
   runDirectory: string;
   state: RunState;
 }): void {
-  state.phase = 'review';
+  advancePhase({ state, target: 'review' });
   const reviewStep = chain.steps.find((step) => step.role === 'codex-review');
   if (!reviewStep?.promptTemplate || !state.prUrl) {
     return;
   }
 
+  // Early-exit when resuming a run whose last review already passed — avoids
+  // re-spawning a review agent against an already-clean PR after a crash
+  // between review-success and ci-start.
+  if (state.lastReviewOutput && isSuccessfulReview({ reviewOutput: state.lastReviewOutput })) {
+    return;
+  }
+
   for (;;) {
+    if (state.reviewAttempts >= MAX_REVIEW_ATTEMPTS) {
+      throw new Error(
+        `Review loop did not converge after ${MAX_REVIEW_ATTEMPTS} attempts. ` +
+          `Inspect ${runDirectory}/artifacts/review-${state.reviewAttempts}.md and either resume with --restart, fix the chain, or address findings manually.`,
+      );
+    }
+
     const reviewOutput = runCodexPromptWithFallback({
       cwd: state.worktreePath,
       env,
@@ -782,9 +821,16 @@ function runCiPhase({
   runDirectory: string;
   state: RunState;
 }): void {
-  state.phase = 'ci';
+  advancePhase({ state, target: 'ci' });
 
   for (;;) {
+    if (state.ciAttempts >= MAX_CI_ATTEMPTS) {
+      throw new Error(
+        `CI loop did not converge after ${MAX_CI_ATTEMPTS} attempts. ` +
+          `Inspect ${runDirectory}/artifacts/ci-watch-${state.ciAttempts}.md and either resume with --restart, fix the chain, or address failures manually.`,
+      );
+    }
+
     const ciResult = env.watchCi({ cwd: state.worktreePath });
     state.ciAttempts += 1;
     writeArtifact({
@@ -1078,20 +1124,36 @@ export async function runOrchestration({
     return;
   }
 
+  // Planning is always called: it returns the cached plan when present and
+  // advancePhase() prevents it from regressing state.phase on a resumed run.
   const finalPlan = runPlanningPhase({ chain, env, runDirectory, state });
   saveState({ runDirectory, state });
 
-  runImplementationPhase({ env, finalPlan, profile, runDirectory, state });
-  saveState({ runDirectory, state });
+  // Skip phases that have already completed on a previous run. The phase
+  // functions are also idempotent (implementation skips completedSlices,
+  // ensurePr early-returns when prUrl is set, runReviewPhase early-exits when
+  // lastReviewOutput already passed), but gating here also avoids the
+  // overhead of re-entering them.
+  if (phaseIndex(state.phase) <= phaseIndex('implementation')) {
+    runImplementationPhase({ env, finalPlan, profile, runDirectory, state });
+    saveState({ runDirectory, state });
+  }
 
-  ensurePr({ chain, env, state });
-  saveState({ runDirectory, state });
+  if (phaseIndex(state.phase) <= phaseIndex('pr')) {
+    ensurePr({ chain, env, state });
+    saveState({ runDirectory, state });
+  }
 
-  runReviewPhase({ chain, env, finalPlan, runDirectory, state });
-  saveState({ runDirectory, state });
+  if (phaseIndex(state.phase) <= phaseIndex('review')) {
+    runReviewPhase({ chain, env, finalPlan, runDirectory, state });
+    saveState({ runDirectory, state });
+  }
 
-  runCiPhase({ env, finalPlan, runDirectory, state });
-  state.phase = 'awaiting_manual_qa';
+  if (phaseIndex(state.phase) <= phaseIndex('ci')) {
+    runCiPhase({ env, finalPlan, runDirectory, state });
+  }
+
+  advancePhase({ state, target: 'awaiting_manual_qa' });
   saveState({ runDirectory, state });
 
   env.notify({
