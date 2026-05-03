@@ -7,7 +7,7 @@
       "outputs": ["dist/**"]
     },
     "compile": {
-      "dependsOn": ["^compile"]
+      "dependsOn": ["^build"]
     },
     "lint": {},
     "test": {
