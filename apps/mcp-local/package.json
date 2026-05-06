@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@slopweaver/db": "workspace:*",
+    "@slopweaver/env": "workspace:*",
     "@slopweaver/mcp-server": "workspace:*"
   },
   "devDependencies": {

@@ -213,9 +213,10 @@ Claude executes the plan in order:
 4. Edit `CONTRIBUTING.md` and (if the plan calls for it)
    `.claude/rules/workflow.md`.
 5. Run `pnpm install` to register the hooks locally.
-6. Plant a fake `xoxb-1234567890123-1234567890123-test-secret-DELETE`
-   in a scratch file, attempt to commit, confirm the hook blocks it.
-   Remove the file.
+6. Plant a fake xoxb-shaped token in a scratch file (use an `xoxb-`
+   prefix, two 13-digit groups, and a 24-char alphanumeric tail —
+   generate at test time; do NOT commit the literal to this doc),
+   attempt to commit, confirm the hook blocks it. Remove the file.
 7. Run the full local verification loop:
    `pnpm format:check && pnpm lint && pnpm compile && pnpm test &&
    pnpm knip` — all five existing gates must pass.
