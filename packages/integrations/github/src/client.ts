@@ -1,97 +1,81 @@
 /**
- * Minimal `fetch` wrapper for the GitHub REST API.
+ * Thin factory around `@octokit/rest` with the official throttling plugin
+ * wired. Mirrors the slopweaver-private SaaS repo's pattern of treating
+ * Octokit as a dumb REST wrapper, with two changes for the public OSS repo:
  *
- * Reads `X-RateLimit-Remaining` / `X-RateLimit-Reset` and sleeps until reset
- * when remaining drops below `rateLimitThreshold` (default 10). The `sleep`
- * function is injectable so tests don't actually wait.
+ *   1. We don't have a separate Redis-backed `OutboundRateLimiterService` to
+ *      delegate retries to, so `@octokit/plugin-throttling` handles primary +
+ *      secondary rate-limit retries SDK-side (capped at MAX_RETRIES).
+ *   2. We pass `request: { fetch: globalThis.fetch }` explicitly so Octokit
+ *      always reads the test setup's swapped-in `node-fetch`, which routes
+ *      through `node:http` where Polly's adapter intercepts.
  *
- * Throws `GithubFetchError` on non-2xx responses; returns the parsed body,
- * status, and `Headers` on success. Callers narrow the body with their own
- * type assertions (see `polling.ts`, `identity.ts`).
+ * `extractGithubError` is the canonical way to read status + body off
+ * Octokit errors without depending on `instanceof RequestError` (Octokit
+ * sometimes loses the prototype chain on rethrow). Ported verbatim from
+ * `slopweaver-private/apps/api/src/shared/utils/github-api-error.utils.ts`.
  */
 
-const GITHUB_API = 'https://api.github.com';
-const DEFAULT_RATE_LIMIT_THRESHOLD = 10;
+import { throttling } from '@octokit/plugin-throttling';
+import { Octokit } from '@octokit/rest';
+
 const DEFAULT_USER_AGENT = 'slopweaver/0.0.0';
+const MAX_RETRIES = 2;
 
-export class GithubFetchError extends Error {
-  public readonly status: number;
-  public readonly responseBody: unknown;
-
-  constructor({
-    status,
-    responseBody,
-    message,
-  }: {
-    status: number;
-    responseBody: unknown;
-    message: string;
-  }) {
-    super(message);
-    this.name = 'GithubFetchError';
-    this.status = status;
-    this.responseBody = responseBody;
-  }
-}
-
-export type GithubFetchArgs = {
+export type CreateGithubClientArgs = {
   token: string;
-  path: string;
-  search?: URLSearchParams;
-  sleep?: (ms: number) => Promise<void>;
-  rateLimitThreshold?: number;
   userAgent?: string;
 };
 
-export type GithubFetchResult = {
-  status: number;
-  body: unknown;
-  headers: Headers;
-};
+/**
+ * The factory's return type is just `Octokit`. We deliberately avoid
+ * `Octokit.plugin(throttling)` at module level — the resulting class type
+ * names types from internal Octokit packages that TS can't serialize into
+ * our emitted `.d.ts` (TS2883). Constructing inline keeps the declared
+ * return type to `Octokit`, which is portable.
+ */
+export type GithubClient = Octokit;
 
-export async function githubFetch({
+export function createGithubClient({
   token,
-  path,
-  search,
-  sleep = (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-  rateLimitThreshold = DEFAULT_RATE_LIMIT_THRESHOLD,
   userAgent = DEFAULT_USER_AGENT,
-}: GithubFetchArgs): Promise<GithubFetchResult> {
-  const url = new URL(path, GITHUB_API);
-  if (search) {
-    for (const [k, v] of search) {
-      url.searchParams.set(k, v);
-    }
-  }
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: 'application/vnd.github+json',
-      'user-agent': userAgent,
-      'x-github-api-version': '2022-11-28',
+}: CreateGithubClientArgs): GithubClient {
+  const ThrottledOctokit = Octokit.plugin(throttling);
+  return new ThrottledOctokit({
+    auth: token,
+    userAgent,
+    request: { fetch: globalThis.fetch },
+    throttle: {
+      onRateLimit: (_retryAfter, _options, _octokit, retryCount) => {
+        return retryCount <= MAX_RETRIES;
+      },
+      onSecondaryRateLimit: (_retryAfter, _options, _octokit, retryCount) => {
+        return retryCount <= MAX_RETRIES;
+      },
     },
   });
+}
 
-  const remaining = Number(response.headers.get('x-ratelimit-remaining'));
-  const resetEpochS = Number(response.headers.get('x-ratelimit-reset'));
-  if (
-    Number.isFinite(remaining) &&
-    Number.isFinite(resetEpochS) &&
-    remaining < rateLimitThreshold
-  ) {
-    const sleepMs = Math.max(0, resetEpochS * 1000 - Date.now());
-    await sleep(sleepMs);
-  }
+export type GithubErrorShape = {
+  statusCode?: number;
+  responseBody?: unknown;
+};
 
-  const body = (await response.json().catch(() => null)) as unknown;
-  if (!response.ok) {
-    throw new GithubFetchError({
-      status: response.status,
-      responseBody: body,
-      message: `GitHub GET ${path} failed: ${response.status}`,
-    });
+export function extractGithubError({ error }: { error: unknown }): GithubErrorShape {
+  if (!error || typeof error !== 'object') {
+    return {};
   }
-  return { status: response.status, body, headers: response.headers };
+  const e = error as Record<string, unknown>;
+  const out: GithubErrorShape = {};
+  if (typeof e['status'] === 'number') {
+    out.statusCode = e['status'];
+  }
+  const response = e['response'];
+  if (response && typeof response === 'object') {
+    const data = (response as Record<string, unknown>)['data'];
+    if (data !== undefined) {
+      out.responseBody = data;
+    }
+  }
+  return out;
 }

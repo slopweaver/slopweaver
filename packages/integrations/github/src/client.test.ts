@@ -1,40 +1,49 @@
-import { describe, expect, it, vi } from 'vitest';
-import { GithubFetchError, githubFetch } from './client.ts';
+import { describe, expect, it } from 'vitest';
+import { createGithubClient, extractGithubError } from './client.ts';
 
 const REPLAY_TOKEN = process.env['GH_TOKEN'] ?? 'ghp_replay_token_redacted';
 
-describe('githubFetch', () => {
-  it('returns parsed JSON on 200', async () => {
-    const result = await githubFetch({
-      token: REPLAY_TOKEN,
-      path: '/user',
-    });
-    expect(result.status).toBe(200);
-    expect(result.body).toMatchObject({ login: expect.any(String), id: expect.any(Number) });
+describe('createGithubClient', () => {
+  it('returns parsed user data on 200', async () => {
+    const octokit = createGithubClient({ token: REPLAY_TOKEN });
+    const res = await octokit.rest.users.getAuthenticated();
+    expect(res.status).toBe(200);
+    // Mode-agnostic: in replay the cassette has `test-user`/`id: 1` (see
+    // test-setup/polly.ts redaction); in record we see the real account.
+    // Both modes guarantee the response shape — that's all this test asserts.
+    expect(typeof res.data.login).toBe('string');
+    expect(res.data.login.length).toBeGreaterThan(0);
+    expect(typeof res.data.id).toBe('number');
   });
 
-  it('throws GithubFetchError on 401', async () => {
-    // Recording uses a deliberately invalid token so GitHub returns 401.
-    // The Authorization header is redacted before the cassette is persisted.
-    const error = await githubFetch({
-      token: 'ghp_invalid_token_for_recording',
-      path: '/user',
-    }).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(GithubFetchError);
-    expect((error as GithubFetchError).status).toBe(401);
+  it('throws an error with status on 401', async () => {
+    const octokit = createGithubClient({ token: 'ghp_invalid_token_for_recording' });
+    const err = await octokit.rest.users.getAuthenticated().catch((e: unknown) => e);
+    const shape = extractGithubError({ error: err });
+    expect(shape.statusCode).toBe(401);
+    expect(shape.responseBody).toMatchObject({ message: expect.any(String) });
+  });
+});
+
+describe('extractGithubError', () => {
+  it('returns {} for non-objects', () => {
+    expect(extractGithubError({ error: 'oops' })).toEqual({});
+    expect(extractGithubError({ error: null })).toEqual({});
+    expect(extractGithubError({ error: 42 })).toEqual({});
   });
 
-  it('sleeps when X-RateLimit-Remaining is below threshold', async () => {
-    const sleep = vi.fn().mockResolvedValue(undefined);
-    await githubFetch({
-      token: REPLAY_TOKEN,
-      path: '/user',
-      sleep,
-      // Force the sleep branch regardless of recorded remaining value.
-      rateLimitThreshold: 1_000_000,
+  it('extracts status + response.data from Octokit-shaped errors', () => {
+    const err = { status: 404, response: { data: { message: 'Not Found' } } };
+    expect(extractGithubError({ error: err })).toEqual({
+      statusCode: 404,
+      responseBody: { message: 'Not Found' },
     });
-    expect(sleep).toHaveBeenCalledOnce();
-    const arg = sleep.mock.calls[0]?.[0] as number;
-    expect(arg).toBeGreaterThanOrEqual(0);
+  });
+
+  it('omits fields that are not present', () => {
+    expect(extractGithubError({ error: { status: 500 } })).toEqual({ statusCode: 500 });
+    expect(extractGithubError({ error: { response: { data: { x: 1 } } } })).toEqual({
+      responseBody: { x: 1 },
+    });
   });
 });

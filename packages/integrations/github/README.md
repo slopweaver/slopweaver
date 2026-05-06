@@ -4,15 +4,23 @@ GitHub polling integration for SlopWeaver. The first concrete writer for `eviden
 
 ## Public surface
 
-| Export                                    | Purpose                                                                                          |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `pollPullRequests({ db, token, since })`  | Search PRs that involve the authenticated user; upsert into `evidence_log` (`kind='pull_request'`) |
-| `pollIssues({ db, token, since })`        | Same shape, `kind='issue'`                                                                       |
-| `pollMentions({ db, token, since })`      | Same shape, `kind='mention'` — search-level mentions of `@me`                                    |
-| `fetchIdentity({ db, token })`            | Upsert the authenticated user into `identity_graph`                                              |
-| `githubFetch({ token, path, … })`         | Low-level REST wrapper with `X-RateLimit-Remaining` handling                                     |
+| Export                                                | Purpose                                                                                                |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `pollPullRequests({ db, token, since })`              | Search PRs that involve the authenticated user; upsert into `evidence_log` (`kind='pull_request'`)     |
+| `pollIssues({ db, token, since })`                    | Same shape, `kind='issue'`                                                                             |
+| `pollMentions({ db, token, since, username })`        | Same shape, `kind='mention'`. Username is required because GitHub's `mentions:` qualifier rejects `@me` |
+| `fetchIdentity({ db, token })`                        | Upsert the authenticated user into `identity_graph`                                                    |
+| `createGithubClient({ token, userAgent? })`           | Octokit factory pre-wired with `@octokit/plugin-throttling` (caps retries at 2 for both primary + secondary rate limits) |
+| `extractGithubError({ error })`                       | Pulls `{ statusCode, responseBody }` off any Octokit error without depending on `instanceof RequestError` |
 
 All functions take named-object params. Pollers update `integration_state` (`cursor`, `last_poll_started_at_ms`, `last_poll_completed_at_ms`).
+
+## Dependencies
+
+- **`@octokit/rest@22.0.1`** — official GitHub SDK. Pinned to match the slopweaver-private SaaS repo.
+- **`@octokit/plugin-throttling@11.0.3`** — handles primary (`X-RateLimit-Remaining`) and secondary (search/abuse) rate limits with bounded retries. We don't yet have a separate Redis-backed rate-limiter service like private's `OutboundRateLimiterService`, so the SDK plugin owns this for now.
+
+Response item types come straight from `RestEndpointMethodTypes` in `@octokit/rest` — we don't hand-roll wrappers.
 
 ## Out of scope (v1)
 
