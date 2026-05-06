@@ -18,5 +18,10 @@ export type {
 } from './tools/registry.ts';
 export { createPingTool } from './tools/builtin/ping.ts';
 export type { CreatePingToolArgs } from './tools/builtin/ping.ts';
+export { createStartSessionTool } from './tools/composite/start-session.ts';
+export type {
+  CreateStartSessionToolArgs,
+  StartSessionPoller,
+} from './tools/composite/start-session.ts';
 export { startStdio } from './transports/stdio.ts';
 export type { StartStdioArgs, StartStdioHandle } from './transports/stdio.ts';

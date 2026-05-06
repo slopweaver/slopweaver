@@ -19,7 +19,12 @@ import { readFileSync } from 'node:fs';
 import { argv, exit, stderr, stdout } from 'node:process';
 import { createDb, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
-import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
+import {
+  createMcpServer,
+  createPingTool,
+  createStartSessionTool,
+  startStdio,
+} from '@slopweaver/mcp-server';
 
 // Read the bin's own version from its package.json at runtime. dist/cli.js
 // sits one directory below package.json (apps/mcp-local/package.json in the
@@ -85,7 +90,14 @@ async function main(): Promise<void> {
   const server = createMcpServer({
     db: dbHandle.db,
     version: VERSION,
-    tools: [createPingTool({ version: VERSION, startedAtMs })],
+    tools: [
+      createPingTool({ version: VERSION, startedAtMs }),
+      // Pollers are intentionally empty in v1: integration auth tokens are
+      // not yet wired through env, so `force_refresh` is a no-op until that
+      // lands. The tool still serves cached evidence and accurate freshness
+      // reports without them.
+      createStartSessionTool(),
+    ],
   });
 
   // Ensure the SQLite handle is closed on graceful shutdown. The MCP
