@@ -14,7 +14,7 @@
 import type { RestEndpointMethodTypes } from '@octokit/rest';
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import { createGithubClient } from './client.ts';
-import { markPollCompleted, markPollStarted, upsertEvidence } from './upsert.ts';
+import { markPollCompleted, markPollStarted, upsertEvidence } from '@slopweaver/integrations-core';
 
 const INTEGRATION = 'github';
 const PER_PAGE = 50;

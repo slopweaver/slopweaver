@@ -56,6 +56,19 @@ All five gates must pass. CI also runs `gitleaks detect` as a sixth gate; the pr
 
 If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `validate` to verify.
 
+## Tests live next to source
+
+Tests are co-located with source as `<name>.test.ts`. No `__tests__/` directories, no `unit/component/integration/e2e` subtrees — that ceremony is in `slopweaver-private` because it has hundreds of integration tests against real platform APIs; this repo doesn't (yet).
+
+When a test class needs to be filtered separately (e.g. cassette-replay tests that hit the network on `POLLY_MODE=record`, or smoke tests that spawn a process), tag the file with a suffix:
+
+- `<name>.smoke.test.ts` — exercises a real binary or process; slow.
+- `<name>.cassette.test.ts` — replays Polly cassettes; offline-but-disk-bound.
+
+Vitest's `include` pattern in each package's `vitest.config.ts` decides which run. Do not introduce these suffixes pre-emptively; add the tag the first time you actually need to filter.
+
+Shared per-package test helpers go in `src/test/` (e.g. `packages/integrations/slack/src/test/db.ts`, `setup-polly.ts`). Cassette fixtures go under `src/__recordings__/`. Both are package-local — there is no cross-package test-helpers package.
+
 ## Decisions live in GitHub Issues
 
 Significant design decisions (architecture, tradeoffs, naming, scope cuts) get filed as GitHub Issues with the `decision-record` label. The discussion happens in issue comments. The closing comment captures the resolution.

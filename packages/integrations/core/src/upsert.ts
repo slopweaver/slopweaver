@@ -11,9 +11,12 @@
  * progress. `started_at` is set before the request; `completed_at` is set
  * only on success — divergence between the two is the "poll started but
  * never finished" doctor signal.
+ *
+ * Generic over `integration: string`. Integration packages call these
+ * directly with their slug (`'github'`, `'slack'`, …).
  */
 
-import { evidenceLog, integrationState, type SlopweaverDatabase } from '@slopweaver/db';
+import { type SlopweaverDatabase, evidenceLog, integrationState } from '@slopweaver/db';
 import { eq, sql } from 'drizzle-orm';
 
 export type UpsertEvidenceArgs = {

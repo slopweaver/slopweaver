@@ -1,8 +1,8 @@
 {
-  "name": "@slopweaver/integrations-github",
+  "name": "@slopweaver/integrations-slack",
   "version": "0.0.0",
   "private": false,
-  "description": "GitHub polling integration for SlopWeaver. Writes PRs, issues, mentions into evidence_log and the authenticated identity into identity_graph.",
+  "description": "SlopWeaver Slack integration. Polls mentions and DMs into evidence_log; writes the auth'd identity to identity_graph.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,9 +27,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@octokit/plugin-throttling": "11.0.3",
-    "@octokit/request-error": "7.1.0",
-    "@octokit/rest": "22.0.1",
+    "@slack/web-api": "7.15.1",
     "@slopweaver/db": "workspace:*",
     "@slopweaver/integrations-core": "workspace:*",
     "drizzle-orm": "0.45.2"

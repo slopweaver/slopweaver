@@ -83,6 +83,36 @@ describe('upsertEvidence', () => {
       updatedAtMs: 500,
     });
   });
+
+  it('keeps rows for different integrations independent under the same externalId', () => {
+    upsertEvidence({
+      db: handle.db,
+      integration: 'github',
+      externalId: 'shared_id',
+      kind: 'pull_request',
+      title: 'gh',
+      body: null,
+      citationUrl: null,
+      payloadJson: '{}',
+      occurredAtMs: 1,
+      now: 1,
+    });
+    upsertEvidence({
+      db: handle.db,
+      integration: 'slack',
+      externalId: 'shared_id',
+      kind: 'mention',
+      title: 'sl',
+      body: null,
+      citationUrl: null,
+      payloadJson: '{}',
+      occurredAtMs: 1,
+      now: 1,
+    });
+
+    const rows = handle.db.select().from(evidenceLog).all();
+    expect(rows).toHaveLength(2);
+  });
 });
 
 describe('integration_state helpers', () => {
@@ -115,7 +145,6 @@ describe('integration_state helpers', () => {
       .get();
     expect(row?.lastPollStartedAtMs).toBe(2000);
     expect(row?.updatedAtMs).toBe(2000);
-    // createdAtMs preserved from first insert
     expect(row?.createdAtMs).toBe(1000);
   });
 
@@ -138,6 +167,16 @@ describe('integration_state helpers', () => {
       lastPollCompletedAtMs: 1500,
       updatedAtMs: 1500,
     });
+  });
+
+  it('markPollCompleted returns 0 if markPollStarted never ran', () => {
+    const changes = markPollCompleted({
+      db: handle.db,
+      integration: 'github',
+      cursor: 'x',
+      now: 1,
+    });
+    expect(changes).toBe(0);
   });
 
   it('readCursor returns null when no row exists', () => {
