@@ -1,8 +1,8 @@
 {
-  "name": "@slopweaver/integrations-github",
+  "name": "@slopweaver/integrations-core",
   "version": "0.0.0",
   "private": false,
-  "description": "GitHub polling integration for SlopWeaver. Writes PRs, issues, mentions into evidence_log and the authenticated identity into identity_graph.",
+  "description": "Shared building blocks for SlopWeaver integration packages: evidence_log + integration_state upsert helpers, and the Polly cassette setup.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./test-setup/polly": {
+      "types": "./dist/test-setup/polly.d.ts",
+      "import": "./dist/test-setup/polly.js"
     }
   },
   "files": [
@@ -27,15 +31,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@octokit/plugin-throttling": "11.0.3",
-    "@octokit/request-error": "7.1.0",
-    "@octokit/rest": "22.0.1",
+    "@pollyjs/adapter-node-http": "6.0.6",
+    "@pollyjs/core": "6.0.6",
+    "@pollyjs/persister-fs": "6.0.6",
     "@slopweaver/db": "workspace:*",
-    "@slopweaver/integrations-core": "workspace:*",
-    "drizzle-orm": "0.45.2"
+    "drizzle-orm": "0.45.2",
+    "nock": "13.5.6",
+    "node-fetch": "3.3.2",
+    "vitest": "4.1.5"
   },
   "devDependencies": {
-    "typescript": "6.0.3",
-    "vitest": "4.1.5"
+    "typescript": "6.0.3"
   }
 }

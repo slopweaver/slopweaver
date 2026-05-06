@@ -21,6 +21,7 @@ export default [
       'boundaries/elements': [
         { type: 'app', pattern: 'apps/*' },
         { type: 'package', pattern: 'packages/*' },
+        { type: 'package', pattern: 'packages/integrations/*' },
       ],
     },
     rules: {

@@ -42,6 +42,8 @@ coverage/
 *.har
 # Allow committed Polly cassettes (scrubbed) for github integration tests
 !packages/integrations/github/**/__recordings__/**/*.har
+# Allow committed Polly cassettes (scrubbed) for slack integration tests
+!packages/integrations/slack/**/__recordings__/**/*.har
 
 # Logs
 *.log
