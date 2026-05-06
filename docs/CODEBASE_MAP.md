@@ -359,7 +359,7 @@ All GitHub Action versions are pinned by full commit SHA (supply chain hardening
 - **Zod 4 in contracts**: uses `z.url()` and `z.iso.datetime({ offset: true })`. Mixing Zod 3 schemas across packages would break.
 - **Tool registry type erasure**: `defineTool` erases generics so `ReadonlyArray<Tool>` works. The MCP SDK is responsible for input validation before the handler runs — `server.test.ts` pins this invariant.
 - **Worktree branch resolution**: `findMonorepoRoot()` in `cli-tools/src/lib/paths.ts` walks up from `import.meta.url`, so when invoked inside a worktree it resolves the *worktree's* repo root, not the main checkout's.
-- **`xdgDataHome: ''`** (empty string) is treated as unset — falls back to `~/.slopweaver`. Same for `home: ''`. Non-empty `xdgDataHome` must be absolute; relative values throw at resolve time.
+- **`xdgDataHome: ''`** (empty string) is treated as unset *by the resolver helpers* — falls back to `~/.slopweaver`. Same for `home: ''`. Non-empty `xdgDataHome` must be absolute; relative values throw at resolve time. The published binary rejects `XDG_DATA_HOME=''` earlier via `loadEnv()` (the env schema requires non-empty), so the empty-string-as-unset path only fires for direct callers of `resolveDataDir` / `resolveDbPath` (tests, cli-tools).
 - **`pnpm validate` includes `knip`, but the release workflow's `verify` job does not.** CI does run knip.
 - **`pnpm build` and `pnpm validate` and `pnpm knip` are NOT in `.claude/settings.json` allowlist** — agents must request permission to run them.
 - **`--executor hybrid` on `pnpm cli orchestration run` is silently overridden to `codex-only`**. The hybrid path runs through an external Claude-side launcher consuming `launcher-manifest.json`, not through `run`.
