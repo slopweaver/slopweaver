@@ -2,8 +2,3 @@ title = "SlopWeaver gitleaks config"
 
 [extend]
 useDefault = true
-
-[allowlist]
-description = "Allow the documented fake Slack token in the orchestration chain doc"
-paths = ['''\.claude/orchestration/security/gitleaks-secret-scanning\.md''']
-regexes = ['''xoxb-[0-9]{13}-[0-9]{13}-test-secret-DELETE''']

@@ -49,15 +49,12 @@ NEVER `git rebase origin/main` — it rewrites history that's already pushed and
 Before declaring work done (or before opening a PR for review), run the same checks CI runs:
 
 ```bash
-pnpm format:check
-pnpm lint
-pnpm compile
-pnpm test
+pnpm validate   # format:check, lint, compile, test, knip
 ```
 
-All four must pass. CI will reject on red.
+All five gates must pass. CI also runs `gitleaks detect` as a sixth gate; the pre-commit hook covers staged content locally. CI will reject on red.
 
-If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `format:check` to verify.
+If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `validate` to verify.
 
 ## Decisions live in GitHub Issues
 
