@@ -100,6 +100,12 @@ export function markPollStarted({
     .run();
 }
 
+/**
+ * Returns the number of integration_state rows updated. In normal flow this
+ * is 1 (markPollStarted always runs first and creates the row), but a return
+ * of 0 means the caller violated the markPollStarted-first contract — useful
+ * for assertions in callers that want defense-in-depth.
+ */
 export function markPollCompleted({
   db,
   integration,
@@ -110,8 +116,9 @@ export function markPollCompleted({
   integration: string;
   cursor: string | null;
   now: number;
-}): void {
-  db.update(integrationState)
+}): number {
+  const result = db
+    .update(integrationState)
     .set({
       cursor,
       lastPollCompletedAtMs: now,
@@ -119,6 +126,7 @@ export function markPollCompleted({
     })
     .where(eq(integrationState.integration, integration))
     .run();
+  return result.changes;
 }
 
 export function readCursor({

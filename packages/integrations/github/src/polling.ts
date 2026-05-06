@@ -100,7 +100,10 @@ async function runSearch({
     });
   }
 
-  const newCursor = items[0]?.updated_at ?? null;
+  // When the poll returns zero items, preserve the prior watermark (`since`)
+  // instead of resetting the cursor to null — otherwise the next poll would
+  // backfill from the beginning unnecessarily.
+  const newCursor = items[0]?.updated_at ?? since?.toISOString() ?? null;
   markPollCompleted({ db, integration: INTEGRATION, cursor: newCursor, now: observedAt });
   return { fetched: items.length, newCursor };
 }

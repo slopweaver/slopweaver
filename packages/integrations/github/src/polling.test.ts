@@ -64,7 +64,12 @@ describe('pollPullRequests', () => {
       .where(eq(evidenceLog.kind, 'pull_request'))
       .all();
     const beforeCount = beforeRows.length;
-    const beforeLastSeen = beforeRows[0]?.lastSeenAtMs ?? 0;
+    expect(beforeCount).toBeGreaterThan(0);
+    // Track a specific row by externalId so the after-poll assertion compares
+    // the same record (SQLite doesn't guarantee insert order on plain SELECT).
+    const trackedExternalId = beforeRows[0]?.externalId;
+    expect(trackedExternalId).toBeDefined();
+    const beforeTracked = beforeRows.find((r) => r.externalId === trackedExternalId);
 
     await pollPullRequests({
       db: handle.db,
@@ -77,10 +82,11 @@ describe('pollPullRequests', () => {
       .from(evidenceLog)
       .where(eq(evidenceLog.kind, 'pull_request'))
       .all();
+    const afterTracked = afterRows.find((r) => r.externalId === trackedExternalId);
 
     expect(afterRows.length).toBe(beforeCount);
-    expect(afterRows[0]?.lastSeenAtMs ?? 0).toBeGreaterThan(beforeLastSeen);
-    expect(afterRows[0]?.firstSeenAtMs).toBe(beforeRows[0]?.firstSeenAtMs);
+    expect(afterTracked?.lastSeenAtMs ?? 0).toBeGreaterThan(beforeTracked?.lastSeenAtMs ?? 0);
+    expect(afterTracked?.firstSeenAtMs).toBe(beforeTracked?.firstSeenAtMs);
   });
 });
 
