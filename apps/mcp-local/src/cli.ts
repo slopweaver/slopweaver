@@ -120,4 +120,14 @@ async function main(): Promise<void> {
   await startStdio({ server });
 }
 
-await main();
+// Top-level guard: any error thrown during startup (env validation,
+// XDG path validation, DB open, transport setup) is a "won't start"
+// condition. Print just the message to stderr and exit non-zero — end
+// users don't need a stack trace for "your config is wrong".
+try {
+  await main();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  stderr.write(`slopweaver: ${message}\n`);
+  exit(1);
+}

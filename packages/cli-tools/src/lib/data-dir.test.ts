@@ -19,4 +19,10 @@ describe('resolveDataDir', () => {
   it('defaults to os.homedir() when no home is supplied and XDG_DATA_HOME is unset', () => {
     expect(resolveDataDir({ xdgDataHome: '' })).toBe(join(homedir(), '.slopweaver'));
   });
+
+  it('throws when XDG_DATA_HOME is set to a relative path', () => {
+    expect(() => resolveDataDir({ xdgDataHome: 'tmp/relative' })).toThrow(
+      /XDG_DATA_HOME must be an absolute path/,
+    );
+  });
 });
