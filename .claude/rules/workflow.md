@@ -78,6 +78,10 @@ This repo is public. Never commit:
 
 The `.gitignore` excludes common offenders (`.env*`, `*.har`) but verify any test fixture you add doesn't include real data.
 
+## Secret scanning is enforced
+
+A lefthook pre-commit hook runs `gitleaks v8.30.1` against staged content. Contributors and AI agents must install gitleaks locally before committing — see [CONTRIBUTING.md](../../CONTRIBUTING.md) for install instructions. CI runs the same scan over the full tree as a sixth gate, so bypassing the hook with `git commit --no-verify` does not avoid the check; it must be disclosed in the PR description.
+
 ## Slash commands
 
 Available slash commands for AI agents:
