@@ -11,7 +11,9 @@ TypeScript source (`main: ./src/index.ts`) and has no build step.
   pending migrations, and returns `{ db, sqlite, close }`.
 - `resolveDataDir()` and `resolveDbPath()` implement the XDG-aware default
   path rule: `$XDG_DATA_HOME/slopweaver/slopweaver.db` when `XDG_DATA_HOME` is
-  set, otherwise `~/.slopweaver/slopweaver.db`.
+  set, otherwise `~/.slopweaver/slopweaver.db`. Per the XDG spec,
+  `XDG_DATA_HOME` must be an absolute path; relative values are rejected
+  with a thrown `Error` so misconfigured environments fail fast at startup.
 - `src/schema/` exports the Drizzle table definitions.
 
 ## Development

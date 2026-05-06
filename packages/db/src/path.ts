@@ -10,7 +10,7 @@
  */
 
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 /**
  * Common option bag accepted by both resolvers. All fields are optional —
@@ -30,8 +30,14 @@ type ResolvePathOptions = {
  * If `XDG_DATA_HOME` (or the injected `xdgDataHome`) is non-empty, returns
  * `<xdgDataHome>/slopweaver`. Otherwise returns `<home>/.slopweaver`.
  *
+ * Per the XDG Base Directory specification, `XDG_DATA_HOME` must be an
+ * absolute path; relative values are rejected so misconfigured environments
+ * fail fast at startup instead of silently writing SQLite under the caller's
+ * cwd.
+ *
  * @param options - Optional overrides for testing.
  * @returns Absolute filesystem path to the SlopWeaver data directory.
+ * @throws {Error} If the resolved `XDG_DATA_HOME` is not an absolute path.
  *
  * @example
  * resolveDataDir({ xdgDataHome: '/var/lib' }); // '/var/lib/slopweaver'
@@ -41,6 +47,9 @@ export function resolveDataDir({ home, xdgDataHome }: ResolvePathOptions = {}): 
   const resolvedXdgDataHome = xdgDataHome ?? process.env.XDG_DATA_HOME;
 
   if (resolvedXdgDataHome) {
+    if (!isAbsolute(resolvedXdgDataHome)) {
+      throw new Error(`XDG_DATA_HOME must be an absolute path; got: "${resolvedXdgDataHome}"`);
+    }
     return join(resolvedXdgDataHome, 'slopweaver');
   }
 

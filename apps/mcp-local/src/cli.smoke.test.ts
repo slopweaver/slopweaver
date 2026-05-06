@@ -15,6 +15,7 @@
  * never lands in the developer's real `~/.slopweaver/`.
  */
 
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -81,5 +82,40 @@ describe('slopweaver bin (compiled CLI)', () => {
     } finally {
       await client.close();
     }
+  });
+
+  it('exits non-zero with a clean stderr message when env is invalid', () => {
+    const result = spawnSync(process.execPath, [cliPath], {
+      env: {
+        PATH: process.env.PATH ?? '',
+        XDG_DATA_HOME: dataHome,
+        NODE_ENV: 'banana',
+        LOG_LEVEL: 'shout',
+      },
+      encoding: 'utf-8',
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('slopweaver:');
+    expect(result.stderr).toContain('NODE_ENV');
+    expect(result.stderr).toContain('LOG_LEVEL');
+    // No stack trace lines ("    at <frame>") — startup errors print only
+    // the aggregated message.
+    expect(result.stderr).not.toMatch(/^\s+at /m);
+  });
+
+  it('exits non-zero with a clean stderr message when XDG_DATA_HOME is relative', () => {
+    const result = spawnSync(process.execPath, [cliPath], {
+      env: {
+        PATH: process.env.PATH ?? '',
+        XDG_DATA_HOME: 'tmp/relative',
+      },
+      encoding: 'utf-8',
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('slopweaver:');
+    expect(result.stderr).toContain('XDG_DATA_HOME must be an absolute path');
+    expect(result.stderr).not.toMatch(/^\s+at /m);
   });
 });

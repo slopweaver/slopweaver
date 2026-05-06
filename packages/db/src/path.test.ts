@@ -23,6 +23,12 @@ describe('resolveDataDir', () => {
       '/tmp/fakehome/.slopweaver',
     );
   });
+
+  it('throws when XDG_DATA_HOME is set to a relative path', () => {
+    expect(() => resolveDataDir({ xdgDataHome: 'tmp/relative' })).toThrow(
+      /XDG_DATA_HOME must be an absolute path/,
+    );
+  });
 });
 
 describe('resolveDbPath', () => {

@@ -18,6 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { argv, exit, stderr, stdout } from 'node:process';
 import { createDb, resolveDbPath } from '@slopweaver/db';
+import { loadEnv } from '@slopweaver/env';
 import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
 
 // Read the bin's own version from its package.json at runtime. dist/cli.js
@@ -73,6 +74,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Validate the environment before opening the SQLite file or starting the
+  // server. Aggregated `EnvValidationError` propagates out and the process
+  // exits non-zero — single fail-fast boundary for bad env.
+  loadEnv();
+
   const startedAtMs = Date.now();
   const dbHandle = createDb({ path: resolveDbPath() });
 
@@ -114,4 +120,14 @@ async function main(): Promise<void> {
   await startStdio({ server });
 }
 
-await main();
+// Top-level guard: any error thrown during startup (env validation,
+// XDG path validation, DB open, transport setup) is a "won't start"
+// condition. Print just the message to stderr and exit non-zero — end
+// users don't need a stack trace for "your config is wrong".
+try {
+  await main();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  stderr.write(`slopweaver: ${message}\n`);
+  exit(1);
+}
