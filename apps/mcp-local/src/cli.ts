@@ -18,6 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { argv, exit, stderr, stdout } from 'node:process';
 import { createDb, resolveDbPath } from '@slopweaver/db';
+import { loadEnv } from '@slopweaver/env';
 import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
 
 // Read the bin's own version from its package.json at runtime. dist/cli.js
@@ -72,6 +73,11 @@ async function main(): Promise<void> {
     stdout.write(HELP);
     return;
   }
+
+  // Validate the environment before opening the SQLite file or starting the
+  // server. Aggregated `EnvValidationError` propagates out and the process
+  // exits non-zero — single fail-fast boundary for bad env.
+  loadEnv();
 
   const startedAtMs = Date.now();
   const dbHandle = createDb({ path: resolveDbPath() });

@@ -1,0 +1,36 @@
+{
+  "name": "@slopweaver/env",
+  "version": "0.0.0",
+  "private": false,
+  "description": "SlopWeaver environment variables loader and Zod validator.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "compile": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.4.2"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "4.1.5"
+  }
+}
