@@ -1,0 +1,41 @@
+{
+  "name": "@slopweaver/integrations-github",
+  "version": "0.0.0",
+  "private": false,
+  "description": "GitHub polling integration for SlopWeaver. Writes PRs, issues, mentions into evidence_log and the authenticated identity into identity_graph.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "compile": "tsc --noEmit",
+    "test": "vitest run",
+    "scrub": "tsx scripts/scrub-cassettes.ts"
+  },
+  "dependencies": {
+    "@slopweaver/db": "workspace:*",
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "@pollyjs/adapter-node-http": "6.0.6",
+    "@pollyjs/core": "6.0.6",
+    "@pollyjs/persister-fs": "6.0.6",
+    "typescript": "6.0.3",
+    "vitest": "4.1.5"
+  }
+}
