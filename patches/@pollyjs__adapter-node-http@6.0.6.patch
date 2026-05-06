@@ -1,0 +1,100 @@
+diff --git a/dist/cjs/pollyjs-adapter-node-http.js b/dist/cjs/pollyjs-adapter-node-http.js
+index 217641ae99c9b543b80a2d687d7e5e5890264a85..913c8949150d78f046d52a0ccca4ab36ac259353 100644
+--- a/dist/cjs/pollyjs-adapter-node-http.js
++++ b/dist/cjs/pollyjs-adapter-node-http.js
+@@ -5097,6 +5097,7 @@ class HttpAdapter extends Adapter {
+     this.assert('Running concurrent node-http adapters is unsupported, stop any running Polly instances.', !http.ClientRequest[IS_STUBBED]);
+     this.assert('Running nock concurrently with the node-http adapter is unsupported. Run nock.restore() before connecting to this adapter.', !nock.isActive());
+     this.NativeClientRequest = http.ClientRequest;
++    this.NativeHttpsRequest = https.request.bind(https);
+     this.setupNock(); // Patch methods overridden by nock to add some missing functionality
+ 
+     this.patchOverriddenMethods();
+@@ -5263,10 +5264,14 @@ class HttpAdapter extends Adapter {
+     const {
+       options
+     } = parsedArguments;
+-    const request = new this.NativeClientRequest(_objectSpread(_objectSpread({}, options), {}, {
++    const parsedUrl = new url.URL(pollyRequest.url);
++    const requestOptions = _objectSpread(_objectSpread({}, options), {}, {
+       method,
+       headers: _objectSpread({}, headers)
+-    }, urlToOptions$1(new url.URL(pollyRequest.url))));
++    }, urlToOptions$1(parsedUrl));
++    const request = parsedUrl.protocol === 'https:'
++      ? this.NativeHttpsRequest(requestOptions)
++      : new this.NativeClientRequest(requestOptions);
+     const chunks = this.getChunksFromBody(body, headers);
+     const responsePromise = new promise$1((resolve, reject) => {
+       request.once('response', resolve);
+@@ -5322,13 +5327,37 @@ class HttpAdapter extends Adapter {
+       return;
+     }
+ 
+-    const chunks = this.getChunksFromBody(body, headers, encoding);
++    // PATCH: Check if body claims to be content-encoded but was actually decompressed during recording.
++    // If so, strip the content-encoding header to prevent double-decompression errors.
++    let responseHeaders = headers;
++    if (common_10(headers) && body && encoding !== "base64") {
++      try {
++        const parsed = JSON.parse(body);
++        if (!Array.isArray(parsed)) {
++          // Body was decompressed - strip content-encoding header
++          responseHeaders = Object.assign({}, headers);
++          delete responseHeaders['content-encoding'];
++        }
++      } catch (e) {
++        // Body is not JSON - strip content-encoding header
++        responseHeaders = Object.assign({}, headers);
++        delete responseHeaders['content-encoding'];
++      }
++    }
++
++    const chunks = this.getChunksFromBody(body, responseHeaders, encoding);
+     const stream$1 = new stream.Readable(); // Expose the response data as a stream of chunks since
+     // it could contain encoded data which is needed
+     // to be pushed to the response chunk by chunk.
+ 
+-    chunks.forEach(chunk => stream$1.push(chunk));
+-    stream$1.push(null); // Create a promise that will resolve once the request
++    // Push all chunks synchronously (including SSE responses).
++    // NOTE: We tried async SSE streaming via setImmediate but it caused timing issues.
++    // The Vercel AI SDK's smoothStream() handles buffering internally, so all-at-once
++    // chunk delivery works correctly. The SDK parses the complete SSE body just fine.
++    chunks.forEach(chunk => stream$1.push(chunk));
++    stream$1.push(null);
++
++    // Create a promise that will resolve once the request
+     // has been completed (including errored or aborted). This is needed so
+     // that the deferred promise used by `polly.flush()` doesn't resolve before
+     // the response was actually received.
+@@ -5342,7 +5371,7 @@ class HttpAdapter extends Adapter {
+         req.once('error', resolve);
+       }
+     });
+-    respond(null, [statusCode, stream$1, headers]);
++    respond(null, [statusCode, stream$1, responseHeaders]);
+     await requestFinishedPromise;
+   }
+ 
+@@ -5388,8 +5417,18 @@ class HttpAdapter extends Adapter {
+ 
+ 
+     if (common_10(headers)) {
+-      const encodedChunks = JSON.parse(body);
+-      return encodedChunks.map(chunk => Buffer.from(chunk, encoding));
++      // PATCH: Handle case where body was decompressed during recording but header
++      // still says content-encoded. Check if body is actually a JSON array of base64 strings.
++      try {
++        const encodedChunks = JSON.parse(body);
++        if (Array.isArray(encodedChunks)) {
++          return encodedChunks.map(chunk => Buffer.from(chunk, encoding));
++        }
++        // Body was decompressed during recording - treat as regular body
++      } catch (e) {
++        // Body is not valid JSON - treat as regular body
++      }
++      // Fall through to regular body handling
+     } // The body can be one of two things:
+     //  1. A base64 string which then means its binary data.
+     //  2. A utf8 string which means a regular string.
