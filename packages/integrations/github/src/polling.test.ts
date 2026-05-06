@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pollIssues, pollMentions, pollPullRequests } from './polling.ts';
 
-const REPLAY_TOKEN = process.env['GITHUB_PAT'] ?? 'ghp_replay_token_redacted';
+const REPLAY_TOKEN = process.env['GH_TOKEN'] ?? 'ghp_replay_token_redacted';
 
 let handle: ReturnType<typeof createDb>;
 
@@ -106,6 +106,9 @@ describe('pollMentions', () => {
       db: handle.db,
       token: REPLAY_TOKEN,
       since: null,
+      // GitHub's `mentions:` qualifier rejects `@me`; the maintainer's public
+      // login is fine to bake into a cassette URL (user logins are public).
+      username: 'lachiejames',
     });
 
     const rows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'mention')).all();

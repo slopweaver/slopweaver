@@ -27,6 +27,18 @@ export type PollArgs = {
   now?: () => number;
 };
 
+/**
+ * `pollMentions` requires the username explicitly because GitHub's
+ * `mentions:` qualifier rejects the `@me` shortcut with a 422 (only
+ * `involves:` / `assignee:` / `author:` accept `@me`). Callers obtain the
+ * username from `fetchIdentity` and pass it through.
+ *
+ * v1 covers PR mentions only — `/search/issues` now requires `is:pr` or
+ * `is:issue` in the query, and we ship just `is:pr` here. Issue mentions
+ * are a follow-up.
+ */
+export type PollMentionsArgs = PollArgs & { username: string };
+
 export type PollResult = {
   fetched: number;
   newCursor: string | null;
@@ -40,8 +52,8 @@ export function pollIssues(args: PollArgs): Promise<PollResult> {
   return runSearch({ ...args, kind: 'issue', qualifier: 'is:issue involves:@me' });
 }
 
-export function pollMentions(args: PollArgs): Promise<PollResult> {
-  return runSearch({ ...args, kind: 'mention', qualifier: 'mentions:@me' });
+export function pollMentions(args: PollMentionsArgs): Promise<PollResult> {
+  return runSearch({ ...args, kind: 'mention', qualifier: `is:pr mentions:${args.username}` });
 }
 
 async function runSearch({

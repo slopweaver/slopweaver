@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GithubFetchError, githubFetch } from './client.ts';
 
-const REPLAY_TOKEN = process.env['GITHUB_PAT'] ?? 'ghp_replay_token_redacted';
+const REPLAY_TOKEN = process.env['GH_TOKEN'] ?? 'ghp_replay_token_redacted';
 
 describe('githubFetch', () => {
   it('returns parsed JSON on 200', async () => {

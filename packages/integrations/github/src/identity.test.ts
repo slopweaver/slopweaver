@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fetchIdentity } from './identity.ts';
 
-const REPLAY_TOKEN = process.env['GITHUB_PAT'] ?? 'ghp_replay_token_redacted';
+const REPLAY_TOKEN = process.env['GH_TOKEN'] ?? 'ghp_replay_token_redacted';
 
 let handle: ReturnType<typeof createDb>;
 

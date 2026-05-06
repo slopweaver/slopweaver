@@ -22,12 +22,62 @@
  * with SSE / Linear / Anthropic-specific code removed.
  */
 
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import NodeHttpAdapter from '@pollyjs/adapter-node-http';
 import { Polly, type PollyConfig } from '@pollyjs/core';
 import FSPersister from '@pollyjs/persister-fs';
 import nock from 'nock';
 import { afterAll, afterEach, beforeEach } from 'vitest';
+
+// Load .env from monorepo root so `GH_TOKEN=...` in the dev's .env reaches
+// record-mode runs without a separate `source .env` step. Replay mode doesn't
+// need the token; missing .env is silently OK.
+try {
+  const envPath = fileURLToPath(new URL('../../../../../.env', import.meta.url));
+  const envContent = readFileSync(envPath, 'utf8');
+  for (const rawLine of envContent.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eqIdx = line.indexOf('=');
+    if (eqIdx < 0) continue;
+    const key = line.slice(0, eqIdx).trim();
+    const value = line
+      .slice(eqIdx + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, '');
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+} catch {
+  // .env doesn't exist — fine for replay mode.
+}
+
+// In record mode, scope GitHub search queries to slopweaver/slopweaver so any
+// `is:pr involves:@me` / `is:issue involves:@me` / `mentions:@me` query can only
+// return data from one public repo the maintainer owns. This keeps cassettes
+// safe-by-construction: even if the PAT had broader access, the search index
+// wouldn't return private-repo items because the qualifier excludes them.
+//
+// The matcher in beforeEach below ignores query params on replay, so the
+// scoped record-time URL replays cleanly against the production code's
+// unscoped query.
+const RECORD_REPO_SCOPE = process.env['RECORD_REPO_SCOPE'] ?? 'slopweaver/slopweaver';
+
+function maybeScopeGithubSearchUrl({ urlString }: { urlString: string }): string {
+  const url = new URL(urlString);
+  if (url.hostname !== 'api.github.com' || url.pathname !== '/search/issues') {
+    return urlString;
+  }
+  const q = url.searchParams.get('q') ?? '';
+  if (q.includes('repo:')) {
+    return urlString;
+  }
+  url.searchParams.set('q', `${q} repo:${RECORD_REPO_SCOPE}`);
+  return url.toString();
+}
 
 type RedactableHeader = { name: string; value?: string };
 type RedactableCookie = { name: string; value?: string };
@@ -48,7 +98,17 @@ if (POLLY_MODE !== 'passthrough') {
   ): Promise<Response> => {
     const headers = new Headers(init?.headers);
     headers.set('accept-encoding', 'identity');
-    return (await nodeFetchFn(input, { ...init, headers })) as Response;
+    // In record mode, narrow GitHub /search/issues queries to the configured
+    // public repo. No-op in replay because the matcher ignores query params.
+    let resolvedInput = input;
+    if (POLLY_MODE === 'record') {
+      const urlString =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : null;
+      if (urlString) {
+        resolvedInput = maybeScopeGithubSearchUrl({ urlString });
+      }
+    }
+    return (await nodeFetchFn(resolvedInput, { ...init, headers })) as Response;
   }) as typeof fetch;
 }
 
@@ -74,9 +134,70 @@ const REDACT_HEADER_NAMES = new Set([
   'cookie',
   'set-cookie',
   'x-github-request-id',
+  // The auth token expiry header reveals when the recording PAT will expire.
+  'github-authentication-token-expiration',
 ]);
 const REDACT_KEY_REGEX = /token|secret|authorization|password|api[-_]?key/i;
 const REDACT_VALUE_REGEX = /(gh[pousr]_[A-Za-z0-9]{16,})/g;
+
+// Stable placeholders substituted into recorded `/user` responses so the
+// cassettes commit zero personally-identifying fields. Tests assert only on
+// shape and the canonical-id format, so these values satisfy every expectation.
+const USER_PLACEHOLDERS: Record<string, unknown> = {
+  login: 'test-user',
+  id: 1,
+  node_id: 'U_test',
+  avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4',
+  gravatar_id: '',
+  url: 'https://api.github.com/users/test-user',
+  html_url: 'https://github.com/test-user',
+  followers_url: 'https://api.github.com/users/test-user/followers',
+  following_url: 'https://api.github.com/users/test-user/following{/other_user}',
+  gists_url: 'https://api.github.com/users/test-user/gists{/gist_id}',
+  starred_url: 'https://api.github.com/users/test-user/starred{/owner}{/repo}',
+  subscriptions_url: 'https://api.github.com/users/test-user/subscriptions',
+  organizations_url: 'https://api.github.com/users/test-user/orgs',
+  repos_url: 'https://api.github.com/users/test-user/repos',
+  events_url: 'https://api.github.com/users/test-user/events{/privacy}',
+  received_events_url: 'https://api.github.com/users/test-user/received_events',
+  name: 'Test User',
+  email: null,
+  bio: null,
+  company: null,
+  blog: null,
+  location: null,
+  hireable: null,
+  twitter_username: null,
+  notification_email: null,
+  // Account-fingerprint fields — technically public on github.com/<user>, but
+  // baking them into a cassette in our public repo creates a permanent link
+  // back to the recording user. Stable placeholders avoid that.
+  public_repos: 0,
+  public_gists: 0,
+  followers: 0,
+  following: 0,
+  created_at: '2020-01-01T00:00:00Z',
+  updated_at: '2020-01-01T00:00:00Z',
+};
+
+function redactUserResponseText({ text }: { text: string }): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return text;
+  }
+  const replaced: Record<string, unknown> = { ...(parsed as Record<string, unknown>) };
+  for (const [key, value] of Object.entries(USER_PLACEHOLDERS)) {
+    if (key in replaced) {
+      replaced[key] = value;
+    }
+  }
+  return JSON.stringify(replaced);
+}
 
 function redactHeaders({
   headers,
@@ -202,6 +323,18 @@ beforeEach(async ({ task }) => {
         recording.response.cookies = redactCookies({ cookies: recording.response.cookies });
       }
       if (typeof recording.response.content?.text === 'string') {
+        // /user response carries the recording user's full profile — substitute
+        // every PII field with a stable placeholder before generic redaction
+        // (which only catches token-shaped strings, not personal fields).
+        const requestUrl = typeof recording.request?.url === 'string' ? recording.request.url : '';
+        const isUserEndpoint =
+          requestUrl.includes('api.github.com/user') &&
+          !requestUrl.includes('api.github.com/users/');
+        if (isUserEndpoint) {
+          recording.response.content.text = redactUserResponseText({
+            text: recording.response.content.text,
+          });
+        }
         recording.response.content.text = redactText({ text: recording.response.content.text });
       }
     }

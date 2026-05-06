@@ -42,11 +42,24 @@ In replay mode, missing cassettes fail the test loudly with a `Missing Polly rec
 Cassettes live next to each test under `__recordings__/<suite>/<test>/recording.har`. To record:
 
 ```bash
-GITHUB_PAT=<your real PAT, repo+read:user scopes> \
+GH_TOKEN=<your real PAT> \
   POLLY_MODE=record \
   pnpm --filter @slopweaver/integrations-github test
 ```
 
-Sensitive headers (`authorization`, `cookie`, `set-cookie`, `x-github-request-id`) and any body keys matching `/token|secret|authorization|password|api[-_]?key/i` are redacted automatically before the cassette is persisted. PAT-shaped strings (`ghp_…`, `gho_…`, etc.) in body text are also rewritten to `[REDACTED-PAT]`. Inspect the recordings before committing — `git grep gh[posu]_ packages/integrations/github/` should return nothing.
+The PAT should be a fine-grained token scoped to **public repositories only** with **Issues (read)**, **Pull requests (read)**, and **Metadata (read)** repository permissions. No account permissions are required. The setup file also auto-loads `GH_TOKEN` from a `.env` file at the monorepo root if present.
 
-The root `.gitignore` blocks `*.har` globally and explicitly allows `packages/integrations/github/**/__recordings__/**/*.har`.
+Three layers of safety run in record mode:
+
+1. **Search-query scoping.** All outgoing `/search/issues` requests get `repo:slopweaver/slopweaver` appended to their `q` parameter so the GitHub search index can only return data from one public repo. Override via `RECORD_REPO_SCOPE=other-owner/other-repo` if needed.
+2. **`/user` response redaction.** The authenticated user's profile fields (`login`, `id`, `email`, `name`, `avatar_url`, `html_url`, `bio`, `company`, `location`, etc.) are substituted with stable placeholders (`test-user`, `id: 1`, `null`) before the cassette is persisted. Tests assert only on shape, so the placeholders satisfy every expectation.
+3. **Header + token redaction.** `Authorization`, `Cookie`, `Set-Cookie`, and `X-GitHub-Request-Id` headers are stripped. PAT-shaped strings (`ghp_…`, `gho_…`, etc.) anywhere in body text are rewritten to `[REDACTED-PAT]`. Body keys matching `/token|secret|authorization|password|api[-_]?key/i` are replaced with `[REDACTED]`.
+
+After recording, inspect the cassettes:
+
+```bash
+git grep -E 'gh[posu]_[A-Za-z0-9]{16,}' packages/integrations/github/   # tokens
+git grep -i '<your-real-login>' packages/integrations/github/           # personal handles
+```
+
+Both should return nothing. The root `.gitignore` blocks `*.har` globally and explicitly allows `packages/integrations/github/**/__recordings__/**/*.har`.
