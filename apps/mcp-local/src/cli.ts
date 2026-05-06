@@ -102,6 +102,11 @@ async function runConnect(integration: string): Promise<number> {
     return 1;
   }
 
+  // Mirror runMcpServer's env contract — bad NODE_ENV / LOG_LEVEL must reject
+  // here too, otherwise the connect path would silently honour invalid values
+  // that the stdio path rejects.
+  loadEnv();
+
   const dbHandle = createDb({ path: resolveDbPath() });
   try {
     const promptForToken = async ({ message }: { message: string }): Promise<string> =>

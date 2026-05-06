@@ -1,11 +1,14 @@
 /**
- * `slopweaver connect slack` — prompt for a Slack bot/user token (xoxb-/xoxp-),
- * validate it via `auth.test`, and persist into `integration_tokens`.
+ * `slopweaver connect slack` — prompt for a Slack user token (xoxp-), validate
+ * it via `auth.test`, and persist into `integration_tokens`.
+ *
+ * Why user-token-only: Slack `search.messages` (the call the mentions poller
+ * relies on) rejects bot tokens with `not_allowed_token_type`, so accepting
+ * an `xoxb-` here would silently set the user up for a polling failure later.
+ * We reject the bot-token prefix at connect time with a clear message rather
+ * than letting them discover this via Wave-3 logs.
  *
  * `auth.test` is the canonical "is this token valid + which workspace" call.
- * It works for both bot and user tokens, mirroring what `fetchIdentity` does
- * internally but without writing to `identity_graph` (see the github sibling
- * for the same rationale).
  *
  * Collaborators are dependency-injected for the same testability reason as
  * github.ts.
@@ -14,6 +17,7 @@
 import { type SlopweaverDatabase, saveIntegrationToken } from '@slopweaver/db';
 
 const INTEGRATION = 'slack';
+const USER_TOKEN_PREFIX = 'xoxp-';
 
 export type RunConnectSlackDeps = {
   db: SlopweaverDatabase;
@@ -33,8 +37,15 @@ export async function runConnectSlack({
   now,
 }: RunConnectSlackDeps): Promise<number> {
   const token = await promptForToken({
-    message: 'Slack token (xoxb- or xoxp-, input hidden):',
+    message: 'Slack user token (xoxp-, input hidden):',
   });
+
+  if (!token.startsWith(USER_TOKEN_PREFIX)) {
+    stderr.write(
+      'slopweaver: Slack token rejected: a user token (xoxp-) is required. Bot tokens (xoxb-) cannot call search.messages, which the mentions poller depends on.\n',
+    );
+    return 1;
+  }
 
   let team: string | null;
   try {
