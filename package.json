@@ -23,6 +23,7 @@
     "format:check": "biome format .",
     "knip": "knip",
     "lint": "biome lint .",
+    "prepare": "lefthook install || echo 'lefthook install skipped (not a git repository)'",
     "test": "turbo run test",
     "validate": "pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip"
   },
@@ -32,6 +33,7 @@
     "eslint": "10.3.0",
     "eslint-plugin-boundaries": "6.0.2",
     "knip": "6.7.0",
+    "lefthook": "2.1.6",
     "tsx": "4.21.0",
     "turbo": "2.9.7",
     "typescript": "6.0.3"

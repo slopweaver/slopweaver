@@ -17,6 +17,14 @@ pnpm cli doctor
 
 This verifies your Node and pnpm versions, that port `60701` (the local API port) is free, and that the `~/.slopweaver/` data directory exists -- offering to create it for you. It's the fastest way to confirm your machine is ready before you touch any code. See [`packages/cli-tools/README.md`](packages/cli-tools/README.md#doctor) for sample output.
 
+## Secret scanning
+
+`pnpm install` registers a [lefthook](https://lefthook.dev/) pre-commit hook that runs [gitleaks](https://github.com/gitleaks/gitleaks) `v8.30.1` against staged content. The hook is mandatory; you must install gitleaks separately because it's a Go binary, not an npm package. macOS: `brew install gitleaks`. Linux/Windows: download the `v8.30.1` release binary from [github.com/gitleaks/gitleaks/releases/tag/v8.30.1](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1) and put it on your `PATH`.
+
+If the hook fires, treat the finding as real until proven otherwise: rotate or remove the secret before committing. Only add a narrow path-scoped entry to `.gitleaks.toml` for a confirmed false positive, and call out the addition in your PR description.
+
+`git commit --no-verify` is reserved for emergencies and must be disclosed in the PR description. CI runs `gitleaks detect` over the full tree on every PR, so a bypassed local commit will still fail the CI gate.
+
 ## How to engage
 
 - **Questions, ideas, use-case discussion** → [GitHub Discussions](https://github.com/slopweaver/slopweaver/discussions). Not Issues.
