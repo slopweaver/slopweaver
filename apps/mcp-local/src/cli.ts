@@ -1,25 +1,31 @@
 #!/usr/bin/env node
 /**
- * `slopweaver` CLI entry. Parses minimal args (`--version`, `--help`),
- * otherwise opens the local SQLite DB at the XDG-resolved location, registers
- * the `ping` builtin tool, and runs the MCP server over stdio.
+ * `slopweaver` CLI entry. Parses minimal args (`--version`, `--help`,
+ * `--no-web-ui`), opens the local SQLite DB at the XDG-resolved location,
+ * registers the `ping` builtin tool, runs the MCP server over stdio, and
+ * (unless suppressed) starts the local Diagnostics web UI on
+ * `http://127.0.0.1:60701`.
  *
- * v1 ships stdio-only per decision #11. The bin is wired into MCP clients
- * via:
+ * v1 ships stdio as the primary surface per decision #11. The bin is wired
+ * into MCP clients via:
  *
  *   claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
  *
  * After globally installing (`npm install -g @slopweaver/mcp-local`), the
  * `slopweaver` command is available directly. Out of scope for this app:
- * `init`, `doctor`, `connect` subcommands and the localhost web UI — those
- * land in subsequent issues.
+ * `init`, `doctor`, `connect` subcommands — those land in subsequent issues.
  */
 
 import { readFileSync } from 'node:fs';
-import { argv, exit, stderr, stdout } from 'node:process';
-import { createDb, resolveDbPath } from '@slopweaver/db';
+import { argv, env, exit, stderr, stdout } from 'node:process';
+import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
 import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
+import {
+  DEFAULT_PORT as WEB_UI_DEFAULT_PORT,
+  startWebUiServer,
+  type WebUiServerHandle,
+} from '@slopweaver/web-ui';
 
 // Read the bin's own version from its package.json at runtime. dist/cli.js
 // sits one directory below package.json (apps/mcp-local/package.json in the
@@ -51,8 +57,12 @@ be spawned by an MCP client (Claude Code, Cursor, Cline, Codex CLI). It is
 not interactive when launched directly from a terminal.
 
 Options:
-  -v, --version   Print the version and exit.
-  -h, --help      Show this message.
+  -v, --version    Print the version and exit.
+  -h, --help       Show this message.
+      --no-web-ui  Disable the local Diagnostics web UI on 127.0.0.1:60701.
+
+Environment:
+  SLOPWEAVER_WEB_UI_PORT   Override the web UI port (default 60701; 0 = pick).
 
 Wire into Claude Code:
   claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
@@ -60,6 +70,16 @@ Wire into Claude Code:
 For other clients see the README:
   https://github.com/slopweaver/slopweaver
 `;
+
+function resolveWebUiPort(): number {
+  const raw = env.SLOPWEAVER_WEB_UI_PORT;
+  if (raw === undefined || raw === '') return WEB_UI_DEFAULT_PORT;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 65_535) {
+    throw new Error(`SLOPWEAVER_WEB_UI_PORT must be an integer in [0, 65535]; got: "${raw}"`);
+  }
+  return parsed;
+}
 
 async function main(): Promise<void> {
   const args = new Set(argv.slice(2));
@@ -74,6 +94,9 @@ async function main(): Promise<void> {
     return;
   }
 
+  const webUiEnabled = !args.has('--no-web-ui');
+  const webUiPort = resolveWebUiPort();
+
   // Validate the environment before opening the SQLite file or starting the
   // server. Aggregated `EnvValidationError` propagates out and the process
   // exits non-zero — single fail-fast boundary for bad env.
@@ -81,12 +104,37 @@ async function main(): Promise<void> {
 
   const startedAtMs = Date.now();
   const dbHandle = createDb({ path: resolveDbPath() });
+  const dataDir = resolveDataDir();
 
   const server = createMcpServer({
     db: dbHandle.db,
     version: VERSION,
     tools: [createPingTool({ version: VERSION, startedAtMs })],
   });
+
+  // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:
+  // typically means another slopweaver instance is already serving the page,
+  // and stdio (the primary surface) is unaffected. Other failures propagate.
+  let webUiHandle: WebUiServerHandle | undefined;
+  if (webUiEnabled) {
+    try {
+      webUiHandle = await startWebUiServer({
+        db: dbHandle.db,
+        dataDir,
+        port: webUiPort,
+      });
+      stderr.write(`slopweaver: web UI on ${webUiHandle.url}\n`);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EADDRINUSE') {
+        stderr.write(
+          `slopweaver: port ${webUiPort} in use; web UI disabled (pass --no-web-ui to silence)\n`,
+        );
+      } else {
+        throw error;
+      }
+    }
+  }
 
   // Ensure the SQLite handle is closed on graceful shutdown. The MCP
   // transport keeps the event loop alive, so this is the only path that
@@ -101,6 +149,13 @@ async function main(): Promise<void> {
       await server.close();
     } catch (error) {
       stderr.write(`slopweaver: error closing MCP server on ${signal}: ${String(error)}\n`);
+    }
+    if (webUiHandle !== undefined) {
+      try {
+        await webUiHandle.close();
+      } catch (error) {
+        stderr.write(`slopweaver: error closing web UI on ${signal}: ${String(error)}\n`);
+      }
     }
     try {
       dbHandle.close();

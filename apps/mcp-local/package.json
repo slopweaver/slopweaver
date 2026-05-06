@@ -24,7 +24,8 @@
   "dependencies": {
     "@slopweaver/db": "workspace:*",
     "@slopweaver/env": "workspace:*",
-    "@slopweaver/mcp-server": "workspace:*"
+    "@slopweaver/mcp-server": "workspace:*",
+    "@slopweaver/web-ui": "workspace:*"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

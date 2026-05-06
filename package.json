@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
-    "@types/node": "22.10.5",
+    "@types/node": "22.19.17",
     "eslint": "10.3.0",
     "eslint-plugin-boundaries": "6.0.2",
     "knip": "6.7.0",
