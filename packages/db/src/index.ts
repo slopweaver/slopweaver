@@ -15,6 +15,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { resolveDbPath } from './path.ts';
 import * as schema from './schema/index.ts';
 
+export * from './integration-tokens.ts';
 export * from './path.ts';
 export * from './schema/index.ts';
 

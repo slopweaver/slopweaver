@@ -183,6 +183,7 @@ describe('createDb', () => {
             'evidence_log',
             'identity_graph',
             'integration_state',
+            'integration_tokens',
             'workspaces',
           ]),
         );

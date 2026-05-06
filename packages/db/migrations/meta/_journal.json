@@ -8,6 +8,13 @@
       "when": 1777802235901,
       "tag": "0000_overconfident_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1778074475311,
+      "tag": "0001_solid_whirlwind",
+      "breakpoints": true
     }
   ]
 }
