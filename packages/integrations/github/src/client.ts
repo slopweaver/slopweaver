@@ -10,10 +10,10 @@
  *      always reads the test setup's swapped-in `node-fetch`, which routes
  *      through `node:http` where Polly's adapter intercepts.
  *
- * `extractGithubError` is the canonical way to read status + body off
- * Octokit errors without depending on `instanceof RequestError` (Octokit
- * sometimes loses the prototype chain on rethrow). Ported verbatim from
- * `slopweaver-private/apps/api/src/shared/utils/github-api-error.utils.ts`.
+ * Errors thrown by Octokit are real `RequestError` instances from
+ * `@octokit/request-error` — callers should `instanceof RequestError` and
+ * read `.status` / `.response?.data` directly. We deliberately do not ship
+ * a wrapper around that.
  */
 
 import { throttling } from '@octokit/plugin-throttling';
@@ -54,28 +54,4 @@ export function createGithubClient({
       },
     },
   });
-}
-
-export type GithubErrorShape = {
-  statusCode?: number;
-  responseBody?: unknown;
-};
-
-export function extractGithubError({ error }: { error: unknown }): GithubErrorShape {
-  if (!error || typeof error !== 'object') {
-    return {};
-  }
-  const e = error as Record<string, unknown>;
-  const out: GithubErrorShape = {};
-  if (typeof e['status'] === 'number') {
-    out.statusCode = e['status'];
-  }
-  const response = e['response'];
-  if (response && typeof response === 'object') {
-    const data = (response as Record<string, unknown>)['data'];
-    if (data !== undefined) {
-      out.responseBody = data;
-    }
-  }
-  return out;
 }

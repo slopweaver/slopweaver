@@ -11,7 +11,8 @@ GitHub polling integration for SlopWeaver. The first concrete writer for `eviden
 | `pollMentions({ db, token, since, username })`        | Same shape, `kind='mention'`. Username is required because GitHub's `mentions:` qualifier rejects `@me` |
 | `fetchIdentity({ db, token })`                        | Upsert the authenticated user into `identity_graph`                                                    |
 | `createGithubClient({ token, userAgent? })`           | Octokit factory pre-wired with `@octokit/plugin-throttling` (caps retries at 2 for both primary + secondary rate limits) |
-| `extractGithubError({ error })`                       | Pulls `{ statusCode, responseBody }` off any Octokit error without depending on `instanceof RequestError` |
+
+Errors thrown by Octokit calls are real `RequestError` instances from `@octokit/request-error`. Callers should narrow via `instanceof RequestError` and read `.status` / `.response?.data` directly — we deliberately don't ship a wrapper around that.
 
 All functions take named-object params. Pollers update `integration_state` (`cursor`, `last_poll_started_at_ms`, `last_poll_completed_at_ms`).
 
