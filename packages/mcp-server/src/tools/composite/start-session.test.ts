@@ -345,7 +345,7 @@ describe('createStartSessionTool', () => {
     const parsed = StartSessionResult.parse(raw);
 
     expect(parsed.items.map((i) => i.title)).toEqual(['Has bad URL', 'Has bad JSON']);
-    const badUrl = parsed.evidence.find((e) => e.kind === 'pull_request' && e.id !== 'no-title');
+
     const downgraded = parsed.evidence.find(
       (e) => e.ref.kind === 'canonical' && e.ref.id === 'bad-url',
     );
@@ -357,11 +357,60 @@ describe('createStartSessionTool', () => {
     );
     expect(badJson).toBeDefined();
     expect(badJson?.payload_json).toBeNull();
-    expect(badUrl).toBeDefined();
   });
 
-  it('breaks score ties deterministically by occurredAtMs desc then id asc', async () => {
-    // Same kind, same occurredAtMs → score tied → fall through to id ascending.
+  it('orders by score desc — a higher-score row beats a more recent lower-score row', async () => {
+    // 'mention' wins the kind boost (+0.5). Even though the PR is more recent,
+    // the score-desc tier puts the older mention first.
+    seedEvidence({
+      integration: 'slack',
+      externalId: 'older-mention',
+      title: 'Older Mention',
+      kind: 'mention',
+      occurredAtMs: FIXED_NOW - 60 * 60_000, // 1 hour ago
+    });
+    seedEvidence({
+      integration: 'github',
+      externalId: 'newer-pr',
+      title: 'Newer PR',
+      kind: 'pull_request',
+      occurredAtMs: FIXED_NOW - 5 * 60_000, // 5 minutes ago
+    });
+    seedFreshIntegrationState('slack');
+    seedFreshIntegrationState('github');
+
+    const tool = createStartSessionTool({ now: () => FIXED_NOW });
+    const raw = await callHandler(tool, {});
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(parsed.items.map((i) => i.title)).toEqual(['Older Mention', 'Newer PR']);
+  });
+
+  it('breaks score ties by occurredAtMs desc — newer row first when scores are equal', async () => {
+    seedEvidence({
+      integration: 'github',
+      externalId: 'older',
+      title: 'Older',
+      kind: 'pull_request',
+      occurredAtMs: FIXED_NOW - 10 * 60_000,
+    });
+    seedEvidence({
+      integration: 'github',
+      externalId: 'newer',
+      title: 'Newer',
+      kind: 'pull_request',
+      occurredAtMs: FIXED_NOW - 1 * 60_000,
+    });
+    seedFreshIntegrationState('github');
+
+    const tool = createStartSessionTool({ now: () => FIXED_NOW });
+    const raw = await callHandler(tool, {});
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(parsed.items.map((i) => i.title)).toEqual(['Newer', 'Older']);
+  });
+
+  it('breaks remaining ties by id asc — earlier insert first when score and occurredAtMs are equal', async () => {
     const idA = seedEvidence({
       integration: 'github',
       externalId: 'a',
