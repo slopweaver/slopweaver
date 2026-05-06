@@ -49,15 +49,12 @@ NEVER `git rebase origin/main` — it rewrites history that's already pushed and
 Before declaring work done (or before opening a PR for review), run the same checks CI runs:
 
 ```bash
-pnpm format:check
-pnpm lint
-pnpm compile
-pnpm test
+pnpm validate   # format:check, lint, compile, test, knip
 ```
 
-All four must pass. CI will reject on red.
+All five gates must pass. CI also runs `gitleaks detect` as a sixth gate; the pre-commit hook covers staged content locally. CI will reject on red.
 
-If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `format:check` to verify.
+If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `validate` to verify.
 
 ## Decisions live in GitHub Issues
 
@@ -77,6 +74,10 @@ This repo is public. Never commit:
 - Personal email addresses (other than `admin@slopweaver.ai` which is the project address)
 
 The `.gitignore` excludes common offenders (`.env*`, `*.har`) but verify any test fixture you add doesn't include real data.
+
+## Secret scanning is enforced
+
+A lefthook pre-commit hook runs `gitleaks v8.30.1` against staged content. Contributors and AI agents must install gitleaks locally before committing — see [CONTRIBUTING.md](../../CONTRIBUTING.md) for install instructions. CI runs the same scan over the full tree as a sixth gate, so bypassing the hook with `git commit --no-verify` does not avoid the check; it must be disclosed in the PR description.
 
 ## Slash commands
 
