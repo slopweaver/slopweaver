@@ -13,23 +13,30 @@
  *   score        = recencyScore + kindBoost
  *   priority     = rank index + 1                  (1 = highest)
  *
+ * Tie-break is explicit (score desc, occurredAtMs desc, id asc) so equal-score
+ * rows have a deterministic order independent of SQLite's row-fetch order.
+ *
  * Pollers are injected via the factory (`pollers`) rather than read out of the
  * MCP context, because the integration poll functions need auth tokens that
  * the MCP `ToolHandlerContext` deliberately does not carry. The host
  * (`apps/mcp-local` once it lands) builds closures that capture tokens at
  * startup; tests pass `vi.fn()` mocks.
+ *
+ * Row shaping is defensive: a single corrupt `evidence_log` row (empty title,
+ * malformed citation URL, unparseable payload JSON) downgrades or is skipped,
+ * never aborts the whole tool call.
  */
 
 import {
+  EvidenceLogEntry,
+  type Freshness,
+  type Reference,
   StartSessionArgs,
   StartSessionResult,
-  type Reference,
-  type EvidenceLogEntry,
-  type Freshness,
 } from '@slopweaver/contracts';
 import { evidenceLog, integrationState, type SlopweaverDatabase } from '@slopweaver/db';
 import { desc, eq, inArray } from 'drizzle-orm';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { defineTool, type Tool } from '../registry.ts';
 
 /** Default: poll if the most recent successful poll completed more than 10 minutes ago. */
@@ -41,6 +48,8 @@ const KIND_BOOST_VALUE = 0.5;
 const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
+
+const UrlSchema = z.url();
 
 /**
  * Per-integration refresh hook. The host wires one of these up per connected
@@ -60,6 +69,7 @@ export type CreateStartSessionToolArgs = {
 
 type EvidenceRow = typeof evidenceLog.$inferSelect;
 type StartSessionItem = z.infer<typeof StartSessionResult>['items'][number];
+type ShapedEntry = { item: Omit<StartSessionItem, 'priority'>; evidence: EvidenceLogEntry };
 
 export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): Tool {
   const pollers = args.pollers ?? {};
@@ -76,13 +86,7 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
       const nowMs = now();
       const cap = Math.min(input.max_items ?? 10, 25);
 
-      const requested =
-        input.integrations ??
-        db
-          .select({ integration: integrationState.integration })
-          .from(integrationState)
-          .all()
-          .map((r) => r.integration);
+      const requested = resolveRequested(db, input.integrations, pollers);
 
       if (requested.length === 0) {
         return {
@@ -109,15 +113,17 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
         .orderBy(desc(evidenceLog.occurredAtMs))
         .all();
 
-      const ranked = rows
-        .map((row) => ({ row, score: scoreOf(row, nowMs) }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, cap);
+      const ranked = rows.map((row) => ({ row, score: scoreOf(row, nowMs) })).sort(compareRanked);
 
-      const items: StartSessionItem[] = ranked.map((entry, idx) =>
-        buildItem(entry.row, idx + 1, nowMs),
-      );
-      const evidence: EvidenceLogEntry[] = ranked.map((entry) => toEvidenceLogEntry(entry.row));
+      const built: ShapedEntry[] = [];
+      for (const entry of ranked) {
+        if (built.length >= cap) break;
+        const shaped = shapeRow(entry.row, nowMs);
+        if (shaped) built.push(shaped);
+      }
+
+      const items: StartSessionItem[] = built.map((b, idx) => ({ ...b.item, priority: idx + 1 }));
+      const evidence: EvidenceLogEntry[] = built.map((b) => b.evidence);
       const freshness: Freshness[] = requested.map((integration) =>
         readFreshness(db, integration, nowMs, staleThresholdMs),
       );
@@ -130,6 +136,41 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
       };
     },
   });
+}
+
+/**
+ * Pick the integrations to consider this call. When the caller supplies
+ * `inputIntegrations` we honour that exactly (deduped). Otherwise default to
+ * the union of registered pollers and existing `integration_state` rows so a
+ * first-run `force_refresh` actually has something to poll. First-seen order
+ * is preserved.
+ */
+function resolveRequested(
+  db: SlopweaverDatabase,
+  inputIntegrations: readonly string[] | undefined,
+  pollers: Record<string, StartSessionPoller>,
+): string[] {
+  if (inputIntegrations !== undefined) {
+    return dedupeOrdered(inputIntegrations);
+  }
+  const stateRows = db
+    .select({ integration: integrationState.integration })
+    .from(integrationState)
+    .all()
+    .map((r) => r.integration);
+  return dedupeOrdered([...Object.keys(pollers), ...stateRows]);
+}
+
+function dedupeOrdered(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    if (!seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
 }
 
 function shouldPoll(
@@ -176,33 +217,67 @@ function scoreOf(row: EvidenceRow, nowMs: number): number {
   return recencyScore + boost;
 }
 
-function buildItem(row: EvidenceRow, priority: number, nowMs: number): StartSessionItem {
+function compareRanked(
+  a: { row: EvidenceRow; score: number },
+  b: { row: EvidenceRow; score: number },
+): number {
+  if (b.score !== a.score) return b.score - a.score;
+  if (b.row.occurredAtMs !== a.row.occurredAtMs) return b.row.occurredAtMs - a.row.occurredAtMs;
+  return a.row.id - b.row.id;
+}
+
+/**
+ * Defensively convert a DB row to the wire shape. Returns `null` if the row
+ * cannot produce a contract-valid item (e.g. both `title` and `kind` are
+ * empty). Recoverable issues are downgraded inline:
+ *   - malformed `citation_url` → ref becomes canonical, `citation_url` null
+ *   - unparseable `payload_json` → `payload_json` becomes null
+ */
+function shapeRow(row: EvidenceRow, nowMs: number): ShapedEntry | null {
+  const title = (row.title && row.title.length > 0 ? row.title : row.kind) || null;
+  if (title == null) return null;
+
+  const ref = buildRef(row);
+  const citationUrl = ref.kind === 'url' ? ref.url : null;
+  const payload = tryParseJson(row.payloadJson);
+
+  const evidence: EvidenceLogEntry = {
+    id: String(row.id),
+    integration: row.integration,
+    kind: row.kind,
+    ref,
+    occurred_at: new Date(row.occurredAtMs).toISOString(),
+    payload_json: payload,
+    citation_url: citationUrl,
+  };
+
   return {
-    ref: buildRef(row),
-    priority,
-    title: row.title ?? row.kind,
-    why: `${row.integration} ${row.kind} from ${humanAge(nowMs - row.occurredAtMs)}`,
-    evidence_ids: [String(row.id)],
+    item: {
+      ref,
+      title,
+      why: `${row.integration} ${row.kind} from ${humanAge(nowMs - row.occurredAtMs)}`,
+      evidence_ids: [String(row.id)],
+    },
+    evidence,
   };
 }
 
 function buildRef(row: EvidenceRow): Reference {
-  if (row.citationUrl != null) {
-    return { kind: 'url', url: row.citationUrl };
+  if (row.citationUrl != null && row.citationUrl.length > 0) {
+    const parsed = UrlSchema.safeParse(row.citationUrl);
+    if (parsed.success) {
+      return { kind: 'url', url: parsed.data };
+    }
   }
   return { kind: 'canonical', integration: row.integration, id: row.externalId };
 }
 
-function toEvidenceLogEntry(row: EvidenceRow): EvidenceLogEntry {
-  return {
-    id: String(row.id),
-    integration: row.integration,
-    kind: row.kind,
-    ref: buildRef(row),
-    occurred_at: new Date(row.occurredAtMs).toISOString(),
-    payload_json: JSON.parse(row.payloadJson),
-    citation_url: row.citationUrl,
-  };
+function tryParseJson(json: string): z.infer<typeof EvidenceLogEntry>['payload_json'] {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
 }
 
 function humanAge(ageMs: number): string {

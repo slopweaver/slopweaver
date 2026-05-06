@@ -276,4 +276,113 @@ describe('createStartSessionTool', () => {
       expect(() => new Date(e.occurred_at).toISOString()).not.toThrow();
     }
   });
+
+  it('dedupes a duplicated `integrations` argument so each integration is processed once', async () => {
+    seedEvidence({ integration: 'github', externalId: 'pr-1' });
+    seedFreshIntegrationState('github');
+
+    const githubPoller: StartSessionPoller = vi.fn(async () => {});
+    const tool = createStartSessionTool({
+      now: () => FIXED_NOW,
+      pollers: { github: githubPoller },
+    });
+    const raw = await callHandler(tool, {
+      integrations: ['github', 'github'],
+      force_refresh: true,
+    });
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(githubPoller).toHaveBeenCalledTimes(1);
+    expect(parsed.freshness).toHaveLength(1);
+    expect(parsed.freshness[0]?.integration).toBe('github');
+  });
+
+  it('force_refresh polls a registered integration that has no integration_state row yet', async () => {
+    // No state row, no evidence — this is the first-run case.
+    const githubPoller: StartSessionPoller = vi.fn(async () => {});
+    const tool = createStartSessionTool({
+      now: () => FIXED_NOW,
+      pollers: { github: githubPoller },
+    });
+    const raw = await callHandler(tool, { force_refresh: true });
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(githubPoller).toHaveBeenCalledTimes(1);
+    expect(parsed.freshness).toEqual([
+      { integration: 'github', last_polled_at: null, stale: true },
+    ]);
+  });
+
+  it('skips rows with no usable title, downgrades malformed citation_url, tolerates bad payload_json', async () => {
+    // Row 1: empty title and empty kind — must be skipped entirely.
+    seedEvidence({
+      integration: 'github',
+      externalId: 'no-title',
+      title: '',
+      kind: '',
+      occurredAtMs: FIXED_NOW - 60_000,
+    });
+    // Row 2: malformed citation_url — must downgrade to canonical ref.
+    seedEvidence({
+      integration: 'github',
+      externalId: 'bad-url',
+      title: 'Has bad URL',
+      citationUrl: 'not a real url',
+      occurredAtMs: FIXED_NOW - 120_000,
+    });
+    // Row 3: malformed JSON payload — must surface with payload_json: null.
+    seedEvidence({
+      integration: 'github',
+      externalId: 'bad-json',
+      title: 'Has bad JSON',
+      payloadJson: '{not json',
+      occurredAtMs: FIXED_NOW - 180_000,
+    });
+    seedFreshIntegrationState('github');
+
+    const tool = createStartSessionTool({ now: () => FIXED_NOW });
+    const raw = await callHandler(tool, {});
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(parsed.items.map((i) => i.title)).toEqual(['Has bad URL', 'Has bad JSON']);
+    const badUrl = parsed.evidence.find((e) => e.kind === 'pull_request' && e.id !== 'no-title');
+    const downgraded = parsed.evidence.find(
+      (e) => e.ref.kind === 'canonical' && e.ref.id === 'bad-url',
+    );
+    expect(downgraded).toBeDefined();
+    expect(downgraded?.citation_url).toBeNull();
+
+    const badJson = parsed.evidence.find(
+      (e) => e.ref.kind === 'canonical' && e.ref.id === 'bad-json',
+    );
+    expect(badJson).toBeDefined();
+    expect(badJson?.payload_json).toBeNull();
+    expect(badUrl).toBeDefined();
+  });
+
+  it('breaks score ties deterministically by occurredAtMs desc then id asc', async () => {
+    // Same kind, same occurredAtMs → score tied → fall through to id ascending.
+    const idA = seedEvidence({
+      integration: 'github',
+      externalId: 'a',
+      title: 'A',
+      kind: 'pull_request',
+      occurredAtMs: FIXED_NOW - FIVE_MIN,
+    });
+    const idB = seedEvidence({
+      integration: 'github',
+      externalId: 'b',
+      title: 'B',
+      kind: 'pull_request',
+      occurredAtMs: FIXED_NOW - FIVE_MIN,
+    });
+    seedFreshIntegrationState('github');
+
+    const tool = createStartSessionTool({ now: () => FIXED_NOW });
+    const raw = await callHandler(tool, {});
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(idA).toBeLessThan(idB);
+    expect(parsed.items.map((i) => i.title)).toEqual(['A', 'B']);
+  });
 });
