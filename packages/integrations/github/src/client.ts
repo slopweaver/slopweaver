@@ -46,11 +46,14 @@ export function createGithubClient({
     userAgent,
     request: { fetch: globalThis.fetch },
     throttle: {
+      // The plugin invokes onRateLimit with retryCount=0 BEFORE the first
+      // retry, so `< MAX_RETRIES` caps total retries at MAX_RETRIES (per the
+      // plugin's own README example). Using `<=` would allow MAX_RETRIES + 1.
       onRateLimit: (_retryAfter, _options, _octokit, retryCount) => {
-        return retryCount <= MAX_RETRIES;
+        return retryCount < MAX_RETRIES;
       },
       onSecondaryRateLimit: (_retryAfter, _options, _octokit, retryCount) => {
-        return retryCount <= MAX_RETRIES;
+        return retryCount < MAX_RETRIES;
       },
     },
   });
