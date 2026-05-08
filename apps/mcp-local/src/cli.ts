@@ -108,7 +108,7 @@ async function runMcpServer(): Promise<void> {
   await startStdio({ server });
 }
 
-async function runConnect(integration: string): Promise<number> {
+async function runConnect({ integration }: { integration: string }): Promise<number> {
   if (integration !== 'github' && integration !== 'slack') {
     stderr.write(`slopweaver: unknown integration "${integration}". Expected github or slack.\n`);
     return 1;
@@ -154,7 +154,7 @@ async function runConnect(integration: string): Promise<number> {
   }
 }
 
-function asMessage(error: unknown): string {
+function asMessage({ error }: { error: unknown }): string {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -165,19 +165,19 @@ cli
   .example('  slopweaver connect github')
   .example('  slopweaver connect slack')
   .action((integration: string) => {
-    runConnect(integration)
+    runConnect({ integration })
       .then((code) => {
         exit(code);
       })
       .catch((error: unknown) => {
-        stderr.write(`slopweaver: ${asMessage(error)}\n`);
+        stderr.write(`slopweaver: ${asMessage({ error })}\n`);
         exit(1);
       });
   });
 
 cli.command('', 'Run the MCP server over stdio (default)').action(() => {
   runMcpServer().catch((error: unknown) => {
-    stderr.write(`slopweaver: ${asMessage(error)}\n`);
+    stderr.write(`slopweaver: ${asMessage({ error })}\n`);
     exit(1);
   });
 });
@@ -190,6 +190,6 @@ cli.version(VERSION);
 try {
   cli.parse(argv);
 } catch (error) {
-  stderr.write(`slopweaver: ${asMessage(error)}\n`);
+  stderr.write(`slopweaver: ${asMessage({ error })}\n`);
   exit(1);
 }
