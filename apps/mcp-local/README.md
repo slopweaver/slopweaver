@@ -19,9 +19,25 @@ For Cursor, Cline, and Codex CLI configs, see the
   The `#!/usr/bin/env node` shebang at the top of the source is preserved
   through emit; npm sets the executable bit on install via the `bin` field.
 - Runtime deps: `@slopweaver/db` (which transitively pulls
-  `better-sqlite3` + the Drizzle migrations folder) and
-  `@slopweaver/mcp-server`.
-- No bundler. No dist/ commit. `tsc` is the only build step.
+  `better-sqlite3` + the Drizzle migrations folder), `@slopweaver/mcp-server`,
+  and `@slopweaver/ui` (whose `dist/client/` static assets the binary
+  serves on `127.0.0.1:60701`).
+- No bundler. No dist/ commit. `tsc` is the only build step for this package
+  (`@slopweaver/ui` itself uses Vite for its client bundle).
+
+## Diagnostics web UI
+
+By default, alongside the stdio MCP server, the binary starts a tiny HTTP
+server on `127.0.0.1:60701` that serves the `@slopweaver/ui` Diagnostics
+page plus a `GET /api/diagnostics` JSON endpoint. The bind is loopback-only;
+`Origin` validation rejects cross-origin requests.
+
+- `--no-web-ui` — suppress the web UI; useful when running multiple slopweaver
+  instances from one machine.
+- `SLOPWEAVER_WEB_UI_PORT` — override the port (set `0` to pick an ephemeral
+  port; the bound URL is logged to stderr).
+- If port 60701 is already in use, the binary logs a warning and continues
+  with stdio only — non-fatal.
 
 ## Local development
 
@@ -39,6 +55,6 @@ over stdio.
 
 ## Scope
 
-In: stdio MCP server, `ping` tool, `--version` / `--help`. Out: `init`,
-`doctor`, `connect` subcommands, the localhost web UI, real integrations.
-Those land in follow-up issues.
+In: stdio MCP server, `ping` tool, `--version` / `--help` / `--no-web-ui`,
+the local Diagnostics web UI on `127.0.0.1:60701`. Out: `init`, `doctor`,
+`connect` subcommands, real integrations. Those land in follow-up issues.

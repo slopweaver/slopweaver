@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import { resolveDataDir } from '../lib/data-dir.ts';
 
 export const REQUIRED_NODE_MAJOR = 22;
+export const REQUIRED_NODE_MINOR = 12;
 export const REQUIRED_PNPM_MAJOR = 10;
 export const LOCAL_API_PORT = 60701;
 export const PNPM_VERSION_TIMEOUT_MS = 5_000;
@@ -22,23 +23,34 @@ function majorOf(version: string): number {
   return Number.parseInt(version.split('.')[0] ?? '0', 10);
 }
 
+function minorOf(version: string): number {
+  return Number.parseInt(version.split('.')[1] ?? '0', 10);
+}
+
+function isNodeSupported(version: string): boolean {
+  const major = majorOf(version);
+  if (major > REQUIRED_NODE_MAJOR) return true;
+  if (major < REQUIRED_NODE_MAJOR) return false;
+  return minorOf(version) >= REQUIRED_NODE_MINOR;
+}
+
 export function checkNodeVersion({
   nodeVersion = process.versions.node,
 }: {
   nodeVersion?: string;
 } = {}): CheckResult {
-  const major = majorOf(nodeVersion);
-  if (major >= REQUIRED_NODE_MAJOR) {
+  const required = `${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}`;
+  if (isNodeSupported(nodeVersion)) {
     return {
       name: 'Node version',
       status: 'ok',
-      detail: `node ${nodeVersion} (>=${REQUIRED_NODE_MAJOR})`,
+      detail: `node ${nodeVersion} (>=${required})`,
     };
   }
   return {
     name: 'Node version',
     status: 'fail',
-    detail: `node ${nodeVersion} -- need >=${REQUIRED_NODE_MAJOR} (see .nvmrc)`,
+    detail: `node ${nodeVersion} -- need >=${required} (see .nvmrc)`,
   };
 }
 

@@ -15,7 +15,7 @@
  * never lands in the developer's real `~/.slopweaver/`.
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { PingResult, StartSessionResult } from '@slopweaver/contracts';
+import type { DiagnosticsResponse } from '@slopweaver/ui';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -134,3 +135,155 @@ describe('slopweaver bin (compiled CLI)', () => {
     expect(result.stderr).not.toMatch(/^\s+at /m);
   });
 });
+
+describe('slopweaver bin web UI', () => {
+  let dataHome: string;
+
+  beforeEach(() => {
+    dataHome = mkdtempSync(resolve(tmpdir(), 'slopweaver-smoke-webui-'));
+  });
+
+  afterEach(() => {
+    rmSync(dataHome, { recursive: true, force: true });
+  });
+
+  it('starts the Diagnostics web UI on a random port and serves /api/diagnostics', async () => {
+    // SLOPWEAVER_WEB_UI_PORT=0 lets the OS pick a free port — robust against
+    // dev environments where 60701 is in use. The bound URL is logged to
+    // stderr; we scrape it to discover the actual port.
+    const child = spawn(process.execPath, [cliPath], {
+      env: {
+        ...process.env,
+        XDG_DATA_HOME: dataHome,
+        SLOPWEAVER_WEB_UI_PORT: '0',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const stderrBuf: string[] = [];
+    child.stderr.setEncoding('utf-8');
+    child.stderr.on('data', (chunk: string) => {
+      stderrBuf.push(chunk);
+    });
+
+    try {
+      const url = await waitForWebUiUrl({ stderrBuf, timeoutMs: 10_000 });
+      const res = await fetch(`${url}/api/diagnostics`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('application/json');
+      const body = (await res.json()) as DiagnosticsResponse;
+      expect(body.schemaVersion).toBe(1);
+      expect(body.server.host).toBe('127.0.0.1');
+      expect(body.server.listening).toBe(true);
+      expect(body.integrations).toEqual([]);
+      expect(body.mcpClients).toEqual({ count: 1, transport: 'stdio', tracked: false });
+      expect(body.env.node.status).toBe('ok');
+    } finally {
+      await terminate({ child });
+    }
+  });
+
+  it('--no-web-ui suppresses the web UI', async () => {
+    const child = spawn(process.execPath, [cliPath, '--no-web-ui'], {
+      env: {
+        ...process.env,
+        XDG_DATA_HOME: dataHome,
+        SLOPWEAVER_WEB_UI_PORT: '0',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const stderrBuf: string[] = [];
+    child.stderr.setEncoding('utf-8');
+    child.stderr.on('data', (chunk: string) => {
+      stderrBuf.push(chunk);
+    });
+
+    try {
+      // Wait for the explicit "suppressed" line — confirms the binary reached
+      // the post-flag-parse branch and intentionally skipped the web UI.
+      // Deterministic vs. a fixed sleep: passes only after a real signal.
+      await waitForStderrMatch({
+        stderrBuf,
+        pattern: /web UI suppressed by --no-web-ui/,
+        timeoutMs: 10_000,
+      });
+      expect(child.exitCode).toBeNull();
+      expect(stderrBuf.join('')).not.toContain('web UI on');
+    } finally {
+      await terminate({ child });
+    }
+  });
+});
+
+async function waitForWebUiUrl({
+  stderrBuf,
+  timeoutMs,
+}: {
+  stderrBuf: string[];
+  timeoutMs: number;
+}): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const all = stderrBuf.join('');
+    const match = all.match(/web UI on (http:\/\/[^\s]+)/);
+    if (match?.[1] !== undefined) return match[1];
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+  throw new Error(
+    `web UI did not advertise a URL within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`,
+  );
+}
+
+async function waitForStderrMatch({
+  stderrBuf,
+  pattern,
+  timeoutMs,
+}: {
+  stderrBuf: string[];
+  pattern: RegExp;
+  timeoutMs: number;
+}): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pattern.test(stderrBuf.join(''))) return;
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+  throw new Error(
+    `stderr did not match ${pattern} within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`,
+  );
+}
+
+const TERMINATE_TIMEOUT_MS = 5_000;
+
+/**
+ * Send SIGTERM and wait for the child to exit, but bound the wait so a
+ * regression in the CLI's shutdown handler fails the test fast (with a
+ * specific error) instead of hanging up to vitest's per-test timeout. On
+ * timeout, escalate to SIGKILL and surface the failure.
+ */
+async function terminate({ child }: { child: ReturnType<typeof spawn> }): Promise<void> {
+  if (child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let onExit: (() => void) | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>((resolveExit) => {
+        onExit = (): void => resolveExit();
+        child.once('exit', onExit);
+      }),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(
+            new Error(`slopweaver child did not exit within ${TERMINATE_TIMEOUT_MS}ms of SIGTERM`),
+          );
+        }, TERMINATE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    if (onExit !== undefined) child.removeListener('exit', onExit);
+  }
+}

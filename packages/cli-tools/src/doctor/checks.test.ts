@@ -14,20 +14,31 @@ import {
   LOCAL_API_PORT,
   PNPM_VERSION_TIMEOUT_MS,
   REQUIRED_NODE_MAJOR,
+  REQUIRED_NODE_MINOR,
   REQUIRED_PNPM_MAJOR,
   type TryBindFn,
 } from './checks.ts';
 
 describe('checkNodeVersion', () => {
-  it('returns ok when the major version meets the minimum', () => {
-    const result = checkNodeVersion({ nodeVersion: `${REQUIRED_NODE_MAJOR}.0.0` });
+  it('returns ok when the version meets the minimum exactly', () => {
+    const result = checkNodeVersion({
+      nodeVersion: `${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}.0`,
+    });
     expect(result.status).toBe('ok');
-    expect(result.detail).toContain(`${REQUIRED_NODE_MAJOR}.0.0`);
+    expect(result.detail).toContain(`${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}.0`);
   });
 
   it('returns ok when the major version exceeds the minimum', () => {
     const result = checkNodeVersion({ nodeVersion: `${REQUIRED_NODE_MAJOR + 2}.5.1` });
     expect(result.status).toBe('ok');
+  });
+
+  it('returns fail when the minor version is below the minimum', () => {
+    const result = checkNodeVersion({
+      nodeVersion: `${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR - 1}.99`,
+    });
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('.nvmrc');
   });
 
   it('returns fail when the major version is below the minimum', () => {
