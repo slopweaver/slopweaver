@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createDb } from '@slopweaver/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { StaticEnvChecks } from './checks.ts';
-import { startWebUiServer, type WebUiServerHandle } from './start.ts';
+import { startUiServer, type UiServerHandle } from './start.ts';
 import type { DiagnosticsResponse } from './types.ts';
 
 const STATIC_CHECKS: StaticEnvChecks = {
@@ -13,14 +13,14 @@ const STATIC_CHECKS: StaticEnvChecks = {
   dataDir: { name: 'Data dir', status: 'ok', detail: '/tmp/x' },
 };
 
-describe('startWebUiServer', () => {
+describe('startUiServer', () => {
   let dbHandle: ReturnType<typeof createDb>;
-  let handle: WebUiServerHandle | undefined;
+  let handle: UiServerHandle | undefined;
   let tempAssets: string;
 
   beforeEach(() => {
     dbHandle = createDb({ path: ':memory:' });
-    tempAssets = mkdtempSync(join(tmpdir(), 'web-ui-assets-'));
+    tempAssets = mkdtempSync(join(tmpdir(), 'ui-assets-'));
     mkdirSync(join(tempAssets, 'assets'), { recursive: true });
     writeFileSync(join(tempAssets, 'index.html'), '<!doctype html><title>diag</title>');
     writeFileSync(join(tempAssets, 'assets', 'app.js'), 'console.log("hi")');
@@ -33,8 +33,8 @@ describe('startWebUiServer', () => {
     dbHandle.close();
   });
 
-  async function start(): Promise<WebUiServerHandle> {
-    handle = await startWebUiServer({
+  async function start(): Promise<UiServerHandle> {
+    handle = await startUiServer({
       db: dbHandle.db,
       dataDir: '/tmp/never-used-because-staticChecks-is-injected',
       host: '127.0.0.1',

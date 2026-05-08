@@ -1,4 +1,4 @@
-# @slopweaver/web-ui
+# @slopweaver/ui
 
 React UI and tiny HTTP server that powers the SlopWeaver local Diagnostics page on
 `http://127.0.0.1:60701`.
@@ -6,7 +6,7 @@ React UI and tiny HTTP server that powers the SlopWeaver local Diagnostics page 
 The package emits two artifacts:
 
 - `dist/client/` — a Vite-built React app (`index.html` + bundled JS/CSS).
-- `dist/server/` — a Node entry that exposes `startWebUiServer({ db })` and the
+- `dist/server/` — a Node entry that exposes `startUiServer({ db })` and the
   `CLIENT_ASSETS_DIR` constant so `apps/mcp-local` can serve the static assets
   alongside the `GET /api/diagnostics` JSON endpoint.
 
@@ -15,9 +15,9 @@ The server binds to `127.0.0.1` only and validates the `Origin` header on
 
 ## Scripts
 
-- `pnpm --filter @slopweaver/web-ui build` — produce `dist/client` and `dist/server`.
-- `pnpm --filter @slopweaver/web-ui compile` — `tsc --noEmit` over the whole tree.
-- `pnpm --filter @slopweaver/web-ui test` — run vitest (jsdom for client, node for server).
+- `pnpm --filter @slopweaver/ui build` — produce `dist/client` and `dist/server`.
+- `pnpm --filter @slopweaver/ui compile` — `tsc --noEmit` over the whole tree.
+- `pnpm --filter @slopweaver/ui test` — run vitest (jsdom for client, node for server).
 
 ## Why two outputs
 

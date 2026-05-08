@@ -20,15 +20,15 @@ For Cursor, Cline, and Codex CLI configs, see the
   through emit; npm sets the executable bit on install via the `bin` field.
 - Runtime deps: `@slopweaver/db` (which transitively pulls
   `better-sqlite3` + the Drizzle migrations folder), `@slopweaver/mcp-server`,
-  and `@slopweaver/web-ui` (whose `dist/client/` static assets the binary
+  and `@slopweaver/ui` (whose `dist/client/` static assets the binary
   serves on `127.0.0.1:60701`).
 - No bundler. No dist/ commit. `tsc` is the only build step for this package
-  (web-ui itself uses Vite for its client bundle).
+  (`@slopweaver/ui` itself uses Vite for its client bundle).
 
 ## Diagnostics web UI
 
 By default, alongside the stdio MCP server, the binary starts a tiny HTTP
-server on `127.0.0.1:60701` that serves the `@slopweaver/web-ui` Diagnostics
+server on `127.0.0.1:60701` that serves the `@slopweaver/ui` Diagnostics
 page plus a `GET /api/diagnostics` JSON endpoint. The bind is loopback-only;
 `Origin` validation rejects cross-origin requests.
 

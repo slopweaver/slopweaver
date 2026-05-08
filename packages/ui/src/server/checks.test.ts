@@ -64,7 +64,7 @@ describe('checkPnpmVersion', () => {
 
 describe('checkDataDir', () => {
   it('passes when the directory exists and is writable', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'web-ui-checks-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ui-checks-'));
     try {
       const result = checkDataDir({ dataDir: dir });
       expect(result.status).toBe('ok');
@@ -76,14 +76,14 @@ describe('checkDataDir', () => {
 
   it('warns when the directory is missing', () => {
     const result = checkDataDir({
-      dataDir: join(tmpdir(), 'web-ui-checks-missing-xyz123'),
+      dataDir: join(tmpdir(), 'ui-checks-missing-xyz123'),
     });
     expect(result.status).toBe('warn');
     expect(result.detail).toContain('missing');
   });
 
   it('fails when the path is a file', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'web-ui-checks-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ui-checks-'));
     const file = join(dir, 'not-a-dir');
     writeFileSync(file, 'hi');
     try {
@@ -97,7 +97,7 @@ describe('checkDataDir', () => {
 
   it('fails when the directory is not writable', () => {
     if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod semantics differ.
-    const dir = mkdtempSync(join(tmpdir(), 'web-ui-checks-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ui-checks-'));
     try {
       chmodSync(dir, 0o500);
       const result = checkDataDir({ dataDir: dir });
@@ -112,7 +112,7 @@ describe('checkDataDir', () => {
 
 describe('runStaticEnvChecks', () => {
   it('returns all three categories', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'web-ui-checks-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ui-checks-'));
     try {
       const result = runStaticEnvChecks({ dataDir: dir });
       expect(result.node.name).toBe('Node version');

@@ -22,10 +22,10 @@ import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
 import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
 import {
-  DEFAULT_PORT as WEB_UI_DEFAULT_PORT,
-  startWebUiServer,
-  type WebUiServerHandle,
-} from '@slopweaver/web-ui';
+  DEFAULT_PORT as UI_DEFAULT_PORT,
+  startUiServer,
+  type UiServerHandle,
+} from '@slopweaver/ui';
 
 // Read the bin's own version from its package.json at runtime. dist/cli.js
 // sits one directory below package.json (apps/mcp-local/package.json in the
@@ -73,7 +73,7 @@ For other clients see the README:
 
 function resolveWebUiPort(): number {
   const raw = env.SLOPWEAVER_WEB_UI_PORT;
-  if (raw === undefined || raw === '') return WEB_UI_DEFAULT_PORT;
+  if (raw === undefined || raw === '') return UI_DEFAULT_PORT;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 65_535) {
     throw new Error(`SLOPWEAVER_WEB_UI_PORT must be an integer in [0, 65535]; got: "${raw}"`);
@@ -94,8 +94,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const webUiEnabled = !args.has('--no-web-ui');
-  const webUiPort = resolveWebUiPort();
+  const uiEnabled = !args.has('--no-web-ui');
+  const uiPort = resolveWebUiPort();
 
   // Validate the environment before opening the SQLite file or starting the
   // server. Aggregated `EnvValidationError` propagates out and the process
@@ -115,20 +115,20 @@ async function main(): Promise<void> {
   // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:
   // typically means another slopweaver instance is already serving the page,
   // and stdio (the primary surface) is unaffected. Other failures propagate.
-  let webUiHandle: WebUiServerHandle | undefined;
-  if (webUiEnabled) {
+  let uiHandle: UiServerHandle | undefined;
+  if (uiEnabled) {
     try {
-      webUiHandle = await startWebUiServer({
+      uiHandle = await startUiServer({
         db: dbHandle.db,
         dataDir,
-        port: webUiPort,
+        port: uiPort,
       });
-      stderr.write(`slopweaver: web UI on ${webUiHandle.url}\n`);
+      stderr.write(`slopweaver: web UI on ${uiHandle.url}\n`);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'EADDRINUSE') {
         stderr.write(
-          `slopweaver: port ${webUiPort} in use; web UI disabled (pass --no-web-ui to silence)\n`,
+          `slopweaver: port ${uiPort} in use; web UI disabled (pass --no-web-ui to silence)\n`,
         );
       } else {
         throw error;
@@ -154,9 +154,9 @@ async function main(): Promise<void> {
     } catch (error) {
       stderr.write(`slopweaver: error closing MCP server on ${signal}: ${String(error)}\n`);
     }
-    if (webUiHandle !== undefined) {
+    if (uiHandle !== undefined) {
       try {
-        await webUiHandle.close();
+        await uiHandle.close();
       } catch (error) {
         stderr.write(`slopweaver: error closing web UI on ${signal}: ${String(error)}\n`);
       }

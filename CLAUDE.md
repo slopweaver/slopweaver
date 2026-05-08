@@ -30,7 +30,7 @@ This repo is in active scaffolding. Many packages and apps named below don't exi
 - `packages/mcp-server/` — framework-agnostic MCP server, including composite tools in `src/tools/composite/`
 - `packages/integrations/` — single package with subdirectories per platform (`github/`, `slack/`, etc.)
 - `packages/db/`, `packages/auth/`, `packages/memory/`, `packages/contracts/` — shared core packages
-- `packages/web-ui/` — React components for the local UI on `localhost:60701`
+- `packages/ui/` — React components for the local web UI on `localhost:60701`
 
 (See ARCHITECTURE.md when it exists for the full layout.)
 

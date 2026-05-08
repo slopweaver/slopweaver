@@ -6,7 +6,7 @@ import { runStaticEnvChecks, type StaticEnvChecks } from './checks.ts';
 import { buildDiagnosticsResponse } from './diagnostics.ts';
 import { CLIENT_ASSETS_DIR } from './static-dir.ts';
 
-export type StartWebUiServerOptions = {
+export type StartUiServerOptions = {
   db: SlopweaverDatabase;
   /** Absolute path to the SlopWeaver data dir (e.g. `~/.slopweaver/`). */
   dataDir: string;
@@ -18,7 +18,7 @@ export type StartWebUiServerOptions = {
   staticChecks?: StaticEnvChecks;
 };
 
-export type WebUiServerHandle = {
+export type UiServerHandle = {
   url: string;
   address: { host: string; port: number };
   close: () => Promise<void>;
@@ -68,7 +68,7 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
-export async function startWebUiServer(opts: StartWebUiServerOptions): Promise<WebUiServerHandle> {
+export async function startUiServer(opts: StartUiServerOptions): Promise<UiServerHandle> {
   const requestedHost = opts.host ?? DEFAULT_HOST;
   const requestedPort = opts.port ?? DEFAULT_PORT;
   const clientAssetsDir = resolve(opts.clientAssetsDir ?? CLIENT_ASSETS_DIR);

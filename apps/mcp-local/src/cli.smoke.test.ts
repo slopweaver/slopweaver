@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { PingResult } from '@slopweaver/contracts';
-import type { DiagnosticsResponse } from '@slopweaver/web-ui';
+import type { DiagnosticsResponse } from '@slopweaver/ui';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
