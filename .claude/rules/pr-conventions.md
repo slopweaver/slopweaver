@@ -11,7 +11,7 @@ Conventional commits style. The title becomes the squashed commit message on `ma
 ```
 
 Types: `feat`, `fix`, `docs`, `chore`, `ci`, `refactor`, `test`, `perf`.
-Scope is optional but useful. Common scopes: `cli-tools`, `mcp-server`, `web-ui`, `db`, `auth`, `integrations`.
+Scope is optional but useful. Common scopes: `cli-tools`, `mcp-server`, `ui`, `db`, `auth`, `integrations`.
 
 Good:
 
@@ -23,7 +23,7 @@ Good:
 Bad:
 
 - `Updates` (no type, no detail)
-- `feat: lots of changes to mcp-server, db, and web-ui` (multiple scopes; should be 3 PRs)
+- `feat: lots of changes to mcp-server, db, and ui` (multiple scopes; should be 3 PRs)
 - `Fixed bug` (passive, vague)
 
 ## Description

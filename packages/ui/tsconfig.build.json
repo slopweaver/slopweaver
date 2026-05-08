@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "rootDir": "./src/server",
+    "outDir": "./dist/server",
+    "types": ["node"]
+  },
+  "include": ["src/server/**/*"],
+  "exclude": ["src/server/**/*.test.ts", "node_modules", "dist"]
+}

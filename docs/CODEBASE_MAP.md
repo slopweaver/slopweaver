@@ -50,7 +50,7 @@ graph TB
 
 ## Repo state
 
-This repo is **pre-alpha**. Most of the v1.0.0 surface area named in `CLAUDE.md` (`apps/mcp-local`, `packages/integrations/`, `packages/auth/`, `packages/memory/`, `packages/web-ui/`) does not yet exist. What is present:
+This repo is **pre-alpha**. Most of the v1.0.0 surface area named in `CLAUDE.md` (`apps/mcp-local`, `packages/integrations/`, `packages/auth/`, `packages/memory/`, `packages/ui/`) does not yet exist. What is present:
 
 - 4 packages (`cli-tools`, `contracts`, `db`, `mcp-server`)
 - Full repo plumbing: CI, release workflow, ESLint boundaries, Biome, knip, Turborepo, Vitest, AI workflow rules, slash commands, issue templates, PR template
@@ -333,7 +333,7 @@ All GitHub Action versions are pinned by full commit SHA (supply chain hardening
 
 ### PRs
 
-- **Title**: conventional-commits style: `<type>(<scope>): <imperative summary>`. Types: `feat`, `fix`, `docs`, `chore`, `ci`, `refactor`, `test`, `perf`. Common scopes: `cli-tools`, `mcp-server`, `web-ui`, `db`, `auth`, `integrations`.
+- **Title**: conventional-commits style: `<type>(<scope>): <imperative summary>`. Types: `feat`, `fix`, `docs`, `chore`, `ci`, `refactor`, `test`, `perf`. Common scopes: `cli-tools`, `mcp-server`, `ui`, `db`, `auth`, `integrations`.
 - **Body**: use `.github/pull_request_template.md`. Always include `closes #N` or `refs #N`.
 - **Size**: ≤500 lines of diff (excluding lockfiles, migrations, snapshots). New package skeletons are exempt.
 - **Scope**: one concern per PR. File a separate issue for unrelated drive-by fixes.

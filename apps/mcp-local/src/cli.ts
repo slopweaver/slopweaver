@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
  * `slopweaver` CLI entry. With no subcommand, opens the local SQLite DB at
- * the XDG-resolved location, registers the `ping` builtin tool, and runs the
- * MCP server over stdio. The `connect <integration>` subcommand prompts for
- * a token, validates it against the upstream API, and persists it into
- * `integration_tokens` for the polling layer to consume.
+ * the XDG-resolved location, registers the `ping` + `start_session` builtin
+ * tools, runs the MCP server over stdio, and (unless `--no-web-ui` is set)
+ * starts the local Diagnostics web UI on `http://127.0.0.1:60701`. The
+ * `connect <integration>` subcommand prompts for a token, validates it
+ * against the upstream API, and persists it into `integration_tokens` for
+ * the polling layer to consume.
  *
- * v1 ships stdio-only per decision #11. The bin is wired into MCP clients
- * via:
+ * v1 ships stdio as the primary surface per decision #11. The bin is wired
+ * into MCP clients via:
  *
  *   claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
  *
@@ -18,10 +20,10 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { argv, exit, stderr, stdout } from 'node:process';
+import { argv, env, exit, stderr, stdout } from 'node:process';
 import { password } from '@inquirer/prompts';
 import { cac } from 'cac';
-import { createDb, resolveDbPath } from '@slopweaver/db';
+import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
 import { createGithubClient } from '@slopweaver/integrations-github';
 import { createSlackClient } from '@slopweaver/integrations-slack';
@@ -31,6 +33,11 @@ import {
   createStartSessionTool,
   startStdio,
 } from '@slopweaver/mcp-server';
+import {
+  DEFAULT_PORT as UI_DEFAULT_PORT,
+  startUiServer,
+  type UiServerHandle,
+} from '@slopweaver/ui';
 import { runConnectGithub } from './connect/github.ts';
 import { runConnectSlack } from './connect/slack.ts';
 
@@ -54,7 +61,22 @@ function readVersion(): string {
 
 const VERSION = readVersion();
 
-async function runMcpServer(): Promise<void> {
+function resolveWebUiPort(): number {
+  const raw = env.SLOPWEAVER_WEB_UI_PORT;
+  if (raw === undefined || raw === '') return UI_DEFAULT_PORT;
+  // Strict-digit gate: `Number.parseInt` would silently accept `"60701junk"`
+  // → 60701. Reject any non-digit characters so misconfigured envs fail loudly.
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`SLOPWEAVER_WEB_UI_PORT must be an integer in [0, 65535]; got: "${raw}"`);
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (parsed > 65_535) {
+    throw new Error(`SLOPWEAVER_WEB_UI_PORT must be an integer in [0, 65535]; got: "${raw}"`);
+  }
+  return parsed;
+}
+
+async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void> {
   // Validate the environment before opening the SQLite file or starting the
   // server. Aggregated `EnvValidationError` propagates out and the process
   // exits non-zero — single fail-fast boundary for bad env.
@@ -62,6 +84,7 @@ async function runMcpServer(): Promise<void> {
 
   const startedAtMs = Date.now();
   const dbHandle = createDb({ path: resolveDbPath() });
+  const dataDir = resolveDataDir();
 
   const server = createMcpServer({
     db: dbHandle.db,
@@ -76,19 +99,57 @@ async function runMcpServer(): Promise<void> {
     ],
   });
 
+  // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:
+  // typically means another slopweaver instance is already serving the page,
+  // and stdio (the primary surface) is unaffected. Other failures propagate.
+  // Resolve the port lazily so a malformed `SLOPWEAVER_WEB_UI_PORT` doesn't
+  // abort the binary when the user has explicitly disabled the web UI.
+  let uiHandle: UiServerHandle | undefined;
+  if (uiEnabled) {
+    const uiPort = resolveWebUiPort();
+    try {
+      uiHandle = await startUiServer({
+        db: dbHandle.db,
+        dataDir,
+        port: uiPort,
+      });
+      stderr.write(`slopweaver: web UI on ${uiHandle.url}\n`);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EADDRINUSE') {
+        stderr.write(
+          `slopweaver: port ${uiPort} in use; web UI disabled (pass --no-web-ui to silence)\n`,
+        );
+      } else {
+        throw error;
+      }
+    }
+  } else {
+    // Explicit log so callers (and the smoke test) can observe that the web
+    // UI start path was reached and intentionally skipped, not silently dead.
+    stderr.write('slopweaver: web UI suppressed by --no-web-ui flag\n');
+  }
+
   // Ensure the SQLite handle is closed on graceful shutdown. The MCP
   // transport keeps the event loop alive, so this is the only path that
   // releases the file lock cleanly. SIGINT comes from Ctrl-C in a terminal;
   // SIGTERM is what well-behaved MCP clients send when shutting the server
   // down.
   let shuttingDown = false;
-  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+  const shutdown = async ({ signal }: { signal: NodeJS.Signals }): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     try {
       await server.close();
     } catch (error) {
       stderr.write(`slopweaver: error closing MCP server on ${signal}: ${String(error)}\n`);
+    }
+    if (uiHandle !== undefined) {
+      try {
+        await uiHandle.close();
+      } catch (error) {
+        stderr.write(`slopweaver: error closing web UI on ${signal}: ${String(error)}\n`);
+      }
     }
     try {
       dbHandle.close();
@@ -99,10 +160,10 @@ async function runMcpServer(): Promise<void> {
   };
 
   process.on('SIGINT', (signal) => {
-    void shutdown(signal);
+    void shutdown({ signal });
   });
   process.on('SIGTERM', (signal) => {
-    void shutdown(signal);
+    void shutdown({ signal });
   });
 
   await startStdio({ server });
@@ -175,12 +236,15 @@ cli
       });
   });
 
-cli.command('', 'Run the MCP server over stdio (default)').action(() => {
-  runMcpServer().catch((error: unknown) => {
-    stderr.write(`slopweaver: ${asMessage({ error })}\n`);
-    exit(1);
+cli
+  .command('', 'Run the MCP server over stdio (default)')
+  .option('--no-web-ui', 'Disable the local Diagnostics web UI on 127.0.0.1:60701')
+  .action((options: { webUi: boolean }) => {
+    runMcpServer({ uiEnabled: options.webUi }).catch((error: unknown) => {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    });
   });
-});
 
 cli.help();
 cli.version(VERSION);
