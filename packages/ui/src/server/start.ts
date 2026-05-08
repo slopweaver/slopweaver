@@ -31,7 +31,7 @@ export const DEFAULT_PORT = 60701;
  * Format a host for use inside a URL. IPv6 addresses must be bracketed
  * (`[::1]`), all other hosts pass through unchanged.
  */
-function formatHostForUrl(host: string): string {
+function formatHostForUrl({ host }: { host: string }): string {
   // Crude but sufficient: any host containing `:` is an IPv6 address.
   // Hostnames and IPv4 dotted-quad literals never contain `:`.
   return host.includes(':') ? `[${host}]` : host;
@@ -46,9 +46,13 @@ function formatHostForUrl(host: string): string {
  * the browser bar are not 403'd. Anything else (different host or port) is
  * cross-origin and rejected — baseline DNS-rebinding protection.
  */
-function getAllowedOrigins(bindAddress: { host: string; port: number }): Set<string> {
+function getAllowedOrigins({
+  bindAddress,
+}: {
+  bindAddress: { host: string; port: number };
+}): Set<string> {
   const origins = new Set<string>();
-  origins.add(`http://${formatHostForUrl(bindAddress.host)}:${bindAddress.port}`);
+  origins.add(`http://${formatHostForUrl({ host: bindAddress.host })}:${bindAddress.port}`);
   origins.add(`http://localhost:${bindAddress.port}`);
   return origins;
 }
@@ -83,7 +87,7 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
     createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress }),
   );
 
-  await listen(server, requestedPort, requestedHost);
+  await listen({ server, port: requestedPort, host: requestedHost });
 
   const addr = server.address();
   if (addr !== null && typeof addr === 'object') {
@@ -92,7 +96,7 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   }
 
   return {
-    url: `http://${formatHostForUrl(bindAddress.host)}:${bindAddress.port}`,
+    url: `http://${formatHostForUrl({ host: bindAddress.host })}:${bindAddress.port}`,
     address: { host: bindAddress.host, port: bindAddress.port },
     close: () =>
       new Promise<void>((resolveClose, rejectClose) => {
@@ -104,7 +108,15 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   };
 }
 
-function listen(server: Server, port: number, host: string): Promise<void> {
+function listen({
+  server,
+  port,
+  host,
+}: {
+  server: Server;
+  port: number;
+  host: string;
+}): Promise<void> {
   return new Promise((resolveListen, rejectListen) => {
     const onError = (err: unknown): void => {
       server.removeListener('listening', onListening);
@@ -140,7 +152,7 @@ function createHandler({
     try {
       pathname = new URL(url, 'http://placeholder').pathname;
     } catch {
-      writeText(res, 400, 'bad url\n');
+      writeText({ res, status: 400, body: 'bad url\n' });
       return;
     }
 
@@ -180,8 +192,8 @@ function handleApi({
     res.end('method not allowed\n');
     return;
   }
-  if (!isOriginAllowed(req, bindAddress)) {
-    writeText(res, 403, 'forbidden origin\n');
+  if (!isOriginAllowed({ req, bindAddress })) {
+    writeText({ res, status: 403, body: 'forbidden origin\n' });
     return;
   }
   if (pathname === '/api/diagnostics') {
@@ -193,13 +205,16 @@ function handleApi({
     res.end(method === 'HEAD' ? undefined : body);
     return;
   }
-  writeText(res, 404, 'not found\n');
+  writeText({ res, status: 404, body: 'not found\n' });
 }
 
-function isOriginAllowed(
-  req: IncomingMessage,
-  bindAddress: { host: string; port: number },
-): boolean {
+function isOriginAllowed({
+  req,
+  bindAddress,
+}: {
+  req: IncomingMessage;
+  bindAddress: { host: string; port: number };
+}): boolean {
   const origin = req.headers.origin;
   // Same-origin requests from the page itself, plus curl / native fetch with
   // no Origin header, are allowed. Cross-origin requests are rejected — this
@@ -207,7 +222,7 @@ function isOriginAllowed(
   // follow-up).
   if (origin === undefined) return true;
   if (typeof origin !== 'string') return false;
-  return getAllowedOrigins(bindAddress).has(origin);
+  return getAllowedOrigins({ bindAddress }).has(origin);
 }
 
 function serveStatic({
@@ -227,22 +242,22 @@ function serveStatic({
   // Path-traversal guard: ensure the resolved path stays inside clientAssetsDir.
   const rel = relative(clientAssetsDir, candidate);
   if (rel.startsWith('..') || isAbsolute(rel)) {
-    writeText(res, 403, 'forbidden\n');
+    writeText({ res, status: 403, body: 'forbidden\n' });
     return;
   }
 
   let target = candidate;
-  if (!fileExists(target)) {
+  if (!fileExists({ path: target })) {
     // SPA fallback for unknown extensionless routes — render index.html and
     // let the client router take over.
     if (extname(requested) === '') {
       target = join(clientAssetsDir, 'index.html');
-      if (!fileExists(target)) {
-        writeText(res, 404, 'not found\n');
+      if (!fileExists({ path: target })) {
+        writeText({ res, status: 404, body: 'not found\n' });
         return;
       }
     } else {
-      writeText(res, 404, 'not found\n');
+      writeText({ res, status: 404, body: 'not found\n' });
       return;
     }
   }
@@ -253,10 +268,22 @@ function serveStatic({
     res.end();
     return;
   }
-  createReadStream(target).pipe(res);
+  // TOCTOU safety: the file could disappear between the fileExists check and
+  // the stream open. An unhandled `error` event on createReadStream would
+  // crash the host process — attach a listener that returns a 500 (or just
+  // tears down the socket if headers are already on the wire) instead.
+  const stream = createReadStream(target);
+  stream.on('error', () => {
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
+    writeText({ res, status: 500, body: 'internal server error\n' });
+  });
+  stream.pipe(res);
 }
 
-function fileExists(path: string): boolean {
+function fileExists({ path }: { path: string }): boolean {
   try {
     return statSync(path).isFile();
   } catch {
@@ -264,7 +291,15 @@ function fileExists(path: string): boolean {
   }
 }
 
-function writeText(res: ServerResponse, status: number, body: string): void {
+function writeText({
+  res,
+  status,
+  body,
+}: {
+  res: ServerResponse;
+  status: number;
+  body: string;
+}): void {
   res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
   res.end(body);
 }

@@ -11,7 +11,12 @@ export function Diagnostics() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const load = async (): Promise<void> => {
+      // Skip overlapping requests so a slow earlier fetch can't overwrite the
+      // newer state when its response finally arrives.
+      if (inFlight) return;
+      inFlight = true;
       try {
         const next = await fetchDiagnostics();
         if (cancelled) return;
@@ -21,6 +26,7 @@ export function Diagnostics() {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
       } finally {
+        inFlight = false;
         if (!cancelled) setLoading(false);
       }
     };
@@ -128,8 +134,8 @@ function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }) {
               <td>
                 <code>{r.integration}</code>
               </td>
-              <td>{formatTime(r.lastPollStartedAtMs)}</td>
-              <td>{formatTime(r.lastPollCompletedAtMs)}</td>
+              <td>{formatTime({ ms: r.lastPollStartedAtMs })}</td>
+              <td>{formatTime({ ms: r.lastPollCompletedAtMs })}</td>
               <td>
                 <span className={`badge badge--${badge}`}>{status}</span>
               </td>
@@ -141,6 +147,6 @@ function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }) {
   );
 }
 
-function formatTime(ms: number | null): string {
+function formatTime({ ms }: { ms: number | null }): string {
   return ms === null ? '—' : new Date(ms).toLocaleString();
 }

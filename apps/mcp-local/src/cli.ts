@@ -79,8 +79,13 @@ For other clients see the README:
 function resolveWebUiPort(): number {
   const raw = env.SLOPWEAVER_WEB_UI_PORT;
   if (raw === undefined || raw === '') return UI_DEFAULT_PORT;
+  // Strict-digit gate: `Number.parseInt` would silently accept `"60701junk"`
+  // → 60701. Reject any non-digit characters so misconfigured envs fail loudly.
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`SLOPWEAVER_WEB_UI_PORT must be an integer in [0, 65535]; got: "${raw}"`);
+  }
   const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 65_535) {
+  if (parsed > 65_535) {
     throw new Error(`SLOPWEAVER_WEB_UI_PORT must be an integer in [0, 65535]; got: "${raw}"`);
   }
   return parsed;
@@ -100,7 +105,6 @@ async function main(): Promise<void> {
   }
 
   const uiEnabled = !args.has('--no-web-ui');
-  const uiPort = resolveWebUiPort();
 
   // Validate the environment before opening the SQLite file or starting the
   // server. Aggregated `EnvValidationError` propagates out and the process
@@ -127,8 +131,11 @@ async function main(): Promise<void> {
   // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:
   // typically means another slopweaver instance is already serving the page,
   // and stdio (the primary surface) is unaffected. Other failures propagate.
+  // Resolve the port lazily so a malformed `SLOPWEAVER_WEB_UI_PORT` doesn't
+  // abort the binary when the user has explicitly disabled the web UI.
   let uiHandle: UiServerHandle | undefined;
   if (uiEnabled) {
+    const uiPort = resolveWebUiPort();
     try {
       uiHandle = await startUiServer({
         db: dbHandle.db,
@@ -158,7 +165,7 @@ async function main(): Promise<void> {
   // SIGTERM is what well-behaved MCP clients send when shutting the server
   // down.
   let shuttingDown = false;
-  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+  const shutdown = async ({ signal }: { signal: NodeJS.Signals }): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     try {
@@ -182,10 +189,10 @@ async function main(): Promise<void> {
   };
 
   process.on('SIGINT', (signal) => {
-    void shutdown(signal);
+    void shutdown({ signal });
   });
   process.on('SIGTERM', (signal) => {
-    void shutdown(signal);
+    void shutdown({ signal });
   });
 
   await startStdio({ server });

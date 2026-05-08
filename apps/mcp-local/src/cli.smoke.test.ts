@@ -167,7 +167,7 @@ describe('slopweaver bin web UI', () => {
     });
 
     try {
-      const url = await waitForWebUiUrl(stderrBuf, 10_000);
+      const url = await waitForWebUiUrl({ stderrBuf, timeoutMs: 10_000 });
       const res = await fetch(`${url}/api/diagnostics`);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('application/json');
@@ -179,7 +179,7 @@ describe('slopweaver bin web UI', () => {
       expect(body.mcpClients).toEqual({ count: 1, transport: 'stdio', tracked: false });
       expect(body.env.node.status).toBe('ok');
     } finally {
-      await terminate(child);
+      await terminate({ child });
     }
   });
 
@@ -203,16 +203,26 @@ describe('slopweaver bin web UI', () => {
       // Wait for the explicit "suppressed" line — confirms the binary reached
       // the post-flag-parse branch and intentionally skipped the web UI.
       // Deterministic vs. a fixed sleep: passes only after a real signal.
-      await waitForStderrMatch(stderrBuf, /web UI suppressed by --no-web-ui/, 10_000);
+      await waitForStderrMatch({
+        stderrBuf,
+        pattern: /web UI suppressed by --no-web-ui/,
+        timeoutMs: 10_000,
+      });
       expect(child.exitCode).toBeNull();
       expect(stderrBuf.join('')).not.toContain('web UI on');
     } finally {
-      await terminate(child);
+      await terminate({ child });
     }
   });
 });
 
-async function waitForWebUiUrl(stderrBuf: string[], timeoutMs: number): Promise<string> {
+async function waitForWebUiUrl({
+  stderrBuf,
+  timeoutMs,
+}: {
+  stderrBuf: string[];
+  timeoutMs: number;
+}): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const all = stderrBuf.join('');
@@ -225,11 +235,15 @@ async function waitForWebUiUrl(stderrBuf: string[], timeoutMs: number): Promise<
   );
 }
 
-async function waitForStderrMatch(
-  stderrBuf: string[],
-  pattern: RegExp,
-  timeoutMs: number,
-): Promise<void> {
+async function waitForStderrMatch({
+  stderrBuf,
+  pattern,
+  timeoutMs,
+}: {
+  stderrBuf: string[];
+  pattern: RegExp;
+  timeoutMs: number;
+}): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (pattern.test(stderrBuf.join(''))) return;
@@ -240,10 +254,36 @@ async function waitForStderrMatch(
   );
 }
 
-async function terminate(child: ReturnType<typeof spawn>): Promise<void> {
+const TERMINATE_TIMEOUT_MS = 5_000;
+
+/**
+ * Send SIGTERM and wait for the child to exit, but bound the wait so a
+ * regression in the CLI's shutdown handler fails the test fast (with a
+ * specific error) instead of hanging up to vitest's per-test timeout. On
+ * timeout, escalate to SIGKILL and surface the failure.
+ */
+async function terminate({ child }: { child: ReturnType<typeof spawn> }): Promise<void> {
   if (child.exitCode !== null) return;
   child.kill('SIGTERM');
-  await new Promise<void>((resolveExit) => {
-    child.once('exit', () => resolveExit());
-  });
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let onExit: (() => void) | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>((resolveExit) => {
+        onExit = (): void => resolveExit();
+        child.once('exit', onExit);
+      }),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(
+            new Error(`slopweaver child did not exit within ${TERMINATE_TIMEOUT_MS}ms of SIGTERM`),
+          );
+        }, TERMINATE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+    if (onExit !== undefined) child.removeListener('exit', onExit);
+  }
 }

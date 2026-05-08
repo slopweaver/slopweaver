@@ -51,7 +51,7 @@ describe('Diagnostics page', () => {
   it('renders a healthy response', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(jsonResponse(HEALTHY))),
+      vi.fn(() => Promise.resolve(jsonResponse({ body: HEALTHY }))),
     );
     render(<Diagnostics />);
     await waitFor(() => {
@@ -65,7 +65,7 @@ describe('Diagnostics page', () => {
   it('renders the stale badge for degraded integrations', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(jsonResponse(DEGRADED))),
+      vi.fn(() => Promise.resolve(jsonResponse({ body: DEGRADED }))),
     );
     render(<Diagnostics />);
     await waitFor(() => screen.getByText(/missing/i));
@@ -83,7 +83,7 @@ describe('Diagnostics page', () => {
   });
 });
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse({ body }: { body: unknown }): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { 'content-type': 'application/json' },
