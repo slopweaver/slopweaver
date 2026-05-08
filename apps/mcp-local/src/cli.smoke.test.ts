@@ -22,7 +22,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { PingResult } from '@slopweaver/contracts';
+import { PingResult, StartSessionResult } from '@slopweaver/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -65,6 +65,7 @@ describe('slopweaver bin (compiled CLI)', () => {
       const list = await client.listTools();
       const names = list.tools.map((t) => t.name);
       expect(names).toContain('ping');
+      expect(names).toContain('start_session');
 
       const ping = list.tools.find((t) => t.name === 'ping');
       expect(ping?.inputSchema.type).toBe('object');
@@ -78,6 +79,20 @@ describe('slopweaver bin (compiled CLI)', () => {
         expect(parsed.data.ok).toBe(true);
         expect(parsed.data.version.length).toBeGreaterThan(0);
         expect(parsed.data.uptime_s).toBeGreaterThanOrEqual(0);
+      }
+
+      // start_session against an empty fresh DB returns the empty contract
+      // shape — no integrations registered, so items/evidence/freshness are
+      // all empty but `generated_at` is set.
+      const startSession = await client.callTool({ name: 'start_session', arguments: {} });
+      expect(startSession.isError).toBeUndefined();
+      const startSessionParsed = StartSessionResult.safeParse(startSession.structuredContent);
+      expect(startSessionParsed.success).toBe(true);
+      if (startSessionParsed.success) {
+        expect(startSessionParsed.data.items).toEqual([]);
+        expect(startSessionParsed.data.evidence).toEqual([]);
+        expect(startSessionParsed.data.freshness).toEqual([]);
+        expect(startSessionParsed.data.generated_at.length).toBeGreaterThan(0);
       }
     } finally {
       await client.close();

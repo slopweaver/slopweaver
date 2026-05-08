@@ -25,7 +25,12 @@ import { createDb, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
 import { createGithubClient } from '@slopweaver/integrations-github';
 import { createSlackClient } from '@slopweaver/integrations-slack';
-import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
+import {
+  createMcpServer,
+  createPingTool,
+  createStartSessionTool,
+  startStdio,
+} from '@slopweaver/mcp-server';
 import { runConnectGithub } from './connect/github.ts';
 import { runConnectSlack } from './connect/slack.ts';
 
@@ -61,7 +66,14 @@ async function runMcpServer(): Promise<void> {
   const server = createMcpServer({
     db: dbHandle.db,
     version: VERSION,
-    tools: [createPingTool({ version: VERSION, startedAtMs })],
+    tools: [
+      createPingTool({ version: VERSION, startedAtMs }),
+      // Pollers are intentionally empty in v1: integration auth tokens are
+      // not yet wired through env, so `force_refresh` is a no-op until that
+      // lands. The tool still serves cached evidence and accurate freshness
+      // reports without them.
+      createStartSessionTool(),
+    ],
   });
 
   // Ensure the SQLite handle is closed on graceful shutdown. The MCP
