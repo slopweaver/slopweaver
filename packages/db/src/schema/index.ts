@@ -9,4 +9,5 @@
 export { evidenceLog } from './evidence-log.ts';
 export { identityGraph } from './identity-graph.ts';
 export { integrationState } from './integration-state.ts';
+export { integrationTokens } from './integration-tokens.ts';
 export { workspaces } from './workspaces.ts';

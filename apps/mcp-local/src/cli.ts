@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * `slopweaver` CLI entry. Parses minimal args (`--version`, `--help`,
- * `--no-web-ui`), opens the local SQLite DB at the XDG-resolved location,
- * registers the `ping` builtin tool, runs the MCP server over stdio, and
- * (unless suppressed) starts the local Diagnostics web UI on
- * `http://127.0.0.1:60701`.
+ * `slopweaver` CLI entry. With no subcommand, opens the local SQLite DB at
+ * the XDG-resolved location, registers the `ping` + `start_session` builtin
+ * tools, runs the MCP server over stdio, and (unless `--no-web-ui` is set)
+ * starts the local Diagnostics web UI on `http://127.0.0.1:60701`. The
+ * `connect <integration>` subcommand prompts for a token, validates it
+ * against the upstream API, and persists it into `integration_tokens` for
+ * the polling layer to consume.
  *
  * v1 ships stdio as the primary surface per decision #11. The bin is wired
  * into MCP clients via:
@@ -12,14 +14,19 @@
  *   claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
  *
  * After globally installing (`npm install -g @slopweaver/mcp-local`), the
- * `slopweaver` command is available directly. Out of scope for this app:
- * `init`, `doctor`, `connect` subcommands — those land in subsequent issues.
+ * `slopweaver` command is available directly. Run `slopweaver connect github`
+ * (or `slopweaver connect slack`) to wire up an integration before launching
+ * the MCP server.
  */
 
 import { readFileSync } from 'node:fs';
 import { argv, env, exit, stderr, stdout } from 'node:process';
+import { password } from '@inquirer/prompts';
+import { cac } from 'cac';
 import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
+import { createGithubClient } from '@slopweaver/integrations-github';
+import { createSlackClient } from '@slopweaver/integrations-slack';
 import {
   createMcpServer,
   createPingTool,
@@ -31,6 +38,8 @@ import {
   startUiServer,
   type UiServerHandle,
 } from '@slopweaver/ui';
+import { runConnectGithub } from './connect/github.ts';
+import { runConnectSlack } from './connect/slack.ts';
 
 // Read the bin's own version from its package.json at runtime. dist/cli.js
 // sits one directory below package.json (apps/mcp-local/package.json in the
@@ -52,30 +61,6 @@ function readVersion(): string {
 
 const VERSION = readVersion();
 
-const HELP = `slopweaver — local MCP server (v${VERSION}).
-
-Usage:
-  slopweaver [options]
-
-With no arguments, runs an MCP server over stdio. The server is intended to
-be spawned by an MCP client (Claude Code, Cursor, Cline, Codex CLI). It is
-not interactive when launched directly from a terminal.
-
-Options:
-  -v, --version    Print the version and exit.
-  -h, --help       Show this message.
-      --no-web-ui  Disable the local Diagnostics web UI on 127.0.0.1:60701.
-
-Environment:
-  SLOPWEAVER_WEB_UI_PORT   Override the web UI port (default 60701; 0 = pick).
-
-Wire into Claude Code:
-  claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
-
-For other clients see the README:
-  https://github.com/slopweaver/slopweaver
-`;
-
 function resolveWebUiPort(): number {
   const raw = env.SLOPWEAVER_WEB_UI_PORT;
   if (raw === undefined || raw === '') return UI_DEFAULT_PORT;
@@ -91,21 +76,7 @@ function resolveWebUiPort(): number {
   return parsed;
 }
 
-async function main(): Promise<void> {
-  const args = new Set(argv.slice(2));
-
-  if (args.has('--version') || args.has('-v')) {
-    stdout.write(`${VERSION}\n`);
-    return;
-  }
-
-  if (args.has('--help') || args.has('-h')) {
-    stdout.write(HELP);
-    return;
-  }
-
-  const uiEnabled = !args.has('--no-web-ui');
-
+async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void> {
   // Validate the environment before opening the SQLite file or starting the
   // server. Aggregated `EnvValidationError` propagates out and the process
   // exits non-zero — single fail-fast boundary for bad env.
@@ -198,14 +169,91 @@ async function main(): Promise<void> {
   await startStdio({ server });
 }
 
-// Top-level guard: any error thrown during startup (env validation,
-// XDG path validation, DB open, transport setup) is a "won't start"
-// condition. Print just the message to stderr and exit non-zero — end
-// users don't need a stack trace for "your config is wrong".
+async function runConnect({ integration }: { integration: string }): Promise<number> {
+  if (integration !== 'github' && integration !== 'slack') {
+    stderr.write(`slopweaver: unknown integration "${integration}". Expected github or slack.\n`);
+    return 1;
+  }
+
+  // Mirror runMcpServer's env contract — bad NODE_ENV / LOG_LEVEL must reject
+  // here too, otherwise the connect path would silently honour invalid values
+  // that the stdio path rejects.
+  loadEnv();
+
+  const dbHandle = createDb({ path: resolveDbPath() });
+  try {
+    const promptForToken = async ({ message }: { message: string }): Promise<string> =>
+      password({ message, mask: true });
+
+    if (integration === 'github') {
+      return await runConnectGithub({
+        db: dbHandle.db,
+        promptForToken,
+        validateToken: async (token: string): Promise<{ login: string }> => {
+          const octokit = createGithubClient({ token });
+          const { data } = await octokit.rest.users.getAuthenticated();
+          return { login: data.login };
+        },
+        stdout,
+        stderr,
+      });
+    }
+
+    return await runConnectSlack({
+      db: dbHandle.db,
+      promptForToken,
+      validateToken: async (token: string): Promise<{ team: string | null }> => {
+        const slack = createSlackClient({ token });
+        const auth = await slack.auth.test();
+        return { team: auth.team ?? null };
+      },
+      stdout,
+      stderr,
+    });
+  } finally {
+    dbHandle.close();
+  }
+}
+
+function asMessage({ error }: { error: unknown }): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+const cli = cac('slopweaver');
+
+cli
+  .command('connect <integration>', 'Save a token for an integration (github | slack)')
+  .example('  slopweaver connect github')
+  .example('  slopweaver connect slack')
+  .action((integration: string) => {
+    runConnect({ integration })
+      .then((code) => {
+        exit(code);
+      })
+      .catch((error: unknown) => {
+        stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+        exit(1);
+      });
+  });
+
+cli
+  .command('', 'Run the MCP server over stdio (default)')
+  .option('--no-web-ui', 'Disable the local Diagnostics web UI on 127.0.0.1:60701')
+  .action((options: { webUi: boolean }) => {
+    runMcpServer({ uiEnabled: options.webUi }).catch((error: unknown) => {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    });
+  });
+
+cli.help();
+cli.version(VERSION);
+
+// Top-level guard for synchronous parse errors (malformed argv). Async errors
+// inside command actions are caught above; cac doesn't surface those here.
 try {
-  await main();
+  cli.parse(argv);
 } catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  stderr.write(`slopweaver: ${message}\n`);
+  stderr.write(`slopweaver: ${asMessage({ error })}\n`);
   exit(1);
 }

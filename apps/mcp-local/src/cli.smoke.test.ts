@@ -120,6 +120,28 @@ describe('slopweaver bin (compiled CLI)', () => {
     expect(result.stderr).not.toMatch(/^\s+at /m);
   });
 
+  it('connect path enforces the same env contract as the default stdio path', () => {
+    // Regression: env validation used to run only on the no-arg MCP-stdio
+    // path. `slopweaver connect github` with bad env must reject before any
+    // prompt, otherwise the connect path silently honours invalid env that
+    // the stdio path rejects.
+    const result = spawnSync(process.execPath, [cliPath, 'connect', 'github'], {
+      env: {
+        PATH: process.env.PATH ?? '',
+        XDG_DATA_HOME: dataHome,
+        NODE_ENV: 'banana',
+        LOG_LEVEL: 'shout',
+      },
+      encoding: 'utf-8',
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('slopweaver:');
+    expect(result.stderr).toContain('NODE_ENV');
+    expect(result.stderr).toContain('LOG_LEVEL');
+    expect(result.stderr).not.toMatch(/^\s+at /m);
+  });
+
   it('exits non-zero with a clean stderr message when XDG_DATA_HOME is relative', () => {
     const result = spawnSync(process.execPath, [cliPath], {
       env: {

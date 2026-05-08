@@ -46,18 +46,30 @@ importers:
 
   apps/mcp-local:
     dependencies:
+      '@inquirer/prompts':
+        specifier: 8.4.2
+        version: 8.4.2(@types/node@22.19.17)
       '@slopweaver/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@slopweaver/env':
         specifier: workspace:*
         version: link:../../packages/env
+      '@slopweaver/integrations-github':
+        specifier: workspace:*
+        version: link:../../packages/integrations/github
+      '@slopweaver/integrations-slack':
+        specifier: workspace:*
+        version: link:../../packages/integrations/slack
       '@slopweaver/mcp-server':
         specifier: workspace:*
         version: link:../../packages/mcp-server
       '@slopweaver/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      cac:
+        specifier: 7.0.0
+        version: 7.0.0
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0

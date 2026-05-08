@@ -25,10 +25,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@inquirer/prompts": "8.4.2",
     "@slopweaver/db": "workspace:*",
     "@slopweaver/env": "workspace:*",
+    "@slopweaver/integrations-github": "workspace:*",
+    "@slopweaver/integrations-slack": "workspace:*",
     "@slopweaver/mcp-server": "workspace:*",
-    "@slopweaver/ui": "workspace:*"
+    "@slopweaver/ui": "workspace:*",
+    "cac": "7.0.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
