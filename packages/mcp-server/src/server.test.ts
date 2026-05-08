@@ -9,12 +9,13 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { PingResult } from '@slopweaver/contracts';
+import { PingResult, StartSessionResult } from '@slopweaver/contracts';
 import { createDb } from '@slopweaver/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createMcpServer } from './server.ts';
 import { createPingTool } from './tools/builtin/ping.ts';
+import { createStartSessionTool } from './tools/composite/start-session.ts';
 import { defineTool, type Tool } from './tools/registry.ts';
 
 describe('createMcpServer + ping', () => {
@@ -161,6 +162,40 @@ describe('createMcpServer + ping', () => {
       });
       expect(ok.isError).toBeUndefined();
       expect(handlerCalled).toBe(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('registers start_session and round-trips a StartSessionResult shape', async () => {
+    const fixedNow = 1_762_000_000_000;
+    const server = createMcpServer({
+      db: dbHandle.db,
+      version: '0.1.0',
+      tools: [createStartSessionTool({ now: () => fixedNow })],
+    });
+
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const list = await client.listTools();
+      expect(list.tools.map((t) => t.name)).toContain('start_session');
+
+      const callResult = await client.callTool({ name: 'start_session', arguments: {} });
+      expect(callResult.isError).toBeUndefined();
+
+      const parsed = StartSessionResult.safeParse(callResult.structuredContent);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.items).toEqual([]);
+        expect(parsed.data.evidence).toEqual([]);
+        expect(parsed.data.freshness).toEqual([]);
+        expect(parsed.data.generated_at).toBe(new Date(fixedNow).toISOString());
+      }
     } finally {
       await client.close();
       await server.close();

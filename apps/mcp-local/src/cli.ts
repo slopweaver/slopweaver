@@ -20,7 +20,12 @@ import { readFileSync } from 'node:fs';
 import { argv, env, exit, stderr, stdout } from 'node:process';
 import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
-import { createMcpServer, createPingTool, startStdio } from '@slopweaver/mcp-server';
+import {
+  createMcpServer,
+  createPingTool,
+  createStartSessionTool,
+  startStdio,
+} from '@slopweaver/mcp-server';
 import {
   DEFAULT_PORT as UI_DEFAULT_PORT,
   startUiServer,
@@ -109,7 +114,14 @@ async function main(): Promise<void> {
   const server = createMcpServer({
     db: dbHandle.db,
     version: VERSION,
-    tools: [createPingTool({ version: VERSION, startedAtMs })],
+    tools: [
+      createPingTool({ version: VERSION, startedAtMs }),
+      // Pollers are intentionally empty in v1: integration auth tokens are
+      // not yet wired through env, so `force_refresh` is a no-op until that
+      // lands. The tool still serves cached evidence and accurate freshness
+      // reports without them.
+      createStartSessionTool(),
+    ],
   });
 
   // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:
