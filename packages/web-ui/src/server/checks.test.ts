@@ -5,20 +5,26 @@ import { describe, expect, it } from 'vitest';
 import { checkDataDir, checkNodeVersion, checkPnpmVersion, runStaticEnvChecks } from './checks.ts';
 
 describe('checkNodeVersion', () => {
-  it('passes for the required major', () => {
-    const result = checkNodeVersion({ nodeVersion: '22.10.0' });
+  it('passes when the version meets the minimum exactly', () => {
+    const result = checkNodeVersion({ nodeVersion: '22.12.0' });
     expect(result.status).toBe('ok');
-    expect(result.detail).toContain('22.10.0');
+    expect(result.detail).toContain('22.12.0');
   });
 
   it('passes for a higher major', () => {
     expect(checkNodeVersion({ nodeVersion: '24.0.0' }).status).toBe('ok');
   });
 
+  it('fails when the minor is below the minimum', () => {
+    const result = checkNodeVersion({ nodeVersion: '22.10.0' });
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('need >=22.12');
+  });
+
   it('fails for a lower major', () => {
     const result = checkNodeVersion({ nodeVersion: '20.11.0' });
     expect(result.status).toBe('fail');
-    expect(result.detail).toContain('need >=22');
+    expect(result.detail).toContain('need >=22.12');
   });
 });
 

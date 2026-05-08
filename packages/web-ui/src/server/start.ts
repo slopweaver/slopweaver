@@ -27,10 +27,31 @@ export type WebUiServerHandle = {
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 60701;
 
-const ALLOWED_ORIGINS = new Set([
-  `http://${DEFAULT_HOST}:${DEFAULT_PORT}`,
-  `http://localhost:${DEFAULT_PORT}`,
-]);
+/**
+ * Format a host for use inside a URL. IPv6 addresses must be bracketed
+ * (`[::1]`), all other hosts pass through unchanged.
+ */
+function formatHostForUrl(host: string): string {
+  // Crude but sufficient: any host containing `:` is an IPv6 address.
+  // Hostnames and IPv4 dotted-quad literals never contain `:`.
+  return host.includes(':') ? `[${host}]` : host;
+}
+
+/**
+ * Compute the set of `Origin` header values allowed for `/api/*` requests.
+ *
+ * Browsers loaded from the same address as the server will send
+ * `Origin: <scheme>://<host>:<port>`. Always include `localhost:<port>` in
+ * addition to the bound IP literal so users typing `http://localhost:N` in
+ * the browser bar are not 403'd. Anything else (different host or port) is
+ * cross-origin and rejected — baseline DNS-rebinding protection.
+ */
+function getAllowedOrigins(bindAddress: { host: string; port: number }): Set<string> {
+  const origins = new Set<string>();
+  origins.add(`http://${formatHostForUrl(bindAddress.host)}:${bindAddress.port}`);
+  origins.add(`http://localhost:${bindAddress.port}`);
+  return origins;
+}
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -71,7 +92,7 @@ export async function startWebUiServer(opts: StartWebUiServerOptions): Promise<W
   }
 
   return {
-    url: `http://${bindAddress.host}:${bindAddress.port}`,
+    url: `http://${formatHostForUrl(bindAddress.host)}:${bindAddress.port}`,
     address: { host: bindAddress.host, port: bindAddress.port },
     close: () =>
       new Promise<void>((resolveClose, rejectClose) => {
@@ -159,7 +180,7 @@ function handleApi({
     res.end('method not allowed\n');
     return;
   }
-  if (!isOriginAllowed(req)) {
+  if (!isOriginAllowed(req, bindAddress)) {
     writeText(res, 403, 'forbidden origin\n');
     return;
   }
@@ -175,7 +196,10 @@ function handleApi({
   writeText(res, 404, 'not found\n');
 }
 
-function isOriginAllowed(req: IncomingMessage): boolean {
+function isOriginAllowed(
+  req: IncomingMessage,
+  bindAddress: { host: string; port: number },
+): boolean {
   const origin = req.headers.origin;
   // Same-origin requests from the page itself, plus curl / native fetch with
   // no Origin header, are allowed. Cross-origin requests are rejected — this
@@ -183,7 +207,7 @@ function isOriginAllowed(req: IncomingMessage): boolean {
   // follow-up).
   if (origin === undefined) return true;
   if (typeof origin !== 'string') return false;
-  return ALLOWED_ORIGINS.has(origin);
+  return getAllowedOrigins(bindAddress).has(origin);
 }
 
 function serveStatic({

@@ -67,12 +67,31 @@ describe('startWebUiServer', () => {
     expect(res.status).toBe(403);
   });
 
-  it('accepts /api/diagnostics from http://localhost:60701', async () => {
+  it('accepts /api/diagnostics from the Origin matching the bound port (port:0)', async () => {
     const h = await start();
+    const res = await fetch(`${h.url}/api/diagnostics`, {
+      headers: { origin: `http://127.0.0.1:${h.address.port}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts /api/diagnostics from http://localhost:<port> (browser typing localhost)', async () => {
+    const h = await start();
+    const res = await fetch(`${h.url}/api/diagnostics`, {
+      headers: { origin: `http://localhost:${h.address.port}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects an Origin pointing at a non-bound port', async () => {
+    const h = await start();
+    // The static :60701 default would have been wrongly accepted before the
+    // fix; with port:0 it must be rejected because it is not the bound port.
     const res = await fetch(`${h.url}/api/diagnostics`, {
       headers: { origin: 'http://localhost:60701' },
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
+    expect(h.address.port).not.toBe(60701);
   });
 
   it('returns 405 for POST /api/diagnostics', async () => {

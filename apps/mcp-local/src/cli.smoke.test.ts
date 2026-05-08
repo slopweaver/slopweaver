@@ -185,8 +185,10 @@ describe('slopweaver bin web UI', () => {
     });
 
     try {
-      // Give the binary a moment to settle past the web UI start branch.
-      await new Promise<void>((r) => setTimeout(r, 750));
+      // Wait for the explicit "suppressed" line — confirms the binary reached
+      // the post-flag-parse branch and intentionally skipped the web UI.
+      // Deterministic vs. a fixed sleep: passes only after a real signal.
+      await waitForStderrMatch(stderrBuf, /web UI suppressed by --no-web-ui/, 10_000);
       expect(child.exitCode).toBeNull();
       expect(stderrBuf.join('')).not.toContain('web UI on');
     } finally {
@@ -205,6 +207,21 @@ async function waitForWebUiUrl(stderrBuf: string[], timeoutMs: number): Promise<
   }
   throw new Error(
     `web UI did not advertise a URL within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`,
+  );
+}
+
+async function waitForStderrMatch(
+  stderrBuf: string[],
+  pattern: RegExp,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pattern.test(stderrBuf.join(''))) return;
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+  throw new Error(
+    `stderr did not match ${pattern} within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`,
   );
 }
 

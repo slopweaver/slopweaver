@@ -134,6 +134,10 @@ async function main(): Promise<void> {
         throw error;
       }
     }
+  } else {
+    // Explicit log so callers (and the smoke test) can observe that the web
+    // UI start path was reached and intentionally skipped, not silently dead.
+    stderr.write('slopweaver: web UI suppressed by --no-web-ui flag\n');
   }
 
   // Ensure the SQLite handle is closed on graceful shutdown. The MCP

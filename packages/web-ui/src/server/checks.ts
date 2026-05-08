@@ -1,12 +1,19 @@
 /**
  * Environment health checks for the Diagnostics page.
  *
- * Intentional duplicate of a subset of `packages/cli-tools/src/doctor/checks.ts`.
+ * Intentional partial duplicate of `packages/cli-tools/src/doctor/checks.ts`.
  * `cli-tools` is `private: true` with no build step (its `main` points at TS
  * source), so it cannot be safely consumed by published runtime packages.
  * Once cli-tools gains a build (or we extract a runtime-safe
  * `@slopweaver/diagnostics-core`), collapse this back to a single source of
  * truth.
+ *
+ * Intentional divergences from the cli-tools original:
+ *  - pnpm failures are downgraded from `fail` to `warn`. Reasoning: the
+ *    Diagnostics page is shown to end users running the published binary,
+ *    where pnpm is irrelevant (only matters for contributors building from
+ *    source). The cli-tools doctor still reports `fail` because it is a
+ *    contributor-facing tool.
  *
  * Checks are pure-with-injected-deps so tests don't shell out.
  */
@@ -16,6 +23,7 @@ import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import type { EnvCheck } from './types.ts';
 
 const REQUIRED_NODE_MAJOR = 22;
+const REQUIRED_NODE_MINOR = 12;
 const REQUIRED_PNPM_MAJOR = 10;
 const PNPM_VERSION_TIMEOUT_MS = 5_000;
 
@@ -23,23 +31,34 @@ function majorOf(version: string): number {
   return Number.parseInt(version.split('.')[0] ?? '0', 10);
 }
 
+function minorOf(version: string): number {
+  return Number.parseInt(version.split('.')[1] ?? '0', 10);
+}
+
+function isNodeSupported(version: string): boolean {
+  const major = majorOf(version);
+  if (major > REQUIRED_NODE_MAJOR) return true;
+  if (major < REQUIRED_NODE_MAJOR) return false;
+  return minorOf(version) >= REQUIRED_NODE_MINOR;
+}
+
 export function checkNodeVersion({
   nodeVersion = process.versions.node,
 }: {
   nodeVersion?: string;
 } = {}): EnvCheck {
-  const major = majorOf(nodeVersion);
-  if (major >= REQUIRED_NODE_MAJOR) {
+  const required = `${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}`;
+  if (isNodeSupported(nodeVersion)) {
     return {
       name: 'Node version',
       status: 'ok',
-      detail: `node ${nodeVersion} (>=${REQUIRED_NODE_MAJOR})`,
+      detail: `node ${nodeVersion} (>=${required})`,
     };
   }
   return {
     name: 'Node version',
     status: 'fail',
-    detail: `node ${nodeVersion} -- need >=${REQUIRED_NODE_MAJOR}`,
+    detail: `node ${nodeVersion} -- need >=${required}`,
   };
 }
 
