@@ -21,6 +21,7 @@
     "compile": "turbo run compile",
     "format": "biome format --write .",
     "format:check": "biome format .",
+    "check:service-boundaries": "tsx packages/cli-tools/src/cli.ts check-service-boundaries",
     "knip": "knip",
     "lint": "biome lint . && eslint .",
     "prepare": "lefthook install || echo 'lefthook install skipped (not a git repository)'",

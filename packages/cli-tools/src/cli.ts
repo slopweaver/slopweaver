@@ -11,6 +11,7 @@
  */
 
 import { cac } from 'cac';
+import { runAndExit as runCheckServiceBoundaries } from './check-neverthrow-service-boundaries/index.ts';
 import { runDoctor } from './doctor/index.ts';
 import { normalizeExecutor, prepare, run } from './orchestration/index.ts';
 import { runWorktreeNew } from './worktree/index.ts';
@@ -30,6 +31,16 @@ cli
       console.error(`error: ${result.error}`);
       process.exit(result.exitCode);
     }
+  });
+
+cli
+  .command(
+    'check-service-boundaries',
+    'Fail if `throw` statements appear in service-boundary files (see #41)',
+  )
+  .example('  pnpm cli check-service-boundaries')
+  .action(() => {
+    runCheckServiceBoundaries();
   });
 
 cli
