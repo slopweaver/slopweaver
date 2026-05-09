@@ -17,9 +17,11 @@
  */
 
 import type { WebClient } from '@slack/web-api';
-import { type SlopweaverDatabase, identityGraph } from '@slopweaver/db';
+import { identityGraph, safeQuery, type SlopweaverDatabase } from '@slopweaver/db';
+import { errAsync, type ResultAsync } from '@slopweaver/errors';
 import { sql } from 'drizzle-orm';
 import { createSlackClient } from './client.ts';
+import { fromDatabaseError, safeSlackCall, type SlackError } from './errors.ts';
 
 const INTEGRATION = 'slack';
 
@@ -35,55 +37,72 @@ export type FetchIdentityResult = {
   externalId: string;
 };
 
-export async function fetchIdentity({
+export function fetchIdentity({
   db,
   token,
   client,
   now = Date.now,
-}: FetchIdentityArgs): Promise<FetchIdentityResult> {
-  const slack = client ?? createSlackClient({ token });
+}: FetchIdentityArgs): ResultAsync<FetchIdentityResult, SlackError> {
+  let slack: WebClient;
+  if (client) {
+    slack = client;
+  } else {
+    const created = createSlackClient({ token });
+    if (created.isErr()) return errAsync(created.error);
+    slack = created.value;
+  }
 
-  const auth = await slack.auth.test();
-  // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees user_id on ok:true
-  const userId = auth.user_id!;
-  // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
-  const teamId = auth.team_id!;
-  const canonicalId = `${INTEGRATION}:${teamId}:${userId}`;
-
-  const usersInfo = await slack.users.info({ user: userId });
-  const user = usersInfo.user;
-  const profile = user?.profile;
-  const username = user?.name ?? auth.user ?? null;
-  const displayName = profile?.display_name?.trim() || profile?.real_name?.trim() || null;
-  const profileUrl = auth.url ? `${stripTrailingSlash(auth.url)}/team/${userId}` : null;
-
-  const stamp = now();
-
-  db.insert(identityGraph)
-    .values({
-      canonicalId,
-      integration: INTEGRATION,
-      externalId: userId,
-      username,
-      displayName,
-      profileUrl,
-      createdAtMs: stamp,
-      updatedAtMs: stamp,
+  return safeSlackCall({
+    execute: () => slack.auth.test(),
+    endpoint: 'auth.test',
+  })
+    .andThen((auth) => {
+      // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees user_id on ok:true
+      const userId = auth.user_id!;
+      // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
+      const teamId = auth.team_id!;
+      const canonicalId = `${INTEGRATION}:${teamId}:${userId}`;
+      const profileUrl = auth.url ? `${stripTrailingSlash(auth.url)}/team/${userId}` : null;
+      return safeSlackCall({
+        execute: () => slack.users.info({ user: userId }),
+        endpoint: 'users.info',
+      }).map((usersInfo) => ({ auth, userId, canonicalId, profileUrl, usersInfo }));
     })
-    .onConflictDoUpdate({
-      target: [identityGraph.integration, identityGraph.externalId],
-      // canonical_id and created_at_ms are preserved across re-runs by being
-      // absent from the conflict-update set.
-      set: {
-        username,
-        displayName,
-        profileUrl,
-        updatedAtMs: sql`excluded.updated_at_ms`,
-      },
-    })
-    .run();
+    .andThen(({ auth, userId, canonicalId, profileUrl, usersInfo }) => {
+      const user = usersInfo.user;
+      const profile = user?.profile;
+      const username = user?.name ?? auth.user ?? null;
+      const displayName = profile?.display_name?.trim() || profile?.real_name?.trim() || null;
+      const stamp = now();
 
-  return { canonicalId, externalId: userId };
+      return safeQuery({
+        execute: () => {
+          db.insert(identityGraph)
+            .values({
+              canonicalId,
+              integration: INTEGRATION,
+              externalId: userId,
+              username,
+              displayName,
+              profileUrl,
+              createdAtMs: stamp,
+              updatedAtMs: stamp,
+            })
+            .onConflictDoUpdate({
+              target: [identityGraph.integration, identityGraph.externalId],
+              set: {
+                username,
+                displayName,
+                profileUrl,
+                updatedAtMs: sql`excluded.updated_at_ms`,
+              },
+            })
+            .run();
+        },
+      })
+        .mapErr(fromDatabaseError)
+        .map(() => ({ canonicalId, externalId: userId }));
+    });
 }
 
 function stripTrailingSlash(url: string): string {

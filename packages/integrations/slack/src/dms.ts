@@ -46,7 +46,14 @@ export async function pollDMs({
   client,
   now = Date.now,
 }: PollDMsArgs): Promise<PollResult> {
-  const slack = client ?? createSlackClient({ token });
+  let slack: WebClient;
+  if (client) {
+    slack = client;
+  } else {
+    const created = createSlackClient({ token });
+    if (created.isErr()) throw new Error(created.error.message);
+    slack = created.value;
+  }
   const startedAt = now();
   const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
   if (startResult.isErr()) throw new Error(startResult.error.message);

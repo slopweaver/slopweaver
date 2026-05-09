@@ -209,8 +209,11 @@ async function runConnect({ integration }: { integration: string }): Promise<num
       db: dbHandle.db,
       promptForToken,
       validateToken: async (token: string): Promise<{ team: string | null }> => {
-        const slack = createSlackClient({ token });
-        const auth = await slack.auth.test();
+        const slackResult = createSlackClient({ token });
+        if (slackResult.isErr()) {
+          throw new Error(slackResult.error.message);
+        }
+        const auth = await slackResult.value.auth.test();
         return { team: auth.team ?? null };
       },
       stdout,

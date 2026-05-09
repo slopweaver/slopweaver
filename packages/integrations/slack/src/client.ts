@@ -12,6 +12,8 @@
  */
 
 import { WebClient, type WebClientOptions } from '@slack/web-api';
+import { err, ok, type Result } from '@slopweaver/errors';
+import { SlackErrors, type SlackTokenInvalidError } from './errors.ts';
 
 type RetryConfig = NonNullable<WebClientOptions['retryConfig']>;
 
@@ -32,11 +34,11 @@ export function createSlackClient({
 }: {
   token: string;
   retryConfig?: RetryConfig;
-}): WebClient {
+}): Result<WebClient, SlackTokenInvalidError> {
   if (!token) {
-    throw new Error('createSlackClient: token must be a non-empty string');
+    return err(SlackErrors.tokenInvalid(''));
   }
   const resolvedRetryConfig =
     retryConfig ?? (process.env['NODE_ENV'] === 'test' ? TEST_RETRY_CONFIG : PROD_RETRY_CONFIG);
-  return new WebClient(token, { retryConfig: resolvedRetryConfig });
+  return ok(new WebClient(token, { retryConfig: resolvedRetryConfig }));
 }
