@@ -118,6 +118,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@slopweaver/errors':
+        specifier: workspace:*
+        version: link:../errors
       better-sqlite3:
         specifier: 12.2.0
         version: 12.2.0

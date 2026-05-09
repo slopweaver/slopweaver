@@ -17,7 +17,9 @@ import * as schema from './schema/index.ts';
 
 export * from './integration-tokens.ts';
 export * from './path.ts';
+export * from './safe-query.ts';
 export * from './schema/index.ts';
+export * from './sqlite-error.ts';
 
 /**
  * Absolute path to the directory holding generated Drizzle migration SQL.
