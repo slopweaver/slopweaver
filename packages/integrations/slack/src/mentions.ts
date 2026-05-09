@@ -51,7 +51,8 @@ export async function pollMentions({
 }: PollMentionsArgs): Promise<PollResult> {
   const slack = client ?? createSlackClient({ token });
   const startedAt = now();
-  markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  if (startResult.isErr()) throw new Error(startResult.error.message);
 
   // Slack guarantees user_id / team_id on ok:true responses; the SDK throws
   // WebAPIPlatformError on { ok: false } so the asserts below are reached
@@ -82,7 +83,7 @@ export async function pollMentions({
 
     const observedAt = now();
     for (const match of matches) {
-      upsertSlackMessage({
+      const upsertResult = await upsertSlackMessage({
         db,
         message: match,
         kind: 'mention',
@@ -90,6 +91,7 @@ export async function pollMentions({
         workspaceUrl,
         now: observedAt,
       });
+      if (upsertResult.isErr()) throw new Error(upsertResult.error.message);
     }
 
     const pageNewest = pickNewestTs(matches);
@@ -120,7 +122,13 @@ export async function pollMentions({
   // `since?: Date` / `newCursor: string | null` contract round-trips through
   // `new Date(cursor)` without per-platform parsing.
   const newCursor = newestTs ? slackTsToIso(newestTs) : (since?.toISOString() ?? null);
-  markPollCompleted({ db, integration: INTEGRATION, cursor: newCursor, now: now() });
+  const completedResult = await markPollCompleted({
+    db,
+    integration: INTEGRATION,
+    cursor: newCursor,
+    now: now(),
+  });
+  if (completedResult.isErr()) throw new Error(completedResult.error.message);
   return { fetched, newCursor };
 }
 

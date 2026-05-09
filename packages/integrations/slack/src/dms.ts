@@ -48,7 +48,8 @@ export async function pollDMs({
 }: PollDMsArgs): Promise<PollResult> {
   const slack = client ?? createSlackClient({ token });
   const startedAt = now();
-  markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  if (startResult.isErr()) throw new Error(startResult.error.message);
 
   const auth = await slack.auth.test();
   // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
@@ -80,7 +81,7 @@ export async function pollDMs({
 
         const observedAt = now();
         for (const message of messages) {
-          upsertSlackMessage({
+          const upsertResult = await upsertSlackMessage({
             db,
             message,
             kind: 'message',
@@ -89,6 +90,7 @@ export async function pollDMs({
             channelId: channel.id,
             now: observedAt,
           });
+          if (upsertResult.isErr()) throw new Error(upsertResult.error.message);
         }
 
         const pageNewest = pickNewestTs(messages);
@@ -103,7 +105,13 @@ export async function pollDMs({
   // `newCursor: string | null` contract round-trips through `new Date(cursor)`.
   // Match github's polling.ts:106 stable-format rule.
   const newCursor = newestTs ? slackTsToIso(newestTs) : (since?.toISOString() ?? null);
-  markPollCompleted({ db, integration: INTEGRATION, cursor: newCursor, now: now() });
+  const completedResult = await markPollCompleted({
+    db,
+    integration: INTEGRATION,
+    cursor: newCursor,
+    now: now(),
+  });
+  if (completedResult.isErr()) throw new Error(completedResult.error.message);
   return { fetched, newCursor };
 }
 

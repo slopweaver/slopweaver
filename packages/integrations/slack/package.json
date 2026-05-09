@@ -29,6 +29,7 @@
   "dependencies": {
     "@slack/web-api": "7.15.1",
     "@slopweaver/db": "workspace:*",
+    "@slopweaver/errors": "workspace:*",
     "@slopweaver/integrations-core": "workspace:*",
     "drizzle-orm": "0.45.2"
   },

@@ -71,7 +71,8 @@ async function runSearch({
   now = () => Date.now(),
 }: PollArgs & { kind: string; qualifier: string }): Promise<PollResult> {
   const startedAt = now();
-  markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  if (startResult.isErr()) throw new Error(startResult.error.message);
 
   const sinceClause = since ? ` updated:>${since.toISOString()}` : '';
   const octokit = createGithubClient({ token });
@@ -86,7 +87,7 @@ async function runSearch({
   const observedAt = now();
 
   for (const item of items) {
-    upsertEvidence({
+    const upsertResult = await upsertEvidence({
       db,
       integration: INTEGRATION,
       externalId: externalIdFor({ item, kind }),
@@ -98,13 +99,20 @@ async function runSearch({
       occurredAtMs: Date.parse(item.updated_at),
       now: observedAt,
     });
+    if (upsertResult.isErr()) throw new Error(upsertResult.error.message);
   }
 
   // When the poll returns zero items, preserve the prior watermark (`since`)
   // instead of resetting the cursor to null — otherwise the next poll would
   // backfill from the beginning unnecessarily.
   const newCursor = items[0]?.updated_at ?? since?.toISOString() ?? null;
-  markPollCompleted({ db, integration: INTEGRATION, cursor: newCursor, now: observedAt });
+  const completedResult = await markPollCompleted({
+    db,
+    integration: INTEGRATION,
+    cursor: newCursor,
+    now: observedAt,
+  });
+  if (completedResult.isErr()) throw new Error(completedResult.error.message);
   return { fetched: items.length, newCursor };
 }
 

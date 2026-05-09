@@ -16,6 +16,7 @@
 
 import type { ConversationsHistoryResponse, SearchMessagesResponse } from '@slack/web-api';
 import type { SlopweaverDatabase } from '@slopweaver/db';
+import { type DatabaseError, okAsync, type ResultAsync } from '@slopweaver/errors';
 import { upsertEvidence } from '@slopweaver/integrations-core';
 
 type SearchMatch = NonNullable<NonNullable<SearchMessagesResponse['messages']>['matches']>[number];
@@ -40,15 +41,15 @@ export function upsertSlackMessage({
   workspaceUrl: string | null;
   channelId?: string;
   now: number;
-}): { ts: string | null } {
+}): ResultAsync<{ ts: string | null }, DatabaseError> {
   const ts = message.ts;
-  if (!ts) return { ts: null };
+  if (!ts) return okAsync({ ts: null });
 
   const resolvedChannelId = channelId ?? extractChannelId({ message });
-  if (!resolvedChannelId) return { ts: null };
+  if (!resolvedChannelId) return okAsync({ ts: null });
 
   const occurredAtMs = parseSlackTs({ ts });
-  if (occurredAtMs === null) return { ts: null };
+  if (occurredAtMs === null) return okAsync({ ts: null });
 
   const externalId = `${kind}_${ts}:${resolvedChannelId}`;
   const text = message.text ?? '';
@@ -58,7 +59,7 @@ export function upsertSlackMessage({
   const citationUrl =
     permalinkFromMatch ?? buildPermalink({ workspaceUrl, channelId: resolvedChannelId, ts });
 
-  upsertEvidence({
+  return upsertEvidence({
     db,
     integration: 'slack',
     externalId,
@@ -69,9 +70,7 @@ export function upsertSlackMessage({
     payloadJson: JSON.stringify({ ...message, _team_id: teamId }),
     occurredAtMs,
     now,
-  });
-
-  return { ts };
+  }).map(() => ({ ts }));
 }
 
 /**

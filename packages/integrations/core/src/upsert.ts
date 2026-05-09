@@ -13,10 +13,14 @@
  * never finished" doctor signal.
  *
  * Generic over `integration: string`. Integration packages call these
- * directly with their slug (`'github'`, `'slack'`, …).
+ * directly with their slug (`'github'`, `'slack'`, …). All four functions
+ * return `ResultAsync<…, DatabaseError>` via `safeQuery`; service callers
+ * are responsible for handling the `Err` (typically by translating into
+ * their own per-platform error union).
  */
 
-import { type SlopweaverDatabase, evidenceLog, integrationState } from '@slopweaver/db';
+import { evidenceLog, integrationState, safeQuery, type SlopweaverDatabase } from '@slopweaver/db';
+import type { DatabaseError, ResultAsync } from '@slopweaver/errors';
 import { eq, sql } from 'drizzle-orm';
 
 export type UpsertEvidenceArgs = {
@@ -43,36 +47,40 @@ export function upsertEvidence({
   payloadJson,
   occurredAtMs,
   now,
-}: UpsertEvidenceArgs): void {
-  db.insert(evidenceLog)
-    .values({
-      integration,
-      externalId,
-      kind,
-      title,
-      body,
-      citationUrl,
-      payloadJson,
-      occurredAtMs,
-      firstSeenAtMs: now,
-      lastSeenAtMs: now,
-      createdAtMs: now,
-      updatedAtMs: now,
-    })
-    .onConflictDoUpdate({
-      target: [evidenceLog.integration, evidenceLog.externalId],
-      set: {
-        kind,
-        title,
-        body,
-        citationUrl,
-        payloadJson,
-        occurredAtMs,
-        lastSeenAtMs: sql`excluded.last_seen_at_ms`,
-        updatedAtMs: sql`excluded.updated_at_ms`,
-      },
-    })
-    .run();
+}: UpsertEvidenceArgs): ResultAsync<void, DatabaseError> {
+  return safeQuery({
+    execute: () => {
+      db.insert(evidenceLog)
+        .values({
+          integration,
+          externalId,
+          kind,
+          title,
+          body,
+          citationUrl,
+          payloadJson,
+          occurredAtMs,
+          firstSeenAtMs: now,
+          lastSeenAtMs: now,
+          createdAtMs: now,
+          updatedAtMs: now,
+        })
+        .onConflictDoUpdate({
+          target: [evidenceLog.integration, evidenceLog.externalId],
+          set: {
+            kind,
+            title,
+            body,
+            citationUrl,
+            payloadJson,
+            occurredAtMs,
+            lastSeenAtMs: sql`excluded.last_seen_at_ms`,
+            updatedAtMs: sql`excluded.updated_at_ms`,
+          },
+        })
+        .run();
+    },
+  });
 }
 
 export function markPollStarted({
@@ -83,24 +91,28 @@ export function markPollStarted({
   db: SlopweaverDatabase;
   integration: string;
   now: number;
-}): void {
-  db.insert(integrationState)
-    .values({
-      integration,
-      cursor: null,
-      lastPollStartedAtMs: now,
-      lastPollCompletedAtMs: null,
-      createdAtMs: now,
-      updatedAtMs: now,
-    })
-    .onConflictDoUpdate({
-      target: integrationState.integration,
-      set: {
-        lastPollStartedAtMs: now,
-        updatedAtMs: now,
-      },
-    })
-    .run();
+}): ResultAsync<void, DatabaseError> {
+  return safeQuery({
+    execute: () => {
+      db.insert(integrationState)
+        .values({
+          integration,
+          cursor: null,
+          lastPollStartedAtMs: now,
+          lastPollCompletedAtMs: null,
+          createdAtMs: now,
+          updatedAtMs: now,
+        })
+        .onConflictDoUpdate({
+          target: integrationState.integration,
+          set: {
+            lastPollStartedAtMs: now,
+            updatedAtMs: now,
+          },
+        })
+        .run();
+    },
+  });
 }
 
 /**
@@ -119,17 +131,21 @@ export function markPollCompleted({
   integration: string;
   cursor: string | null;
   now: number;
-}): number {
-  const result = db
-    .update(integrationState)
-    .set({
-      cursor,
-      lastPollCompletedAtMs: now,
-      updatedAtMs: now,
-    })
-    .where(eq(integrationState.integration, integration))
-    .run();
-  return result.changes;
+}): ResultAsync<number, DatabaseError> {
+  return safeQuery({
+    execute: () => {
+      const result = db
+        .update(integrationState)
+        .set({
+          cursor,
+          lastPollCompletedAtMs: now,
+          updatedAtMs: now,
+        })
+        .where(eq(integrationState.integration, integration))
+        .run();
+      return result.changes;
+    },
+  });
 }
 
 export function readCursor({
@@ -138,11 +154,15 @@ export function readCursor({
 }: {
   db: SlopweaverDatabase;
   integration: string;
-}): string | null {
-  const row = db
-    .select()
-    .from(integrationState)
-    .where(eq(integrationState.integration, integration))
-    .get();
-  return row?.cursor ?? null;
+}): ResultAsync<string | null, DatabaseError> {
+  return safeQuery({
+    execute: () => {
+      const row = db
+        .select()
+        .from(integrationState)
+        .where(eq(integrationState.integration, integration))
+        .get();
+      return row?.cursor ?? null;
+    },
+  });
 }
