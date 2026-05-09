@@ -27,7 +27,7 @@ These are *preferences with rationale*, not absolutist NEVERs. Some existing tes
 
 These are non-negotiable — they're about test discipline, not style:
 
-- **Never skip tests.** No `.skip`, `.only`, `.todo`, or "if not available, skip" branches. If a test can't run, fix the cause, not the assertion.
+- **Don't `.skip` a real test.** No `.skip`, `.only`, `.todo`, or "if not available, skip" branches on a test that should be running. The one acceptable use of `it.skip(...)` is a searchability-placeholder whose body is just a comment pointing readers at where the real test lives — see `packages/integrations/slack/src/mentions.test.ts` ("cassette: real workspace happy path") for the pattern. If you find yourself wanting to skip anything else, fix the cause.
 - **Never weaken an assertion to make a test pass.** If a refactor breaks an assertion, the assertion is the spec — figure out which side is wrong.
 - **Never use synthetic stubs in Polly-replay tests.** Cassettes capture real API behavior; faking responses defeats the point.
 - **Never push tests without running them locally first.** CI is a sanity check, not a remote test runner.

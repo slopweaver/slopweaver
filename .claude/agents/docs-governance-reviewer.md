@@ -74,9 +74,9 @@ The `@` prefix is the import marker; bare paths render as text. For navigation-o
 2. **WHAT / WHY / HOW.** Skim CLAUDE.md — does the reader come away knowing the stack, the purpose, and the basic commands?
 3. **Inline blocks > 10 lines** that could become a `@reference`. Suggest extraction.
 4. **Anti-patterns.** Linter-style rules pasted in; credentials; stale inventory; over-instruction.
-5. **Cross-reference resolution:**
+5. **Cross-reference resolution** — covers both `@.claude/...` and root-level imports like `@CLAUDE.md`:
    ```bash
-   grep -RhoE '@\.claude/[^ )]+' .claude/ CLAUDE.md | sort -u | \
+   grep -RhoE '@(\.claude/[A-Za-z0-9._/-]+|[A-Z][A-Za-z]+)\.md' .claude/ CLAUDE.md | sort -u | \
      while read p; do test -f "${p#@}" || echo "BROKEN: $p"; done
    ```
 6. **Apply fixes.** Re-verify line counts.

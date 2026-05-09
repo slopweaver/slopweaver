@@ -16,12 +16,12 @@ If a test genuinely needs to hit a real platform API, it's not a pure-function t
 
 ## The cli-tools gold-standard pattern
 
-The preferred shape for testable code is the cli-tools split: a pure `core.ts` (or equivalent) plus an effectful shell that wires it to filesystem, processes, network, etc.
+The preferred shape for testable code is the cli-tools split: a pure module (the planner / checker / parser) plus an effectful shell that wires it to filesystem, processes, network, etc. Each side has its own co-located `*.test.ts`.
 
 Verified examples in this repo:
 
-- `packages/cli-tools/src/doctor/` — `core.ts` (pure checks) + `index.ts` (effects) + co-located tests.
-- `packages/cli-tools/src/worktree/` — same shape.
+- `packages/cli-tools/src/doctor/` — `checks.ts` (pure check functions, returns `{ status, detail }` shapes) + `index.ts` (CLI entry that runs the checks and prints results); `checks.test.ts` + `index.test.ts`.
+- `packages/cli-tools/src/worktree/` — `plan.ts` (pure command planner, returns the list of git/pnpm calls to make) + `index.ts` (effectful runner that executes the plan); `plan.test.ts` + `index.test.ts`.
 - `packages/mcp-server/src/tools/composite/start-session.ts` — accepts `pollers`, `now`, `db` as injected deps; tests pass `vi.fn()` pollers and a fake clock.
 
 Adopt this shape when the function under test reaches for I/O. Don't refactor existing code to fit unless you're already touching it.
