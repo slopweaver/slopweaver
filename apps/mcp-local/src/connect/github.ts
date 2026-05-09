@@ -51,13 +51,17 @@ export async function runConnectGithub({
     return 1;
   }
 
-  saveIntegrationToken({
+  const saveResult = await saveIntegrationToken({
     db,
     integration: INTEGRATION,
     token,
     accountLabel: login,
     ...(now ? { now } : {}),
   });
+  if (saveResult.isErr()) {
+    stderr.write(`slopweaver: failed to save GitHub token: ${saveResult.error.message}\n`);
+    return 1;
+  }
 
   stdout.write(`Connected to GitHub as ${login}.\n`);
   return 0;

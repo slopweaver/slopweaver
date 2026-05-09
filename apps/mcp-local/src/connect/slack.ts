@@ -56,13 +56,17 @@ export async function runConnectSlack({
     return 1;
   }
 
-  saveIntegrationToken({
+  const saveResult = await saveIntegrationToken({
     db,
     integration: INTEGRATION,
     token,
     accountLabel: team,
     ...(now ? { now } : {}),
   });
+  if (saveResult.isErr()) {
+    stderr.write(`slopweaver: failed to save Slack token: ${saveResult.error.message}\n`);
+    return 1;
+  }
 
   if (team) {
     stdout.write(`Connected to Slack workspace "${team}".\n`);

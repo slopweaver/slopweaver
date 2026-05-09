@@ -54,10 +54,11 @@ describe('runConnectGithub', () => {
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Connected to GitHub as octocat');
     expect(stderr.text()).toBe('');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'github' })).toEqual({
-      token: 'ghp_happy',
-      accountLabel: 'octocat',
-    });
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toEqual({ token: 'ghp_happy', accountLabel: 'octocat' });
+    }
   });
 
   it('invalid token: prints the error, exits 1, does NOT persist', async () => {
@@ -75,7 +76,11 @@ describe('runConnectGithub', () => {
     expect(stderr.text()).toContain('GitHub token rejected');
     expect(stderr.text()).toContain('Bad credentials');
     expect(stdout.text()).toBe('');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'github' })).toBeNull();
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toBeNull();
+    }
   });
 
   it('repeat connect overwrites the previous value with one row total', async () => {
@@ -97,9 +102,10 @@ describe('runConnectGithub', () => {
       now: () => 1_746_000_000_500,
     });
 
-    expect(loadIntegrationToken({ db: handle.db, integration: 'github' })).toEqual({
-      token: 'ghp_second',
-      accountLabel: 'octocat-renamed',
-    });
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toEqual({ token: 'ghp_second', accountLabel: 'octocat-renamed' });
+    }
   });
 });
