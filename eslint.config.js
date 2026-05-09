@@ -13,6 +13,15 @@ import boundaries from 'eslint-plugin-boundaries';
  * 2. `no-restricted-imports` — no `@nestjs/*` imports inside packages/*.
  *    NestJS belongs only to apps/cloud/ (when that lands in v2). Packages
  *    must remain framework-agnostic.
+ *
+ * Note on must-use-result enforcement: the upstream `eslint-plugin-neverthrow`
+ * (v1.1.4, last published 2022) is incompatible with ESLint 10 — it reads
+ * `context.parserServices`, which was moved to `context.sourceCode.parserServices`
+ * in ESLint 9+. The CLI service-boundary check at
+ * `packages/cli-tools/src/check-neverthrow-service-boundaries/` covers the
+ * highest-risk enforcement (no thrown errors at service boundaries); the
+ * runtime-level "every Result must be consumed" rule is deferred. Tracked
+ * in #41.
  */
 export default [
   {
