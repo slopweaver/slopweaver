@@ -78,9 +78,12 @@ function resolveWebUiPort(): number {
 
 async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void> {
   // Validate the environment before opening the SQLite file or starting the
-  // server. Aggregated `EnvValidationError` propagates out and the process
-  // exits non-zero — single fail-fast boundary for bad env.
-  loadEnv();
+  // server. The `EnvValidationError` is unwrapped at this CLI boundary so the
+  // outer .catch() in the cac action prints + exits non-zero.
+  const envResult = loadEnv();
+  if (envResult.isErr()) {
+    throw envResult.error;
+  }
 
   const startedAtMs = Date.now();
   const dbHandle = createDb({ path: resolveDbPath() });
@@ -178,7 +181,10 @@ async function runConnect({ integration }: { integration: string }): Promise<num
   // Mirror runMcpServer's env contract — bad NODE_ENV / LOG_LEVEL must reject
   // here too, otherwise the connect path would silently honour invalid values
   // that the stdio path rejects.
-  loadEnv();
+  const envResult = loadEnv();
+  if (envResult.isErr()) {
+    throw envResult.error;
+  }
 
   const dbHandle = createDb({ path: resolveDbPath() });
   try {

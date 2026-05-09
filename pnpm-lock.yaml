@@ -143,6 +143,9 @@ importers:
 
   packages/env:
     dependencies:
+      '@slopweaver/errors':
+        specifier: workspace:*
+        version: link:../errors
       zod:
         specifier: 4.4.2
         version: 4.4.2
