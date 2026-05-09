@@ -22,7 +22,7 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "knip": "knip",
-    "lint": "biome lint .",
+    "lint": "biome lint . && eslint .",
     "prepare": "lefthook install || echo 'lefthook install skipped (not a git repository)'",
     "test": "turbo run test",
     "validate": "pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip"
