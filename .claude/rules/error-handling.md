@@ -89,16 +89,26 @@ export async function pollMentions(args: PollMentionsArgs): Promise<PollResult> 
 }
 ```
 
-Enforced by `pnpm check:neverthrow-service-boundaries` (custom CLI
-check) for these globs:
+Enforced by `pnpm check:service-boundaries` (custom CLI check, wired
+into `pnpm validate` as the first gate). The scanner covers these
+directories (all `.ts` files except tests, recordings, and `src/test/`):
 
-- `packages/integrations/{core,github,slack}/src/!(test/**)*.ts`
-- `packages/mcp-server/src/tools/**/*.ts`
+- `packages/db/src/**`
+- `packages/cli-tools/src/lib/**`
+- `packages/integrations/{core,github,slack}/src/**`
+- `packages/mcp-server/src/tools/**`
+- `apps/mcp-local/src/connect/**`
+
+Plus these explicit single-file boundaries:
+
 - `packages/cli-tools/src/orchestration/{core,runtime}.ts`
-- `apps/mcp-local/src/connect/*.ts`
+- `packages/cli-tools/src/worktree/index.ts`
+- `packages/env/src/index.ts`
+- `packages/mcp-server/src/server.ts`
 
-Plus `eslint-plugin-neverthrow`'s `must-use-result` rule, which flags
-unconsumed `Result` values anywhere in the tree.
+See the "Carve-outs (throws that are allowed)" and
+"eslint-plugin-neverthrow status" sections below for what's
+intentionally *not* covered.
 
 ## Legitimate recovery catches
 
