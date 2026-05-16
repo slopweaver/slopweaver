@@ -68,12 +68,11 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result.isErr()).toBe(true);
-    if (!result.isErr()) return;
-    expect(result.error.code).toBe('WORKTREE_INVALID_NAME');
-    if (result.error.code !== 'WORKTREE_INVALID_NAME') return;
-    expect(result.error.message).toMatch(/empty slug/);
-    expect(result.error.exitCode).toBe(1);
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      code: 'WORKTREE_INVALID_NAME',
+      message: expect.stringMatching(/empty slug/),
+      exitCode: 1,
+    });
     expect(exec).not.toHaveBeenCalled();
   });
 
@@ -89,11 +88,10 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result.isErr()).toBe(true);
-    if (!result.isErr()) return;
-    expect(result.error.code).toBe('WORKTREE_GIT_FETCH_FAILED');
-    if (result.error.code !== 'WORKTREE_GIT_FETCH_FAILED') return;
-    expect(result.error.exitCode).toBe(128);
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      code: 'WORKTREE_GIT_FETCH_FAILED',
+      exitCode: 128,
+    });
   });
 
   it('returns err WORKTREE_GIT_ADD_FAILED with the failing exit code', () => {
@@ -108,11 +106,10 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result.isErr()).toBe(true);
-    if (!result.isErr()) return;
-    expect(result.error.code).toBe('WORKTREE_GIT_ADD_FAILED');
-    if (result.error.code !== 'WORKTREE_GIT_ADD_FAILED') return;
-    expect(result.error.exitCode).toBe(128);
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      code: 'WORKTREE_GIT_ADD_FAILED',
+      exitCode: 128,
+    });
   });
 
   it('returns err WORKTREE_PNPM_INSTALL_FAILED with the failing exit code', () => {
@@ -127,11 +124,10 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result.isErr()).toBe(true);
-    if (!result.isErr()) return;
-    expect(result.error.code).toBe('WORKTREE_PNPM_INSTALL_FAILED');
-    if (result.error.code !== 'WORKTREE_PNPM_INSTALL_FAILED') return;
-    expect(result.error.exitCode).toBe(1);
+    expect(result._unsafeUnwrapErr()).toMatchObject({
+      code: 'WORKTREE_PNPM_INSTALL_FAILED',
+      exitCode: 1,
+    });
   });
 
   it('emits human-readable log lines via the injected log function', () => {

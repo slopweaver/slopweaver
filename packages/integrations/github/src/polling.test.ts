@@ -17,14 +17,13 @@ afterEach(() => {
 
 describe('pollPullRequests', () => {
   it('upserts each returned PR into evidence_log and bumps integration_state', async () => {
-    const result = await pollPullRequests({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollPullRequests({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+      })
+    )._unsafeUnwrap();
 
     const rows = handle.db
       .select()
@@ -99,14 +98,13 @@ describe('pollPullRequests', () => {
 
 describe('pollIssues', () => {
   it('writes issue rows with kind="issue" and prefixed external_id', async () => {
-    const result = await pollIssues({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollIssues({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+      })
+    )._unsafeUnwrap();
 
     const rows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'issue')).all();
     expect(rows.length).toBe(value.fetched);
@@ -118,17 +116,16 @@ describe('pollIssues', () => {
 
 describe('pollMentions', () => {
   it('writes mention rows with kind="mention" and prefixed external_id', async () => {
-    const result = await pollMentions({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-      // GitHub's `mentions:` qualifier rejects `@me`; the maintainer's public
-      // login is fine to bake into a cassette URL (user logins are public).
-      username: 'lachiejames',
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollMentions({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+        // GitHub's `mentions:` qualifier rejects `@me`; the maintainer's public
+        // login is fine to bake into a cassette URL (user logins are public).
+        username: 'lachiejames',
+      })
+    )._unsafeUnwrap();
 
     const rows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'mention')).all();
     expect(rows.length).toBe(value.fetched);

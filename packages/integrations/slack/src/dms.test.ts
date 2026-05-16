@@ -82,15 +82,14 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      now: () => 8_888,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        now: () => 8_888,
+      })
+    )._unsafeUnwrap();
 
     expect(value.fetched).toBe(3);
     expect(value.newCursor).toBe(new Date(1_762_000_021_000).toISOString());
@@ -120,15 +119,14 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      now: () => nowCounter++,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        now: () => nowCounter++,
+      })
+    )._unsafeUnwrap();
 
     expect(value.newCursor).toBe(new Date(7_000).toISOString());
 
@@ -153,16 +151,15 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      since: new Date('2026-05-01T00:00:00Z'),
-      now: () => 1,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        since: new Date('2026-05-01T00:00:00Z'),
+        now: () => 1,
+      })
+    )._unsafeUnwrap();
 
     expect(value.newCursor).toBe('2026-05-01T00:00:00.000Z');
   });
@@ -185,15 +182,14 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      now: () => 1,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        now: () => 1,
+      })
+    )._unsafeUnwrap();
 
     expect(value.fetched).toBe(3);
     expect(value.newCursor).toBe(new Date(3_000).toISOString());
@@ -270,14 +266,13 @@ describe('pollDMs (cassette)', () => {
   });
 
   it('returns a fetched count and writes integration_state for slack', async () => {
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
-      now: () => 1_000,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isErr()) throw new Error('unreachable');
-    const value = result.value;
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
+        now: () => 1_000,
+      })
+    )._unsafeUnwrap();
 
     expect(typeof value.fetched).toBe('number');
     expect(value.fetched).toBeGreaterThanOrEqual(0);
