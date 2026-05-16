@@ -10,7 +10,7 @@ Open-source local-first MCP server that helps Claude Code answer "what should I 
 
 A Turborepo monorepo with four packages — three runtime (`db`, `contracts`, `mcp-server`) and one maintainer CLI (`cli-tools`). The eventual published binary `apps/mcp-local/` will compose the runtime three; it does not exist yet. Stack is Node 22, pnpm 10, TypeScript 6 strict, Biome (format + lint), ESLint (boundaries only), Vitest, Drizzle ORM + better-sqlite3, MCP SDK, Zod 4.
 
-For the full architecture, module guide, data flow diagrams, conventions, and navigation guide, see [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md).
+For the full architecture, module guide, data flow diagrams, conventions, and navigation guide, see [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md). For agent-facing workflow rules, see @.claude/rules/workflow.md, @.claude/rules/pr-conventions.md, @.claude/rules/testing.md, and @.claude/rules/typescript-patterns.md.
 
 ## Repo state (pre-alpha)
 

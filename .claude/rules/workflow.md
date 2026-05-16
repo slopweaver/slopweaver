@@ -13,6 +13,13 @@ pnpm cli worktree-new fix-issue-42
 
 Reasons: parallel work streams without branch-switching overhead; main checkout stays clean for reading; matches the GitHub PR-per-branch model.
 
+After the PR merges (squash), clean up:
+
+```bash
+git worktree remove ~/dev/worktrees/<name>
+git branch -d worktree/<name>
+```
+
 ## Branch naming
 
 `worktree/<short-task-slug>`. The `worktree/` prefix is a convention so it's obvious what a branch is for; the slug should be ≤30 chars, lowercase, hyphenated.
@@ -22,6 +29,8 @@ For issue-driven work: include the issue number in the slug. `worktree/fix-issue
 ## PR per worktree
 
 One worktree = one branch = one PR. Don't pile multiple changes into a single worktree.
+
+Open as a **draft** initially (`gh pr create --draft`); convert to ready-for-review only after `pnpm validate` is locally green. Drafts skip CI on some setups but always skip code-review notification noise.
 
 ## Squash-merge only
 
@@ -68,6 +77,8 @@ When a test class needs to be filtered separately (e.g. cassette-replay tests th
 Vitest's `include` pattern in each package's `vitest.config.ts` decides which run. Do not introduce these suffixes pre-emptively; add the tag the first time you actually need to filter.
 
 Shared per-package test helpers go in `src/test/` (e.g. `packages/integrations/slack/src/test/db.ts`, `setup-polly.ts`). Cassette fixtures go under `src/__recordings__/`. Both are package-local — there is no cross-package test-helpers package.
+
+For test taxonomy (pure / Polly-replay / smoke), assertion preferences, and cassette safety: see @.claude/rules/testing.md.
 
 ## Decisions live in GitHub Issues
 
