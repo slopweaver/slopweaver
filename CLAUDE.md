@@ -8,13 +8,13 @@ Open-source local-first MCP server that helps Claude Code answer "what should I 
 
 ## Codebase Overview
 
-A Turborepo monorepo with four packages — three runtime (`db`, `contracts`, `mcp-server`) and one maintainer CLI (`cli-tools`). The eventual published binary `apps/mcp-local/` will compose the runtime three; it does not exist yet. Stack is Node 22, pnpm 10, TypeScript 6 strict, Biome (format + lint), ESLint (boundaries only), Vitest, Drizzle ORM + better-sqlite3, MCP SDK, Zod 4.
+A Turborepo monorepo with one published binary app (`apps/mcp-local/` — the `slopweaver` CLI) and eight workspace packages: runtime (`mcp-server`, `ui`, `db`, `env`, `contracts`, `errors`), integration (`integrations/{core,github,slack}`), and maintainer (`cli-tools`). Stack is Node 22.12+, pnpm 10, TypeScript 6 strict, Biome (format + lint), ESLint (boundaries + no-restricted-imports), Vitest, Polly for cassettes, Drizzle ORM + better-sqlite3, MCP SDK 1.29, Zod 4, neverthrow (via `@slopweaver/errors`), React 19 + Vite 8 for the Diagnostics UI.
 
-For the full architecture, module guide, data flow diagrams, conventions, and navigation guide, see [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md). For agent-facing workflow rules, see @.claude/rules/workflow.md, @.claude/rules/pr-conventions.md, @.claude/rules/testing.md, and @.claude/rules/typescript-patterns.md.
+For the full architecture, module guide, data flow diagrams, conventions, and navigation guide, see [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md). For agent-facing workflow rules, see @.claude/rules/workflow.md, @.claude/rules/pr-conventions.md, @.claude/rules/testing.md, @.claude/rules/typescript-patterns.md, and @.claude/rules/error-handling.md.
 
 ## Repo state (pre-alpha)
 
-This repo is in active scaffolding. Many packages and apps named below don't exist yet. Don't assume code is here unless you've verified — see `docs/CODEBASE_MAP.md` for what is actually present.
+This repo is pre-alpha and v1.0.0 is in active development. The published binary (`slopweaver`) and the Diagnostics UI exist; live polling is implemented in `connect` and the integration packages but is not yet wired into the `start_session` composite tool (which currently serves cached evidence only). Don't assume code is here unless you've verified — see `docs/CODEBASE_MAP.md` for what is actually present.
 
 ## Stack (target shape for v1.0.0)
 
@@ -26,13 +26,12 @@ This repo is in active scaffolding. Many packages and apps named below don't exi
 
 ## Where things live
 
-- `apps/mcp-local/` — the local binary (npm install -g slopweaver). The v1 product.
-- `packages/mcp-server/` — framework-agnostic MCP server, including composite tools in `src/tools/composite/`
-- `packages/integrations/` — single package with subdirectories per platform (`github/`, `slack/`, etc.)
-- `packages/db/`, `packages/auth/`, `packages/memory/`, `packages/contracts/` — shared core packages
-- `packages/ui/` — React components for the local web UI on `localhost:60701`
-
-(See ARCHITECTURE.md when it exists for the full layout.)
+- `apps/mcp-local/` — the published `slopweaver` binary (npm install -g slopweaver). Wires stdio MCP server + Diagnostics UI + `connect <github|slack>` subcommand. The v1 product.
+- `packages/mcp-server/` — framework-agnostic MCP server, tool registry, dispatcher (Result → MCP wire response), stdio transport. Composite tools live in `src/tools/composite/` (e.g. `start-session.ts`); builtin tools in `src/tools/builtin/` (e.g. `ping.ts`).
+- `packages/integrations/` — `core/` (shared `upsertEvidence` + Polly setup), `github/`, `slack/`. Each platform package owns its identity fetch + polling + `errors.ts` + cassette setup.
+- `packages/db/`, `packages/contracts/`, `packages/env/`, `packages/errors/` — shared core packages. `@slopweaver/errors` is the one place to import `Result`/`ResultAsync` (direct `neverthrow` imports are linter-blocked).
+- `packages/ui/` — React Diagnostics page (`src/client/`) + Node HTTP server (`src/server/`) on `localhost:60701`.
+- `packages/cli-tools/` — maintainer CLI (`pnpm cli`): `worktree-new`, `doctor`, `check-service-boundaries`, `orchestration prepare/run`.
 
 ## Development principles
 
