@@ -16,8 +16,9 @@
 
 import type { ConversationsHistoryResponse, SearchMessagesResponse } from '@slack/web-api';
 import type { SlopweaverDatabase } from '@slopweaver/db';
-import { type DatabaseError, okAsync, type ResultAsync } from '@slopweaver/errors';
+import { okAsync, type ResultAsync } from '@slopweaver/errors';
 import { upsertEvidence } from '@slopweaver/integrations-core';
+import { fromDatabaseError, type SlackDatabaseError } from './errors.ts';
 
 type SearchMatch = NonNullable<NonNullable<SearchMessagesResponse['messages']>['matches']>[number];
 type HistoryMessage = NonNullable<ConversationsHistoryResponse['messages']>[number];
@@ -41,7 +42,7 @@ export function upsertSlackMessage({
   workspaceUrl: string | null;
   channelId?: string;
   now: number;
-}): ResultAsync<{ ts: string | null }, DatabaseError> {
+}): ResultAsync<{ ts: string | null }, SlackDatabaseError> {
   const ts = message.ts;
   if (!ts) return okAsync({ ts: null });
 
@@ -70,7 +71,9 @@ export function upsertSlackMessage({
     payloadJson: JSON.stringify({ ...message, _team_id: teamId }),
     occurredAtMs,
     now,
-  }).map(() => ({ ts }));
+  })
+    .mapErr(fromDatabaseError)
+    .map(() => ({ ts }));
 }
 
 /**

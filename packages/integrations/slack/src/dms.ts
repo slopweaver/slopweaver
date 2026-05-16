@@ -12,6 +12,11 @@
  * `freshness` consumers (`start_session`, the Diagnostics UI) can see when
  * Slack last ran. Cursor advances to the newest message ts observed across
  * all channels in the poll; preserves prior watermark on empty.
+ *
+ * Returns `ResultAsync<PollResult, SlackError>`. SDK calls are wrapped in
+ * `safeSlackCall`; DB writes flow through `markPollStarted` /
+ * `markPollCompleted` / `upsertSlackMessage` (all `safeQuery`-backed) with
+ * `DatabaseError` mapped to `SlackDatabaseError` via `fromDatabaseError`.
  */
 
 import type {
@@ -20,8 +25,16 @@ import type {
   WebClient,
 } from '@slack/web-api';
 import type { SlopweaverDatabase } from '@slopweaver/db';
+import { err, ok, type Result, ResultAsync } from '@slopweaver/errors';
 import { markPollCompleted, markPollStarted } from '@slopweaver/integrations-core';
 import { createSlackClient } from './client.ts';
+import {
+  fromDatabaseError,
+  safeSlackCall,
+  type SlackError,
+  SlackErrors,
+  type SlackTsParseError,
+} from './errors.ts';
 import { pickNewestTs, upsertSlackMessage } from './upsert.ts';
 
 const INTEGRATION = 'slack';
@@ -39,26 +52,36 @@ export type PollResult = {
   newCursor: string | null;
 };
 
-export async function pollDMs({
+export function pollDMs(args: PollDMsArgs): ResultAsync<PollResult, SlackError> {
+  return ResultAsync.fromSafePromise(pollDMsInner(args)).andThen((r) => r);
+}
+
+async function pollDMsInner({
   db,
   token,
   since,
   client,
   now = Date.now,
-}: PollDMsArgs): Promise<PollResult> {
+}: PollDMsArgs): Promise<Result<PollResult, SlackError>> {
   let slack: WebClient;
   if (client) {
     slack = client;
   } else {
     const created = createSlackClient({ token });
-    if (created.isErr()) throw new Error(created.error.message);
+    if (created.isErr()) return err(created.error);
     slack = created.value;
   }
+
   const startedAt = now();
   const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
-  if (startResult.isErr()) throw new Error(startResult.error.message);
+  if (startResult.isErr()) return err(fromDatabaseError(startResult.error));
 
-  const auth = await slack.auth.test();
+  const authResult = await safeSlackCall({
+    execute: () => slack.auth.test(),
+    endpoint: 'auth.test',
+  });
+  if (authResult.isErr()) return err(authResult.error);
+  const auth = authResult.value;
   // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
   const teamId = auth.team_id!;
   const workspaceUrl = auth.url ?? null;
@@ -73,53 +96,76 @@ export async function pollDMs({
     limit: 200,
   }) as AsyncIterable<ConversationsListResponse>;
 
-  for await (const listPage of listIterable) {
-    for (const channel of listPage.channels ?? []) {
-      if (channel.is_im === false || !channel.id) continue;
-      const historyIterable = slack.paginate('conversations.history', {
-        channel: channel.id,
-        limit: 100,
-        ...(oldest !== undefined && { oldest }),
-      }) as AsyncIterable<ConversationsHistoryResponse>;
+  // `paginate` throws on SDK error (just like the underlying call); the
+  // try/catch lifts it into the SlackApiError union the rest of this
+  // function already returns. This is the only catch in the function — the
+  // SDK's async iterator surface doesn't compose with `safeSlackCall`
+  // (which works on a single `Promise<T>`, not an iterable).
+  try {
+    for await (const listPage of listIterable) {
+      for (const channel of listPage.channels ?? []) {
+        if (channel.is_im === false || !channel.id) continue;
+        const historyIterable = slack.paginate('conversations.history', {
+          channel: channel.id,
+          limit: 100,
+          ...(oldest !== undefined && { oldest }),
+        }) as AsyncIterable<ConversationsHistoryResponse>;
 
-      for await (const historyPage of historyIterable) {
-        const messages = historyPage.messages ?? [];
-        fetched += messages.length;
+        for await (const historyPage of historyIterable) {
+          const messages = historyPage.messages ?? [];
+          fetched += messages.length;
 
-        const observedAt = now();
-        for (const message of messages) {
-          const upsertResult = await upsertSlackMessage({
-            db,
-            message,
-            kind: 'message',
-            teamId,
-            workspaceUrl,
-            channelId: channel.id,
-            now: observedAt,
-          });
-          if (upsertResult.isErr()) throw new Error(upsertResult.error.message);
-        }
+          const observedAt = now();
+          for (const message of messages) {
+            const upsertResult = await upsertSlackMessage({
+              db,
+              message,
+              kind: 'message',
+              teamId,
+              workspaceUrl,
+              channelId: channel.id,
+              now: observedAt,
+            });
+            if (upsertResult.isErr()) return err(upsertResult.error);
+          }
 
-        const pageNewest = pickNewestTs(messages);
-        if (pageNewest && (newestTs === null || compareTs(pageNewest, newestTs) > 0)) {
-          newestTs = pageNewest;
+          const pageNewest = pickNewestTs(messages);
+          if (pageNewest && (newestTs === null || compareTs(pageNewest, newestTs) > 0)) {
+            newestTs = pageNewest;
+          }
         }
       }
     }
+  } catch (cause) {
+    return err(
+      SlackErrors.apiError('conversations.list', {
+        cause,
+        message: cause instanceof Error ? cause.message : 'conversations.list / .history failed',
+      }),
+    );
   }
 
   // Cursors are always ISO-8601 so the public `since?: Date` /
   // `newCursor: string | null` contract round-trips through `new Date(cursor)`.
   // Match github's polling.ts:106 stable-format rule.
-  const newCursor = newestTs ? slackTsToIso(newestTs) : (since?.toISOString() ?? null);
+  let newCursor: string | null;
+  if (newestTs) {
+    const isoResult = slackTsToIso(newestTs);
+    if (isoResult.isErr()) return err(isoResult.error);
+    newCursor = isoResult.value;
+  } else {
+    newCursor = since?.toISOString() ?? null;
+  }
+
   const completedResult = await markPollCompleted({
     db,
     integration: INTEGRATION,
     cursor: newCursor,
     now: now(),
   });
-  if (completedResult.isErr()) throw new Error(completedResult.error.message);
-  return { fetched, newCursor };
+  if (completedResult.isErr()) return err(fromDatabaseError(completedResult.error));
+
+  return ok({ fetched, newCursor });
 }
 
 function compareTs(a: string, b: string): number {
@@ -134,10 +180,10 @@ function toSlackTs({ date }: { date: Date }): string {
   return `${seconds}.000000`;
 }
 
-function slackTsToIso(ts: string): string {
+function slackTsToIso(ts: string): Result<string, SlackTsParseError> {
   const seconds = Number.parseFloat(ts);
   if (!Number.isFinite(seconds)) {
-    throw new Error(`slackTsToIso: cannot parse ts ${ts}`);
+    return err(SlackErrors.tsParseFailed(ts));
   }
-  return new Date(Math.round(seconds * 1_000)).toISOString();
+  return ok(new Date(Math.round(seconds * 1_000)).toISOString());
 }

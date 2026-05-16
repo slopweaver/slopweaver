@@ -8,21 +8,35 @@
  * `MAX_PAGES` safety cap, currently 20 = ~2k mentions).
  *
  * Slack's `search.messages` historically requires a user token (`xoxp-`); bot
- * tokens get `not_allowed_token_type`. The SDK throws on that envelope; we
- * surface the underlying error rather than swallowing it — token-type policy
- * is an OAuth-flow concern outside this package.
+ * tokens get `not_allowed_token_type`. `safeSlackCall` lifts the SDK's
+ * `WebAPIPlatformError` into a structured `SlackApiError` so callers can
+ * branch on the slack code without inspecting the raw exception.
  *
  * `since` (when provided) becomes a `after:YYYY-MM-DD` modifier on the search
  * query. Slack search has no millisecond cursor and the `after:` operator's
  * timezone semantics are undocumented — we pad backward by 1 day so we never
  * miss boundary messages; the idempotent `(integration, kind_ts:channel)`
  * upsert dedupes the extra rows that pulls in.
+ *
+ * Returns `ResultAsync<PollResult, SlackError>`. When the safety cap fires the
+ * function returns `err(SlackErrors.paginationCapExceeded(…))` without
+ * advancing the cursor — `markPollCompleted` never runs, so the next poll
+ * starts from the prior watermark and the unfetched tail is recoverable by
+ * re-running with a tighter `since`.
  */
 
 import type { WebClient } from '@slack/web-api';
 import type { SlopweaverDatabase } from '@slopweaver/db';
+import { err, errAsync, ok, type Result, ResultAsync } from '@slopweaver/errors';
 import { markPollCompleted, markPollStarted } from '@slopweaver/integrations-core';
 import { createSlackClient } from './client.ts';
+import {
+  fromDatabaseError,
+  safeSlackCall,
+  type SlackError,
+  SlackErrors,
+  type SlackTsParseError,
+} from './errors.ts';
 import { type AnySlackMessage, pickNewestTs, upsertSlackMessage } from './upsert.ts';
 
 const INTEGRATION = 'slack';
@@ -42,29 +56,36 @@ export type PollResult = {
   newCursor: string | null;
 };
 
-export async function pollMentions({
+export function pollMentions(args: PollMentionsArgs): ResultAsync<PollResult, SlackError> {
+  return ResultAsync.fromSafePromise(pollMentionsInner(args)).andThen((r) => r);
+}
+
+async function pollMentionsInner({
   db,
   token,
   since,
   client,
   now = Date.now,
-}: PollMentionsArgs): Promise<PollResult> {
+}: PollMentionsArgs): Promise<Result<PollResult, SlackError>> {
   let slack: WebClient;
   if (client) {
     slack = client;
   } else {
     const created = createSlackClient({ token });
-    if (created.isErr()) throw new Error(created.error.message);
+    if (created.isErr()) return err(created.error);
     slack = created.value;
   }
+
   const startedAt = now();
   const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
-  if (startResult.isErr()) throw new Error(startResult.error.message);
+  if (startResult.isErr()) return err(fromDatabaseError(startResult.error));
 
-  // Slack guarantees user_id / team_id on ok:true responses; the SDK throws
-  // WebAPIPlatformError on { ok: false } so the asserts below are reached
-  // only when Slack returned values.
-  const auth = await slack.auth.test();
+  const authResult = await safeSlackCall({
+    execute: () => slack.auth.test(),
+    endpoint: 'auth.test',
+  });
+  if (authResult.isErr()) return err(authResult.error);
+  const auth = authResult.value;
   // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees user_id on ok:true
   const userId = auth.user_id!;
   // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
@@ -84,7 +105,12 @@ export async function pollMentions({
   let totalPages = 1;
 
   while (page <= MAX_PAGES) {
-    const response = await slack.search.messages({ query, count: PER_PAGE, page });
+    const respResult = await safeSlackCall({
+      execute: () => slack.search.messages({ query, count: PER_PAGE, page }),
+      endpoint: 'search.messages',
+    });
+    if (respResult.isErr()) return err(respResult.error);
+    const response = respResult.value;
     const matches = response.messages?.matches ?? [];
     fetched += matches.length;
 
@@ -98,7 +124,7 @@ export async function pollMentions({
         workspaceUrl,
         now: observedAt,
       });
-      if (upsertResult.isErr()) throw new Error(upsertResult.error.message);
+      if (upsertResult.isErr()) return err(upsertResult.error);
     }
 
     const pageNewest = pickNewestTs(matches);
@@ -114,13 +140,11 @@ export async function pollMentions({
 
   // Refuse to advance the cursor if we exited the loop because of the safety
   // cap rather than because Slack said there were no more pages — otherwise
-  // the unfetched tail is unrecoverable on the next poll. Throwing is loud
-  // enough that the operator sees it and can re-run with a tighter `since`.
+  // the unfetched tail is unrecoverable on the next poll. Returning Err is
+  // loud enough that the operator sees it and can re-run with a tighter
+  // `since`.
   if (totalPages > MAX_PAGES) {
-    throw new Error(
-      `pollMentions: search.messages returned ${totalPages} pages, exceeds MAX_PAGES=${MAX_PAGES}; ` +
-        'cursor not advanced. Re-run with a more recent `since` to recover the tail.',
-    );
+    return err(SlackErrors.paginationCapExceeded(totalPages, MAX_PAGES));
   }
 
   // Preserve the prior watermark when the poll returns zero items, otherwise
@@ -128,15 +152,24 @@ export async function pollMentions({
   // empty-page rule. Cursors are always ISO-8601 so the public
   // `since?: Date` / `newCursor: string | null` contract round-trips through
   // `new Date(cursor)` without per-platform parsing.
-  const newCursor = newestTs ? slackTsToIso(newestTs) : (since?.toISOString() ?? null);
+  let newCursor: string | null;
+  if (newestTs) {
+    const isoResult = slackTsToIso(newestTs);
+    if (isoResult.isErr()) return err(isoResult.error);
+    newCursor = isoResult.value;
+  } else {
+    newCursor = since?.toISOString() ?? null;
+  }
+
   const completedResult = await markPollCompleted({
     db,
     integration: INTEGRATION,
     cursor: newCursor,
     now: now(),
   });
-  if (completedResult.isErr()) throw new Error(completedResult.error.message);
-  return { fetched, newCursor };
+  if (completedResult.isErr()) return err(fromDatabaseError(completedResult.error));
+
+  return ok({ fetched, newCursor });
 }
 
 function compareTs(a: string, b: string): number {
@@ -146,14 +179,14 @@ function compareTs(a: string, b: string): number {
   return aN === bN ? 0 : aN > bN ? 1 : -1;
 }
 
-function slackTsToIso(ts: string): string {
+function slackTsToIso(ts: string): Result<string, SlackTsParseError> {
   // Slack ts is "<unix-seconds>.<microseconds>". The `since?: Date` round-
   // trip only needs millisecond precision, so we floor to ms.
   const seconds = Number.parseFloat(ts);
   if (!Number.isFinite(seconds)) {
-    throw new Error(`slackTsToIso: cannot parse ts ${ts}`);
+    return err(SlackErrors.tsParseFailed(ts));
   }
-  return new Date(Math.round(seconds * 1_000)).toISOString();
+  return ok(new Date(Math.round(seconds * 1_000)).toISOString());
 }
 
 function formatSlackDate({ date }: { date: Date }): string {

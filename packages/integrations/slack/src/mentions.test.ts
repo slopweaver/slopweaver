@@ -9,11 +9,29 @@
 
 import type { WebClient } from '@slack/web-api';
 import { evidenceLog, integrationState } from '@slopweaver/db';
+import type { ResultAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pollMentions } from './mentions.ts';
+import type { SlackError } from './errors.ts';
+import { pollMentions, type PollResult } from './mentions.ts';
 import { openMemoryDb } from './test/db.ts';
 
 type DbHandle = ReturnType<typeof openMemoryDb>;
+
+/**
+ * Unwrap a `ResultAsync` known to be Ok in this test, with a strong
+ * assertion. Equivalent to `expect(r.isOk()).toBe(true); return r.value`.
+ */
+function expectOkValue(promise: ResultAsync<PollResult, SlackError>): Promise<PollResult> {
+  return promise.match(
+    (v) => {
+      expect(true).toBe(true);
+      return v;
+    },
+    (e) => {
+      throw new Error(`expectOkValue: result was Err: ${e.code} (${e.message})`);
+    },
+  );
+}
 
 describe('pollMentions', () => {
   let dbHandle: DbHandle;
@@ -64,17 +82,19 @@ describe('pollMentions', () => {
       search: { messages: searchSpy },
     } as unknown as WebClient;
 
-    const result = await pollMentions({
-      db: dbHandle.db,
-      token: 'xoxp-test',
-      client,
-      now: () => 9_000_000,
-    });
+    const value = await expectOkValue(
+      pollMentions({
+        db: dbHandle.db,
+        token: 'xoxp-test',
+        client,
+        now: () => 9_000_000,
+      }),
+    );
 
-    expect(result.fetched).toBe(2);
+    expect(value.fetched).toBe(2);
     // Cursor normalized to ISO-8601 from the newest match's ts. The `.000200`
     // tail is microseconds, which round to 0 ms below epoch-ms granularity.
-    expect(result.newCursor).toBe(new Date(1_762_000_000_000).toISOString());
+    expect(value.newCursor).toBe(new Date(1_762_000_000_000).toISOString());
     expect(searchSpy).toHaveBeenCalledOnce();
 
     const rows = dbHandle.db.select().from(evidenceLog).all();
@@ -114,14 +134,16 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollMentions({
-      db: dbHandle.db,
-      token: 'xoxp-test',
-      client,
-      now: () => nowCounter++,
-    });
+    const value = await expectOkValue(
+      pollMentions({
+        db: dbHandle.db,
+        token: 'xoxp-test',
+        client,
+        now: () => nowCounter++,
+      }),
+    );
 
-    expect(result.newCursor).toBe(new Date(500_000).toISOString());
+    expect(value.newCursor).toBe(new Date(500_000).toISOString());
 
     const state = dbHandle.db.select().from(integrationState).all();
     expect(state).toHaveLength(1);
@@ -141,17 +163,19 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollMentions({
-      db: dbHandle.db,
-      token: 'xoxp-test',
-      client,
-      since: new Date('2026-05-01T00:00:00Z'),
-      now: () => 1,
-    });
+    const value = await expectOkValue(
+      pollMentions({
+        db: dbHandle.db,
+        token: 'xoxp-test',
+        client,
+        since: new Date('2026-05-01T00:00:00Z'),
+        now: () => 1,
+      }),
+    );
 
     // The since fallback is the ISO date, since no matches yielded a ts.
-    expect(result.newCursor).toBe('2026-05-01T00:00:00.000Z');
-    expect(result.fetched).toBe(0);
+    expect(value.newCursor).toBe('2026-05-01T00:00:00.000Z');
+    expect(value.fetched).toBe(0);
   });
 
   it('appends a 1-day-padded after: filter when since is provided', async () => {
@@ -168,13 +192,15 @@ describe('pollMentions', () => {
       search: { messages: searchSpy },
     } as unknown as WebClient;
 
-    await pollMentions({
-      db: dbHandle.db,
-      token: 'xoxp-test',
-      client,
-      since: new Date('2026-05-01T12:00:00Z'),
-      now: () => 1,
-    });
+    await expectOkValue(
+      pollMentions({
+        db: dbHandle.db,
+        token: 'xoxp-test',
+        client,
+        since: new Date('2026-05-01T12:00:00Z'),
+        now: () => 1,
+      }),
+    );
   });
 
   it('walks search.messages pages until messages.paging.pages is reached', async () => {
@@ -203,21 +229,23 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollMentions({
-      db: dbHandle.db,
-      token: 'xoxp-test',
-      client,
-      now: () => 1,
-    });
+    const value = await expectOkValue(
+      pollMentions({
+        db: dbHandle.db,
+        token: 'xoxp-test',
+        client,
+        now: () => 1,
+      }),
+    );
 
     expect(seenPages).toEqual([1, 2, 3]);
-    expect(result.fetched).toBe(3);
+    expect(value.fetched).toBe(3);
     // Newest ts = 1000003.000000 = 1000003000 ms.
-    expect(result.newCursor).toBe(new Date(1_000_003_000).toISOString());
+    expect(value.newCursor).toBe(new Date(1_000_003_000).toISOString());
     expect(dbHandle.db.select().from(evidenceLog).all()).toHaveLength(3);
   });
 
-  it('throws and does NOT advance the cursor when paging exceeds MAX_PAGES', async () => {
+  it('returns SLACK_PAGINATION_CAP_EXCEEDED without advancing the cursor when paging exceeds MAX_PAGES', async () => {
     // Pre-seed integration_state with a baseline cursor so we can prove it
     // wasn't advanced by the failed poll.
     dbHandle.db
@@ -246,9 +274,17 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    await expect(
-      pollMentions({ db: dbHandle.db, token: 'xoxp-test', client, now: () => 1 }),
-    ).rejects.toThrowError(/exceeds MAX_PAGES/);
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      now: () => 1,
+    });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('SLACK_PAGINATION_CAP_EXCEEDED');
+    }
 
     // Cursor must still be the baseline — markPollCompleted never ran.
     const state = dbHandle.db.select().from(integrationState).get();
@@ -273,8 +309,12 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    await pollMentions({ db: dbHandle.db, token: 'xoxp-test', client, now: () => 100 });
-    await pollMentions({ db: dbHandle.db, token: 'xoxp-test', client, now: () => 200 });
+    await expectOkValue(
+      pollMentions({ db: dbHandle.db, token: 'xoxp-test', client, now: () => 100 }),
+    );
+    await expectOkValue(
+      pollMentions({ db: dbHandle.db, token: 'xoxp-test', client, now: () => 200 }),
+    );
 
     const rows = dbHandle.db.select().from(evidenceLog).all();
     expect(rows).toHaveLength(1);
@@ -307,14 +347,16 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollMentions({
-      db: dbHandle.db,
-      token: 'xoxp-test',
-      client,
-      now: () => 1,
-    });
+    const value = await expectOkValue(
+      pollMentions({
+        db: dbHandle.db,
+        token: 'xoxp-test',
+        client,
+        now: () => 1,
+      }),
+    );
 
-    expect(result.fetched).toBe(2); // counts what Slack returned, not what got upserted
+    expect(value.fetched).toBe(2); // counts what Slack returned, not what got upserted
     const rows = dbHandle.db.select().from(evidenceLog).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.externalId).toBe('mention_101.0:C1');
@@ -337,14 +379,16 @@ describe('pollMentions (cassette)', () => {
   });
 
   it('returns a fetched count and writes integration_state for slack', async () => {
-    const result = await pollMentions({
-      db: dbHandle.db,
-      token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
-      now: () => 1_000,
-    });
+    const value = await expectOkValue(
+      pollMentions({
+        db: dbHandle.db,
+        token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
+        now: () => 1_000,
+      }),
+    );
 
-    expect(typeof result.fetched).toBe('number');
-    expect(result.fetched).toBeGreaterThanOrEqual(0);
+    expect(typeof value.fetched).toBe('number');
+    expect(value.fetched).toBeGreaterThanOrEqual(0);
 
     const state = dbHandle.db.select().from(integrationState).all();
     expect(state).toHaveLength(1);
