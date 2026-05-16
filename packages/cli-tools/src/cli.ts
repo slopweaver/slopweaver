@@ -29,7 +29,8 @@ cli
     const result = runWorktreeNew({ rawName: name, options: { install: options.install } });
     if (result.isErr()) {
       console.error(`error: ${result.error.message}`);
-      process.exit(result.error.exitCode);
+      const exitCode = 'exitCode' in result.error ? result.error.exitCode : 1;
+      process.exit(exitCode);
     }
   });
 
@@ -82,33 +83,42 @@ cli
       chainPath: string,
       options: { executor: string; dryRun?: boolean; notify?: boolean; restart?: boolean },
     ) => {
-      try {
-        if (subcommand === 'prepare') {
-          await prepare(chainPath, {
-            executor: normalizeExecutor(options.executor),
-            restart: options.restart === true,
-          });
-          return;
+      if (subcommand === 'prepare') {
+        const executorResult = normalizeExecutor(options.executor);
+        if (executorResult.isErr()) {
+          console.error(executorResult.error.message);
+          process.exit(1);
         }
-        if (subcommand === 'run') {
-          // `run` is the codex-only fallback runner. The hybrid (Claude-implements)
-          // path is driven by `prepare` + a Claude-side launcher, which is the
-          // maintainer's external tool. Hardcode codex-only here so passing
-          // `--executor hybrid` to `run` doesn't silently behave as codex-only
-          // with hybrid prompt wording.
-          await run(chainPath, {
-            dryRun: options.dryRun === true,
-            executor: 'codex-only',
-            notify: options.notify === true,
-            restart: options.restart === true,
-          });
-          return;
+        const result = await prepare(chainPath, {
+          executor: executorResult.value,
+          restart: options.restart === true,
+        });
+        if (result.isErr()) {
+          console.error(result.error.message);
+          process.exit(1);
         }
-        throw new Error(`Unknown subcommand: ${subcommand}. Use 'prepare' or 'run'.`);
-      } catch (err: unknown) {
-        console.error(err instanceof Error ? err.message : err);
-        process.exit(1);
+        return;
       }
+      if (subcommand === 'run') {
+        // `run` is the codex-only fallback runner. The hybrid (Claude-implements)
+        // path is driven by `prepare` + a Claude-side launcher, which is the
+        // maintainer's external tool. Hardcode codex-only here so passing
+        // `--executor hybrid` to `run` doesn't silently behave as codex-only
+        // with hybrid prompt wording.
+        const result = await run(chainPath, {
+          dryRun: options.dryRun === true,
+          executor: 'codex-only',
+          notify: options.notify === true,
+          restart: options.restart === true,
+        });
+        if (result.isErr()) {
+          console.error(result.error.message);
+          process.exit(1);
+        }
+        return;
+      }
+      console.error(`Unknown subcommand: ${subcommand}. Use 'prepare' or 'run'.`);
+      process.exit(1);
     },
   );
 

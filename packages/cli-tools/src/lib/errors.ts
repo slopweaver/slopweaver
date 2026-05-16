@@ -19,10 +19,21 @@ export interface DataPathInvalidError extends BaseError {
   readonly xdgDataHome: string;
 }
 
+export interface MonorepoRootNotFoundError extends BaseError {
+  readonly code: 'MONOREPO_ROOT_NOT_FOUND';
+  readonly startedFrom: string;
+}
+
 export const LibErrors = {
   dataPathInvalid: (xdgDataHome: string): DataPathInvalidError => ({
     code: 'DATA_PATH_INVALID',
     message: `XDG_DATA_HOME must be an absolute path; got: "${xdgDataHome}"`,
     xdgDataHome,
+  }),
+
+  monorepoRootNotFound: (startedFrom: string): MonorepoRootNotFoundError => ({
+    code: 'MONOREPO_ROOT_NOT_FOUND',
+    message: `could not find monorepo root (no pnpm-workspace.yaml above ${startedFrom})`,
+    startedFrom,
   }),
 } as const;

@@ -17,8 +17,11 @@ import {
 } from './core.ts';
 
 function readChainFixture({ relativePath }: { relativePath: string }): ParsedChain {
-  const repoRoot = findMonorepoRoot();
-  const chainPath = path.join(repoRoot, relativePath);
+  const rootResult = findMonorepoRoot();
+  if (rootResult.isErr()) {
+    throw new Error(`readChainFixture: ${rootResult.error.message}`);
+  }
+  const chainPath = path.join(rootResult.value, relativePath);
   const result = parseOrchestrationChain({
     chainPath,
     markdown: fs.readFileSync(chainPath, 'utf8'),

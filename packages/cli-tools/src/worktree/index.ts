@@ -16,6 +16,7 @@
 
 import { err, ok, type Result } from '@slopweaver/errors';
 import { spawnSync } from 'node:child_process';
+import type { MonorepoRootNotFoundError } from '../lib/errors.ts';
 import { findMonorepoRoot, resolveWorktreesRoot } from '../lib/paths.ts';
 import { type WorktreeError, WorktreeErrors } from './errors.ts';
 import { buildWorktreePlan } from './plan.ts';
@@ -28,10 +29,15 @@ export type ExecFn = (cmd: string, args: string[], opts: { cwd: string }) => Exe
 
 export type RunWorktreeNewSuccess = { worktreePath: string };
 
+export type ResolveRootsResult = Result<
+  { repoRoot: string; worktreesRoot: string },
+  MonorepoRootNotFoundError
+>;
+
 export type RunWorktreeNewDeps = {
   exec?: ExecFn;
   log?: (line: string) => void;
-  resolveRoots?: () => { repoRoot: string; worktreesRoot: string };
+  resolveRoots?: () => ResolveRootsResult;
 };
 
 const defaultExec: ExecFn = (cmd, args, opts) => {
@@ -39,9 +45,11 @@ const defaultExec: ExecFn = (cmd, args, opts) => {
   return { status: result.status ?? 1 };
 };
 
-const defaultResolveRoots = (): { repoRoot: string; worktreesRoot: string } => {
-  const repoRoot = findMonorepoRoot();
-  return { repoRoot, worktreesRoot: resolveWorktreesRoot({ repoRoot }) };
+const defaultResolveRoots = (): ResolveRootsResult => {
+  return findMonorepoRoot().map((repoRoot) => ({
+    repoRoot,
+    worktreesRoot: resolveWorktreesRoot({ repoRoot }),
+  }));
 };
 
 export function runWorktreeNew({
@@ -52,12 +60,14 @@ export function runWorktreeNew({
   rawName: string;
   options: WorktreeNewOptions;
   deps?: RunWorktreeNewDeps;
-}): Result<RunWorktreeNewSuccess, WorktreeError> {
+}): Result<RunWorktreeNewSuccess, WorktreeError | MonorepoRootNotFoundError> {
   const exec = deps.exec ?? defaultExec;
   const log = deps.log ?? console.log;
   const resolveRoots = deps.resolveRoots ?? defaultResolveRoots;
 
-  const { repoRoot, worktreesRoot } = resolveRoots();
+  const rootsResult = resolveRoots();
+  if (rootsResult.isErr()) return err(rootsResult.error);
+  const { repoRoot, worktreesRoot } = rootsResult.value;
   const planResult = buildWorktreePlan({ rawName, worktreesRoot });
   if (planResult.isErr()) return err(planResult.error);
   const plan = planResult.value;

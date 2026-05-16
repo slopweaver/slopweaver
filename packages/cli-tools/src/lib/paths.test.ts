@@ -5,8 +5,11 @@ import { findMonorepoRoot, resolveWorktreesRoot } from './paths.ts';
 
 describe('findMonorepoRoot', () => {
   it('returns a directory that contains pnpm-workspace.yaml', () => {
-    const root = findMonorepoRoot();
-    expect(existsSync(join(root, 'pnpm-workspace.yaml'))).toBe(true);
+    const result = findMonorepoRoot();
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(existsSync(join(result.value, 'pnpm-workspace.yaml'))).toBe(true);
+    }
   });
 });
 

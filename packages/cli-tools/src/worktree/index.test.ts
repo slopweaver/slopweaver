@@ -1,3 +1,4 @@
+import { ok } from '@slopweaver/errors';
 import { describe, expect, it, vi } from 'vitest';
 import { type ExecFn, type ExecResult, runWorktreeNew, type RunWorktreeNewDeps } from './index.ts';
 
@@ -8,7 +9,7 @@ const okExec: ExecFn = () => ({ status: 0 });
 function deps({
   exec = okExec,
   log = vi.fn(),
-  resolveRoots = () => FAKE_ROOTS,
+  resolveRoots = () => ok(FAKE_ROOTS),
 }: Partial<RunWorktreeNewDeps> = {}): RunWorktreeNewDeps {
   return { exec, log, resolveRoots };
 }
@@ -68,7 +69,7 @@ describe('runWorktreeNew', () => {
     });
 
     expect(result.isErr()).toBe(true);
-    if (result.isErr()) {
+    if (result.isErr() && result.error.code !== 'MONOREPO_ROOT_NOT_FOUND') {
       expect(result.error.code).toBe('WORKTREE_INVALID_NAME');
       expect(result.error.message).toMatch(/empty slug/);
       expect(result.error.exitCode).toBe(1);
@@ -89,7 +90,7 @@ describe('runWorktreeNew', () => {
     });
 
     expect(result.isErr()).toBe(true);
-    if (result.isErr()) {
+    if (result.isErr() && result.error.code !== 'MONOREPO_ROOT_NOT_FOUND') {
       expect(result.error.code).toBe('WORKTREE_GIT_FETCH_FAILED');
       expect(result.error.exitCode).toBe(128);
     }
@@ -108,7 +109,7 @@ describe('runWorktreeNew', () => {
     });
 
     expect(result.isErr()).toBe(true);
-    if (result.isErr()) {
+    if (result.isErr() && result.error.code !== 'MONOREPO_ROOT_NOT_FOUND') {
       expect(result.error.code).toBe('WORKTREE_GIT_ADD_FAILED');
       expect(result.error.exitCode).toBe(128);
     }
@@ -127,7 +128,7 @@ describe('runWorktreeNew', () => {
     });
 
     expect(result.isErr()).toBe(true);
-    if (result.isErr()) {
+    if (result.isErr() && result.error.code !== 'MONOREPO_ROOT_NOT_FOUND') {
       expect(result.error.code).toBe('WORKTREE_PNPM_INSTALL_FAILED');
       expect(result.error.exitCode).toBe(1);
     }

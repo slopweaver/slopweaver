@@ -22,7 +22,7 @@ interface CheckResult {
   readonly findings: ReadonlyArray<ThrowFinding>;
 }
 
-function runCheck({ root = findMonorepoRoot() }: { root?: string } = {}): CheckResult {
+function runCheck({ root }: { root: string }): CheckResult {
   const paths = listBoundaryFiles({ root });
   const findings = scanFiles({ root, paths });
   return { ok: findings.length === 0, findings };
@@ -54,7 +54,12 @@ function printReport({
 }
 
 export function runAndExit(): void {
-  const result = runCheck();
+  const rootResult = findMonorepoRoot();
+  if (rootResult.isErr()) {
+    console.error(rootResult.error.message);
+    process.exit(1);
+  }
+  const result = runCheck({ root: rootResult.value });
   printReport({ result });
   if (!result.ok) {
     process.exit(1);
