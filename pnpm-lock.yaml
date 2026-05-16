@@ -218,6 +218,9 @@ importers:
       '@slopweaver/db':
         specifier: workspace:*
         version: link:../../db
+      '@slopweaver/errors':
+        specifier: workspace:*
+        version: link:../../errors
       '@slopweaver/integrations-core':
         specifier: workspace:*
         version: link:../core

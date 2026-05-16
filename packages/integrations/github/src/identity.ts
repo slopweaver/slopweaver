@@ -8,9 +8,11 @@
  * a UUID and back-linked.
  */
 
-import { identityGraph, type SlopweaverDatabase } from '@slopweaver/db';
+import { identityGraph, safeQuery, type SlopweaverDatabase } from '@slopweaver/db';
+import type { ResultAsync } from '@slopweaver/errors';
 import { sql } from 'drizzle-orm';
 import { createGithubClient } from './client.ts';
+import { fromDatabaseError, type GithubError, safeGithubCall } from './errors.ts';
 
 const INTEGRATION = 'github';
 
@@ -25,38 +27,47 @@ export type FetchIdentityResult = {
   externalId: string;
 };
 
-export async function fetchIdentity({
+export function fetchIdentity({
   db,
   token,
   now = () => Date.now(),
-}: FetchIdentityArgs): Promise<FetchIdentityResult> {
+}: FetchIdentityArgs): ResultAsync<FetchIdentityResult, GithubError> {
   const octokit = createGithubClient({ token });
-  const { data: user } = await octokit.rest.users.getAuthenticated();
-  const externalId = String(user.id);
-  const canonicalId = `${INTEGRATION}:${externalId}`;
-  const stamp = now();
 
-  db.insert(identityGraph)
-    .values({
-      canonicalId,
-      integration: INTEGRATION,
-      externalId,
-      username: user.login,
-      displayName: user.name ?? null,
-      profileUrl: user.html_url,
-      createdAtMs: stamp,
-      updatedAtMs: stamp,
-    })
-    .onConflictDoUpdate({
-      target: [identityGraph.integration, identityGraph.externalId],
-      set: {
-        username: user.login,
-        displayName: user.name ?? null,
-        profileUrl: user.html_url,
-        updatedAtMs: sql`excluded.updated_at_ms`,
+  return safeGithubCall({
+    execute: () => octokit.rest.users.getAuthenticated(),
+    endpoint: 'users.getAuthenticated',
+  }).andThen(({ data: user }) => {
+    const externalId = String(user.id);
+    const canonicalId = `${INTEGRATION}:${externalId}`;
+    const stamp = now();
+
+    return safeQuery({
+      execute: () => {
+        db.insert(identityGraph)
+          .values({
+            canonicalId,
+            integration: INTEGRATION,
+            externalId,
+            username: user.login,
+            displayName: user.name ?? null,
+            profileUrl: user.html_url,
+            createdAtMs: stamp,
+            updatedAtMs: stamp,
+          })
+          .onConflictDoUpdate({
+            target: [identityGraph.integration, identityGraph.externalId],
+            set: {
+              username: user.login,
+              displayName: user.name ?? null,
+              profileUrl: user.html_url,
+              updatedAtMs: sql`excluded.updated_at_ms`,
+            },
+          })
+          .run();
       },
     })
-    .run();
-
-  return { canonicalId, externalId };
+      .mapErr(fromDatabaseError)
+      .map(() => ({ canonicalId, externalId }));
+  });
 }

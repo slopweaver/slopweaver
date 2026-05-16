@@ -1,9 +1,23 @@
 import { createDb, evidenceLog, integrationState } from '@slopweaver/db';
+import type { ResultAsync } from '@slopweaver/errors';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { pollIssues, pollMentions, pollPullRequests } from './polling.ts';
+import type { GithubError } from './errors.ts';
+import { type PollResult, pollIssues, pollMentions, pollPullRequests } from './polling.ts';
 
 const REPLAY_TOKEN = process.env['GH_TOKEN'] ?? 'ghp_replay_token_redacted';
+
+function expectOkValue(promise: ResultAsync<PollResult, GithubError>): Promise<PollResult> {
+  return promise.match(
+    (v) => {
+      expect(true).toBe(true);
+      return v;
+    },
+    (e) => {
+      throw new Error(`expectOkValue: result was Err: ${e.code} (${e.message})`);
+    },
+  );
+}
 
 let handle: ReturnType<typeof createDb>;
 
@@ -17,19 +31,21 @@ afterEach(() => {
 
 describe('pollPullRequests', () => {
   it('upserts each returned PR into evidence_log and bumps integration_state', async () => {
-    const result = await pollPullRequests({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-    });
+    const value = await expectOkValue(
+      pollPullRequests({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+      }),
+    );
 
     const rows = handle.db
       .select()
       .from(evidenceLog)
       .where(eq(evidenceLog.kind, 'pull_request'))
       .all();
-    expect(rows.length).toBe(result.fetched);
-    expect(result.fetched).toBeGreaterThan(0);
+    expect(rows.length).toBe(value.fetched);
+    expect(value.fetched).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.integration).toBe('github');
       expect(row.externalId.startsWith('pr_')).toBe(true);
@@ -42,7 +58,7 @@ describe('pollPullRequests', () => {
       .where(eq(integrationState.integration, 'github'))
       .get();
     expect(state?.lastPollCompletedAtMs).toBeTypeOf('number');
-    expect(state?.cursor).toBe(result.newCursor);
+    expect(state?.cursor).toBe(value.newCursor);
   });
 
   it('is idempotent on repeat polls (row count stays, lastSeenAtMs advances)', async () => {
@@ -52,12 +68,14 @@ describe('pollPullRequests', () => {
       return counter;
     };
 
-    await pollPullRequests({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-      now: stepClock,
-    });
+    await expectOkValue(
+      pollPullRequests({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+        now: stepClock,
+      }),
+    );
     const beforeRows = handle.db
       .select()
       .from(evidenceLog)
@@ -71,12 +89,14 @@ describe('pollPullRequests', () => {
     expect(trackedExternalId).toBeDefined();
     const beforeTracked = beforeRows.find((r) => r.externalId === trackedExternalId);
 
-    await pollPullRequests({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-      now: stepClock,
-    });
+    await expectOkValue(
+      pollPullRequests({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+        now: stepClock,
+      }),
+    );
     const afterRows = handle.db
       .select()
       .from(evidenceLog)
@@ -92,14 +112,16 @@ describe('pollPullRequests', () => {
 
 describe('pollIssues', () => {
   it('writes issue rows with kind="issue" and prefixed external_id', async () => {
-    const result = await pollIssues({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-    });
+    const value = await expectOkValue(
+      pollIssues({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+      }),
+    );
 
     const rows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'issue')).all();
-    expect(rows.length).toBe(result.fetched);
+    expect(rows.length).toBe(value.fetched);
     for (const row of rows) {
       expect(row.externalId.startsWith('issue_')).toBe(true);
     }
@@ -108,17 +130,19 @@ describe('pollIssues', () => {
 
 describe('pollMentions', () => {
   it('writes mention rows with kind="mention" and prefixed external_id', async () => {
-    const result = await pollMentions({
-      db: handle.db,
-      token: REPLAY_TOKEN,
-      since: null,
-      // GitHub's `mentions:` qualifier rejects `@me`; the maintainer's public
-      // login is fine to bake into a cassette URL (user logins are public).
-      username: 'lachiejames',
-    });
+    const value = await expectOkValue(
+      pollMentions({
+        db: handle.db,
+        token: REPLAY_TOKEN,
+        since: null,
+        // GitHub's `mentions:` qualifier rejects `@me`; the maintainer's public
+        // login is fine to bake into a cassette URL (user logins are public).
+        username: 'lachiejames',
+      }),
+    );
 
     const rows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'mention')).all();
-    expect(rows.length).toBe(result.fetched);
+    expect(rows.length).toBe(value.fetched);
     for (const row of rows) {
       expect(row.externalId.startsWith('mention_')).toBe(true);
     }
