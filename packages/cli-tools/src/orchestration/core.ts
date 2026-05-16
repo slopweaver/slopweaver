@@ -1,4 +1,11 @@
+import { err, ok, type Result } from '@slopweaver/errors';
 import path from 'node:path';
+import {
+  OrchestrationErrors,
+  type OrchestrationInvalidJobIdOutputError,
+  type OrchestrationInvalidPrUrlOutputError,
+  type OrchestrationMissingTitleError,
+} from './errors.ts';
 
 export const ORCHESTRATION_ROLES = [
   'codex-plan',
@@ -178,11 +185,11 @@ export function parseOrchestrationChain({
 }: {
   chainPath: string;
   markdown: string;
-}): ParsedChain {
+}): Result<ParsedChain, OrchestrationMissingTitleError> {
   const lines = markdown.split(/\r?\n/);
   const titleLine = lines.find((line) => line.startsWith('# '));
   if (!titleLine) {
-    throw new Error(`Missing top-level title in orchestration chain: ${chainPath}`);
+    return err(OrchestrationErrors.missingTitle(chainPath));
   }
 
   const steps: ParsedChainStep[] = [];
@@ -266,12 +273,12 @@ export function parseOrchestrationChain({
 
   finalizeStep({ endExclusive: lines.length });
 
-  return {
+  return ok({
     chainPath,
     steps,
     title: titleLine.replace(/^#\s+/, '').trim(),
     variables,
-  };
+  });
 }
 
 export function interpolateTemplate({
@@ -496,23 +503,31 @@ export function buildCiFixPrompt({
       ].join('\n');
 }
 
-export function parseCodexJobId({ output }: { output: string }): string {
+export function parseCodexJobId({
+  output,
+}: {
+  output: string;
+}): Result<string, OrchestrationInvalidJobIdOutputError> {
   // Defensive: widen the character class beyond plain hex so this still works
   // if codex-orchestrator ever returns UUID-style ids (with `-`) or
   // underscored ids. Today's wrapper emits 8-char lowercase hex.
   const match = output.match(/Job started:\s+([a-zA-Z0-9_-]+)/);
   if (!match?.[1]) {
-    throw new Error(`Could not parse codex-agent job id from output:\n${output}`);
+    return err(OrchestrationErrors.invalidJobIdOutput(output));
   }
-  return match[1];
+  return ok(match[1]);
 }
 
-export function parsePullRequestUrl({ output }: { output: string }): string {
+export function parsePullRequestUrl({
+  output,
+}: {
+  output: string;
+}): Result<string, OrchestrationInvalidPrUrlOutputError> {
   const match = output.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/);
   if (!match) {
-    throw new Error(`Could not parse PR URL from output:\n${output}`);
+    return err(OrchestrationErrors.invalidPrUrlOutput(output));
   }
-  return match[0];
+  return ok(match[0]);
 }
 
 export function parsePullRequestNumber({ prUrl }: { prUrl: string }): number | null {

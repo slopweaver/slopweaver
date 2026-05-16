@@ -487,7 +487,9 @@ function runCodexPromptWithFallback({
         reasoning: candidate.reasoning,
         sandbox,
       });
-      jobId = parseCodexJobId({ output: startOutput });
+      const jobIdResult = parseCodexJobId({ output: startOutput });
+      if (jobIdResult.isErr()) throw new Error(jobIdResult.error.message);
+      jobId = jobIdResult.value;
       const output = env.awaitCodexTurn({ cwd, jobId });
       env.closeCodexJob({ cwd, jobId });
       jobId = null;
@@ -557,7 +559,9 @@ function runPlanningConversationWithFallback({
         reasoning: candidate.reasoning,
         sandbox: 'read-only',
       });
-      jobId = parseCodexJobId({ output: startOutput });
+      const jobIdResult = parseCodexJobId({ output: startOutput });
+      if (jobIdResult.isErr()) throw new Error(jobIdResult.error.message);
+      jobId = jobIdResult.value;
 
       const initialPlan = env.awaitCodexTurn({ cwd: state.worktreePath, jobId });
       if (looksLikeTransientModelFailure({ output: initialPlan })) {
@@ -991,7 +995,9 @@ function resolveChainContext({ chainInputPath }: { chainInputPath: string }): {
   const worktreesRoot = resolveWorktreesRoot({ repoRoot });
   const chainPath = resolveChainPath({ inputPath: chainInputPath, repoRoot });
   const markdown = fs.readFileSync(chainPath, 'utf8');
-  const chain = parseOrchestrationChain({ chainPath, markdown });
+  const chainResult = parseOrchestrationChain({ chainPath, markdown });
+  if (chainResult.isErr()) throw new Error(chainResult.error.message);
+  const chain = chainResult.value;
   const profile = getProfile({ profileId: resolveProfileId() });
   const worktreeName = resolveWorktreeName({ chain });
   const worktreePath = path.join(worktreesRoot, worktreeName);
@@ -1315,7 +1321,9 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
       if (createdPr.exitCode !== 0) {
         throw new Error(createdPr.output);
       }
-      return parsePullRequestUrl({ output: createdPr.output });
+      const prUrlResult = parsePullRequestUrl({ output: createdPr.output });
+      if (prUrlResult.isErr()) throw new Error(prUrlResult.error.message);
+      return prUrlResult.value;
     },
     ensureWorktree: ({ repoRoot, worktreeName }) => {
       const worktreePath = path.join(resolveWorktreesRoot({ repoRoot }), worktreeName);
