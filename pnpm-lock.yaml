@@ -271,6 +271,9 @@ importers:
       '@slopweaver/db':
         specifier: workspace:*
         version: link:../db
+      '@slopweaver/errors':
+        specifier: workspace:*
+        version: link:../errors
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.2.0)

@@ -11,6 +11,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { PingResult, StartSessionResult } from '@slopweaver/contracts';
 import { createDb } from '@slopweaver/db';
+import { ok } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createMcpServer } from './server.ts';
@@ -79,7 +80,7 @@ describe('createMcpServer + ping', () => {
       outputSchema: z
         .object({ message: z.string(), length: z.number().int().nonnegative() })
         .strict(),
-      handler: async ({ input }) => ({ message: input.message, length: input.message.length }),
+      handler: async ({ input }) => ok({ message: input.message, length: input.message.length }),
     });
 
     const server = createMcpServer({
@@ -126,7 +127,7 @@ describe('createMcpServer + ping', () => {
       outputSchema: z.object({ greeting: z.string() }).strict(),
       handler: async ({ input }) => {
         handlerCalled += 1;
-        return { greeting: `hello, ${input.name}` };
+        return ok({ greeting: `hello, ${input.name}` });
       },
     });
 

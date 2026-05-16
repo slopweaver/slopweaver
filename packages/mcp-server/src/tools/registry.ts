@@ -15,8 +15,10 @@
  * boundary.
  */
 
-import type { z } from 'zod';
 import type { SlopweaverDatabase } from '@slopweaver/db';
+import type { Result } from '@slopweaver/errors';
+import type { z } from 'zod';
+import type { McpToolError } from '../errors.ts';
 
 /**
  * Per-call context handed to every tool handler. v1 only carries the Drizzle
@@ -32,7 +34,16 @@ export type ToolHandlerArgs<TInput> = {
   ctx: ToolHandlerContext;
 };
 
-export type ToolHandler<TInput, TOutput> = (args: ToolHandlerArgs<TInput>) => Promise<TOutput>;
+/**
+ * Tool handlers return `Promise<Result<TOutput, McpToolError>>`. The server
+ * dispatcher unwraps via `.match()` — `Ok` becomes a normal MCP response,
+ * `Err` becomes an `isError: true` structured response so the MCP client
+ * sees a typed failure envelope. See `.claude/rules/error-handling.md` and
+ * #41.
+ */
+export type ToolHandler<TInput, TOutput> = (
+  args: ToolHandlerArgs<TInput>,
+) => Promise<Result<TOutput, McpToolError>>;
 
 /** Author-facing tool spec; `defineTool` converts this into a {@link Tool}. */
 export type ToolDefinition<TInputSchema extends z.ZodObject, TOutputSchema extends z.ZodObject> = {

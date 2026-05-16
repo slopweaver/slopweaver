@@ -12,6 +12,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SlopweaverDatabase } from '@slopweaver/db';
+import { McpErrors } from './errors.ts';
 import type { Tool } from './tools/registry.ts';
 
 export type CreateMcpServerArgs = {
@@ -35,9 +36,34 @@ export function createMcpServer({ db, tools, version }: CreateMcpServerArgs): Mc
         outputSchema: tool.outputSchema,
       },
       async (input: unknown) => {
-        const output = await tool.handler({ input, ctx: { db } });
+        let result: Awaited<ReturnType<typeof tool.handler>>;
+        try {
+          result = await tool.handler({ input, ctx: { db } });
+        } catch (cause) {
+          // Handlers should return `Err` rather than throw, but a runaway
+          // exception is still bound to the tool — wrap as isError so the
+          // client sees a structured envelope.
+          const error = McpErrors.unexpected(
+            tool.name,
+            cause,
+            cause instanceof Error ? cause.message : undefined,
+          );
+          return {
+            isError: true,
+            structuredContent: { code: error.code, message: error.message },
+            content: [{ type: 'text', text: JSON.stringify(error) }],
+          };
+        }
+        if (result.isErr()) {
+          return {
+            isError: true,
+            structuredContent: { code: result.error.code, message: result.error.message },
+            content: [{ type: 'text', text: JSON.stringify(result.error) }],
+          };
+        }
+        const output = result.value;
         return {
-          structuredContent: output as Record<string, unknown>,
+          structuredContent: output,
           content: [{ type: 'text', text: JSON.stringify(output) }],
         };
       },
