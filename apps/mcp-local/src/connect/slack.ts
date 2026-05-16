@@ -15,6 +15,7 @@
  */
 
 import { type SlopweaverDatabase, saveIntegrationToken } from '@slopweaver/db';
+import type { BaseError, ResultAsync } from '@slopweaver/errors';
 
 const INTEGRATION = 'slack';
 const USER_TOKEN_PREFIX = 'xoxp-';
@@ -22,7 +23,7 @@ const USER_TOKEN_PREFIX = 'xoxp-';
 export type RunConnectSlackDeps = {
   db: SlopweaverDatabase;
   promptForToken: (opts: { message: string }) => Promise<string>;
-  validateToken: (token: string) => Promise<{ team: string | null }>;
+  validateToken: (token: string) => ResultAsync<{ team: string | null }, BaseError>;
   stdout: { write: (s: string) => void };
   stderr: { write: (s: string) => void };
   now?: () => number;
@@ -47,14 +48,12 @@ export async function runConnectSlack({
     return 1;
   }
 
-  let team: string | null;
-  try {
-    ({ team } = await validateToken(token));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    stderr.write(`slopweaver: Slack token rejected: ${message}\n`);
+  const validateResult = await validateToken(token);
+  if (validateResult.isErr()) {
+    stderr.write(`slopweaver: Slack token rejected: ${validateResult.error.message}\n`);
     return 1;
   }
+  const { team } = validateResult.value;
 
   const saveResult = await saveIntegrationToken({
     db,

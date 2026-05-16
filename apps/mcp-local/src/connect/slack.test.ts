@@ -3,6 +3,7 @@
  */
 
 import { createDb, loadIntegrationToken } from '@slopweaver/db';
+import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runConnectSlack } from './slack.ts';
 
@@ -37,9 +38,9 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-test',
-      validateToken: async (token) => {
+      validateToken: (token) => {
         expect(token).toBe('xoxp-test');
-        return { team: 'AcmeCorp' };
+        return okAsync({ team: 'AcmeCorp' });
       },
       stdout,
       stderr,
@@ -60,7 +61,7 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-test',
-      validateToken: async () => ({ team: null }),
+      validateToken: () => okAsync({ team: null }),
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
@@ -81,9 +82,9 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxb-bot-token',
-      validateToken: async () => {
+      validateToken: () => {
         validateCalled = true;
-        return { team: 'AcmeCorp' };
+        return okAsync({ team: 'AcmeCorp' });
       },
       stdout,
       stderr,
@@ -105,7 +106,7 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xapp-app-level',
-      validateToken: async () => ({ team: 'AcmeCorp' }),
+      validateToken: () => okAsync({ team: 'AcmeCorp' }),
       stdout,
       stderr,
     });
@@ -123,9 +124,11 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-bogus',
-      validateToken: async () => {
-        throw new Error('invalid_auth');
-      },
+      validateToken: () =>
+        errAsync({
+          code: 'SLACK_API_ERROR',
+          message: 'invalid_auth',
+        }),
       stdout,
       stderr,
     });
@@ -145,7 +148,7 @@ describe('runConnectSlack', () => {
     await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-first',
-      validateToken: async () => ({ team: 'AcmeCorp' }),
+      validateToken: () => okAsync({ team: 'AcmeCorp' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
@@ -154,7 +157,7 @@ describe('runConnectSlack', () => {
     await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-second',
-      validateToken: async () => ({ team: 'AcmeCorp-Renamed' }),
+      validateToken: () => okAsync({ team: 'AcmeCorp-Renamed' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_500,

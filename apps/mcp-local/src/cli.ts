@@ -26,7 +26,8 @@ import { cac } from 'cac';
 import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
 import { createGithubClient } from '@slopweaver/integrations-github';
-import { createSlackClient } from '@slopweaver/integrations-slack';
+import { errAsync } from '@slopweaver/errors';
+import { createSlackClient, safeSlackCall } from '@slopweaver/integrations-slack';
 import {
   createMcpServer,
   createPingTool,
@@ -222,13 +223,16 @@ async function runConnect({ integration }: { integration: string }): Promise<num
     return await runConnectSlack({
       db: dbHandle.db,
       promptForToken,
-      validateToken: async (token: string): Promise<{ team: string | null }> => {
+      validateToken: (token: string) => {
         const slackResult = createSlackClient({ token });
         if (slackResult.isErr()) {
-          throw new Error(slackResult.error.message);
+          return errAsync(slackResult.error);
         }
-        const auth = await slackResult.value.auth.test();
-        return { team: auth.team ?? null };
+        const slack = slackResult.value;
+        return safeSlackCall({
+          execute: () => slack.auth.test(),
+          endpoint: 'auth.test',
+        }).map((auth) => ({ team: auth.team ?? null }));
       },
       stdout,
       stderr,

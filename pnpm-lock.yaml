@@ -55,6 +55,9 @@ importers:
       '@slopweaver/env':
         specifier: workspace:*
         version: link:../../packages/env
+      '@slopweaver/errors':
+        specifier: workspace:*
+        version: link:../../packages/errors
       '@slopweaver/integrations-github':
         specifier: workspace:*
         version: link:../../packages/integrations/github

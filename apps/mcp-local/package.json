@@ -28,6 +28,7 @@
     "@inquirer/prompts": "8.4.2",
     "@slopweaver/db": "workspace:*",
     "@slopweaver/env": "workspace:*",
+    "@slopweaver/errors": "workspace:*",
     "@slopweaver/integrations-github": "workspace:*",
     "@slopweaver/integrations-slack": "workspace:*",
     "@slopweaver/mcp-server": "workspace:*",
