@@ -201,3 +201,47 @@ Tests for unhappy paths assert on `error.code` (the discriminant), not
 
 If a rule above conflicts with what a piece of code is trying to do,
 file a `decision-record` issue rather than working around it.
+
+## Carve-outs (throws that are allowed)
+
+The "no throws at service boundaries" rule has three intentional
+exemptions. Code in any of these places may throw without being a bug:
+
+- **Browser-side data fetchers** (`packages/ui/src/client/api/**`) — React
+  consumers catch via `<ErrorBoundary>`, React Query's `onError`, or
+  SWR's `error` field; all three expect throw-based async. Threading
+  `Result` into the JSX layer would buy nothing and force every render
+  site to `.match()`. The scanner does not cover `packages/ui/src`.
+
+- **CLI entry points** (`apps/*/src/cli.ts`, `packages/cli-tools/src/cli.ts`)
+  — these are the boundary where Result is unwrapped via `.match()` and
+  printed. The preferred shape is still `.match()` (or `if (result.isErr())
+  { console.error(…); process.exit(…) }`), but throws are tolerated when:
+  - The throw is from a synchronous parse helper that the caller of the
+    parse helper wraps in a single `try/catch` (e.g. `cac.parse()`-style).
+  - The throw value is itself a typed error already (e.g. `throw envResult.error`
+    where the catcher checks `instanceof EnvValidationError`) — the CLI
+    boundary's `asMessage()` helper extracts `.message` from BaseError-shaped
+    objects so this prints cleanly.
+
+- **Recovery / classification `try/catch` blocks** — `try/catch` that
+  exists to *classify* an outcome (e.g. swallowing a known recoverable
+  error so the broader operation can proceed) is fine. The scanner only
+  flags `throw` statements, so a catch that doesn't re-throw isn't
+  affected. If a catch *does* re-throw, prefer returning `Result` with
+  a typed classification.
+
+## eslint-plugin-neverthrow status
+
+The upstream `eslint-plugin-neverthrow` runtime `must-use-result` rule
+(which would flag forgotten Result unwraps like `if (result)` /
+`result && x` / awaited-but-not-matched `ResultAsync`) is **not enabled**
+in `eslint.config.js`. v1.1.4 (last published 2022) reads
+`context.parserServices`, which moved to `context.sourceCode.parserServices`
+in ESLint 9+; the plugin is therefore incompatible with the ESLint 10
+this repo uses. Tracked in #41.
+
+Until upstream catches up or a custom rule is written, the
+`pnpm check:service-boundaries` scanner is the runtime enforcement —
+it catches new throws at service boundaries, which is the highest-risk
+regression class.
