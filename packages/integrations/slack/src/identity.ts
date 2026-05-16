@@ -18,10 +18,15 @@
 
 import type { WebClient } from '@slack/web-api';
 import { identityGraph, safeQuery, type SlopweaverDatabase } from '@slopweaver/db';
-import { errAsync, type ResultAsync } from '@slopweaver/errors';
+import { errAsync, ok, type Result, type ResultAsync } from '@slopweaver/errors';
 import { sql } from 'drizzle-orm';
 import { createSlackClient } from './client.ts';
-import { fromDatabaseError, safeSlackCall, type SlackError } from './errors.ts';
+import {
+  fromDatabaseError,
+  safeSlackCall,
+  type SlackError,
+  type SlackTokenInvalidError,
+} from './errors.ts';
 
 const INTEGRATION = 'slack';
 
@@ -43,14 +48,11 @@ export function fetchIdentity({
   client,
   now = Date.now,
 }: FetchIdentityArgs): ResultAsync<FetchIdentityResult, SlackError> {
-  let slack: WebClient;
-  if (client) {
-    slack = client;
-  } else {
-    const created = createSlackClient({ token });
-    if (created.isErr()) return errAsync(created.error);
-    slack = created.value;
-  }
+  const slackResult: Result<WebClient, SlackTokenInvalidError> = client
+    ? ok(client)
+    : createSlackClient({ token });
+  if (slackResult.isErr()) return errAsync(slackResult.error);
+  const slack = slackResult.value;
 
   return safeSlackCall({
     execute: () => slack.auth.test(),

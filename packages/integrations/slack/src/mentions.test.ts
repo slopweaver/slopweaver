@@ -9,29 +9,11 @@
 
 import type { WebClient } from '@slack/web-api';
 import { evidenceLog, integrationState } from '@slopweaver/db';
-import type { ResultAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SlackError } from './errors.ts';
-import { pollMentions, type PollResult } from './mentions.ts';
+import { pollMentions } from './mentions.ts';
 import { openMemoryDb } from './test/db.ts';
 
 type DbHandle = ReturnType<typeof openMemoryDb>;
-
-/**
- * Unwrap a `ResultAsync` known to be Ok in this test, with a strong
- * assertion. Equivalent to `expect(r.isOk()).toBe(true); return r.value`.
- */
-function expectOkValue(promise: ResultAsync<PollResult, SlackError>): Promise<PollResult> {
-  return promise.match(
-    (v) => {
-      expect(true).toBe(true);
-      return v;
-    },
-    (e) => {
-      throw new Error(`expectOkValue: result was Err: ${e.code} (${e.message})`);
-    },
-  );
-}
 
 describe('pollMentions', () => {
   let dbHandle: DbHandle;
@@ -82,14 +64,15 @@ describe('pollMentions', () => {
       search: { messages: searchSpy },
     } as unknown as WebClient;
 
-    const value = await expectOkValue(
-      pollMentions({
-        db: dbHandle.db,
-        token: 'xoxp-test',
-        client,
-        now: () => 9_000_000,
-      }),
-    );
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      now: () => 9_000_000,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) throw new Error('unreachable');
+    const value = result.value;
 
     expect(value.fetched).toBe(2);
     // Cursor normalized to ISO-8601 from the newest match's ts. The `.000200`
@@ -134,14 +117,15 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const value = await expectOkValue(
-      pollMentions({
-        db: dbHandle.db,
-        token: 'xoxp-test',
-        client,
-        now: () => nowCounter++,
-      }),
-    );
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      now: () => nowCounter++,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) throw new Error('unreachable');
+    const value = result.value;
 
     expect(value.newCursor).toBe(new Date(500_000).toISOString());
 
@@ -163,15 +147,16 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const value = await expectOkValue(
-      pollMentions({
-        db: dbHandle.db,
-        token: 'xoxp-test',
-        client,
-        since: new Date('2026-05-01T00:00:00Z'),
-        now: () => 1,
-      }),
-    );
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      since: new Date('2026-05-01T00:00:00Z'),
+      now: () => 1,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) throw new Error('unreachable');
+    const value = result.value;
 
     // The since fallback is the ISO date, since no matches yielded a ts.
     expect(value.newCursor).toBe('2026-05-01T00:00:00.000Z');
@@ -192,15 +177,14 @@ describe('pollMentions', () => {
       search: { messages: searchSpy },
     } as unknown as WebClient;
 
-    await expectOkValue(
-      pollMentions({
-        db: dbHandle.db,
-        token: 'xoxp-test',
-        client,
-        since: new Date('2026-05-01T12:00:00Z'),
-        now: () => 1,
-      }),
-    );
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      since: new Date('2026-05-01T12:00:00Z'),
+      now: () => 1,
+    });
+    expect(result.isOk()).toBe(true);
   });
 
   it('walks search.messages pages until messages.paging.pages is reached', async () => {
@@ -229,14 +213,15 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const value = await expectOkValue(
-      pollMentions({
-        db: dbHandle.db,
-        token: 'xoxp-test',
-        client,
-        now: () => 1,
-      }),
-    );
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      now: () => 1,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) throw new Error('unreachable');
+    const value = result.value;
 
     expect(seenPages).toEqual([1, 2, 3]);
     expect(value.fetched).toBe(3);
@@ -309,12 +294,20 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    await expectOkValue(
-      pollMentions({ db: dbHandle.db, token: 'xoxp-test', client, now: () => 100 }),
-    );
-    await expectOkValue(
-      pollMentions({ db: dbHandle.db, token: 'xoxp-test', client, now: () => 200 }),
-    );
+    const r1 = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      now: () => 100,
+    });
+    expect(r1.isOk()).toBe(true);
+    const r2 = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      now: () => 200,
+    });
+    expect(r2.isOk()).toBe(true);
 
     const rows = dbHandle.db.select().from(evidenceLog).all();
     expect(rows).toHaveLength(1);
@@ -347,14 +340,15 @@ describe('pollMentions', () => {
       },
     } as unknown as WebClient;
 
-    const value = await expectOkValue(
-      pollMentions({
-        db: dbHandle.db,
-        token: 'xoxp-test',
-        client,
-        now: () => 1,
-      }),
-    );
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: 'xoxp-test',
+      client,
+      now: () => 1,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) throw new Error('unreachable');
+    const value = result.value;
 
     expect(value.fetched).toBe(2); // counts what Slack returned, not what got upserted
     const rows = dbHandle.db.select().from(evidenceLog).all();
@@ -379,13 +373,14 @@ describe('pollMentions (cassette)', () => {
   });
 
   it('returns a fetched count and writes integration_state for slack', async () => {
-    const value = await expectOkValue(
-      pollMentions({
-        db: dbHandle.db,
-        token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
-        now: () => 1_000,
-      }),
-    );
+    const result = await pollMentions({
+      db: dbHandle.db,
+      token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
+      now: () => 1_000,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) throw new Error('unreachable');
+    const value = result.value;
 
     expect(typeof value.fetched).toBe('number');
     expect(value.fetched).toBeGreaterThanOrEqual(0);

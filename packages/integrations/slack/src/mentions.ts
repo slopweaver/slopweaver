@@ -35,6 +35,7 @@ import {
   safeSlackCall,
   type SlackError,
   SlackErrors,
+  type SlackTokenInvalidError,
   type SlackTsParseError,
 } from './errors.ts';
 import { type AnySlackMessage, pickNewestTs, upsertSlackMessage } from './upsert.ts';
@@ -67,14 +68,11 @@ async function pollMentionsInner({
   client,
   now = Date.now,
 }: PollMentionsArgs): Promise<Result<PollResult, SlackError>> {
-  let slack: WebClient;
-  if (client) {
-    slack = client;
-  } else {
-    const created = createSlackClient({ token });
-    if (created.isErr()) return err(created.error);
-    slack = created.value;
-  }
+  const slackResult: Result<WebClient, SlackTokenInvalidError> = client
+    ? ok(client)
+    : createSlackClient({ token });
+  if (slackResult.isErr()) return err(slackResult.error);
+  const slack = slackResult.value;
 
   const startedAt = now();
   const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
