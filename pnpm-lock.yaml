@@ -89,6 +89,9 @@ importers:
       '@inquirer/prompts':
         specifier: 8.4.2
         version: 8.4.2(@types/node@22.19.17)
+      '@slopweaver/errors':
+        specifier: workspace:*
+        version: link:../errors
       cac:
         specifier: 7.0.0
         version: 7.0.0

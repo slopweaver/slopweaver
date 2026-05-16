@@ -27,9 +27,9 @@ cli
   .example('  pnpm cli worktree-new fix-issue-42')
   .action((name: string, options: { install: boolean }) => {
     const result = runWorktreeNew({ rawName: name, options: { install: options.install } });
-    if (!result.ok) {
-      console.error(`error: ${result.error}`);
-      process.exit(result.exitCode);
+    if (result.isErr()) {
+      console.error(`error: ${result.error.message}`);
+      process.exit(result.error.exitCode);
     }
   });
 

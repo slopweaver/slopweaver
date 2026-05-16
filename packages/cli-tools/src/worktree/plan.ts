@@ -1,4 +1,6 @@
+import { err, ok, type Result } from '@slopweaver/errors';
 import { join } from 'node:path';
+import { type WorktreeError, WorktreeErrors } from './errors.ts';
 
 /** Sanitises a free-text task name into a slug-safe branch + path component. */
 export function sanitiseTaskName({ input }: { input: string }): string {
@@ -17,29 +19,21 @@ export type WorktreePlan = {
   baseRef: string;
 };
 
-export type BuildPlanResult = { ok: true; plan: WorktreePlan } | { ok: false; error: string };
-
 export function buildWorktreePlan({
   rawName,
   worktreesRoot,
 }: {
   rawName: string;
   worktreesRoot: string;
-}): BuildPlanResult {
+}): Result<WorktreePlan, WorktreeError> {
   const safeName = sanitiseTaskName({ input: rawName });
   if (!safeName) {
-    return {
-      ok: false,
-      error: 'task name produced an empty slug after sanitisation',
-    };
+    return err(WorktreeErrors.invalidName('task name produced an empty slug after sanitisation'));
   }
-  return {
-    ok: true,
-    plan: {
-      safeName,
-      worktreePath: join(worktreesRoot, safeName),
-      branchName: `worktree/${safeName}`,
-      baseRef: 'origin/main',
-    },
-  };
+  return ok({
+    safeName,
+    worktreePath: join(worktreesRoot, safeName),
+    branchName: `worktree/${safeName}`,
+    baseRef: 'origin/main',
+  });
 }

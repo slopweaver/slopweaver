@@ -27,7 +27,10 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result).toEqual({ ok: true, worktreePath: '/wt/fix-issue-42' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ worktreePath: '/wt/fix-issue-42' });
+    }
     expect(calls).toEqual([
       { cmd: 'git', args: ['fetch', 'origin', 'main'], cwd: '/repo' },
       {
@@ -48,11 +51,14 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result).toEqual({ ok: true, worktreePath: '/wt/quick-fix' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ worktreePath: '/wt/quick-fix' });
+    }
     expect(exec).toHaveBeenCalledTimes(2);
   });
 
-  it('returns an error when sanitisation produces an empty slug', () => {
+  it('returns err WORKTREE_INVALID_NAME when sanitisation produces an empty slug', () => {
     const exec = vi.fn<ExecFn>(() => ({ status: 0 }) as ExecResult);
 
     const result = runWorktreeNew({
@@ -61,15 +67,16 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/empty slug/);
-      expect(result.exitCode).toBe(1);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('WORKTREE_INVALID_NAME');
+      expect(result.error.message).toMatch(/empty slug/);
+      expect(result.error.exitCode).toBe(1);
     }
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it('returns the failing exit code when git fetch fails', () => {
+  it('returns err WORKTREE_GIT_FETCH_FAILED with the failing exit code', () => {
     const exec: ExecFn = (cmd, args) => {
       if (cmd === 'git' && args[0] === 'fetch') return { status: 128 };
       return { status: 0 };
@@ -81,10 +88,14 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result).toEqual({ ok: false, error: 'git fetch origin main failed', exitCode: 128 });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('WORKTREE_GIT_FETCH_FAILED');
+      expect(result.error.exitCode).toBe(128);
+    }
   });
 
-  it('returns the failing exit code when git worktree add fails', () => {
+  it('returns err WORKTREE_GIT_ADD_FAILED with the failing exit code', () => {
     const exec: ExecFn = (cmd, args) => {
       if (cmd === 'git' && args[0] === 'worktree') return { status: 128 };
       return { status: 0 };
@@ -96,10 +107,14 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result).toEqual({ ok: false, error: 'git worktree add failed', exitCode: 128 });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('WORKTREE_GIT_ADD_FAILED');
+      expect(result.error.exitCode).toBe(128);
+    }
   });
 
-  it('returns the failing exit code when pnpm install fails', () => {
+  it('returns err WORKTREE_PNPM_INSTALL_FAILED with the failing exit code', () => {
     const exec: ExecFn = (cmd) => {
       if (cmd === 'pnpm') return { status: 1 };
       return { status: 0 };
@@ -111,7 +126,11 @@ describe('runWorktreeNew', () => {
       deps: deps({ exec }),
     });
 
-    expect(result).toEqual({ ok: false, error: 'pnpm install failed', exitCode: 1 });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('WORKTREE_PNPM_INSTALL_FAILED');
+      expect(result.error.exitCode).toBe(1);
+    }
   });
 
   it('emits human-readable log lines via the injected log function', () => {
