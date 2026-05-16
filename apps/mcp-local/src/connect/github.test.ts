@@ -8,6 +8,7 @@
  */
 
 import { createDb, loadIntegrationToken } from '@slopweaver/db';
+import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runConnectGithub } from './github.ts';
 
@@ -42,9 +43,9 @@ describe('runConnectGithub', () => {
     const code = await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_happy',
-      validateToken: async (token) => {
+      validateToken: (token) => {
         expect(token).toBe('ghp_happy');
-        return { login: 'octocat' };
+        return okAsync({ login: 'octocat' });
       },
       stdout,
       stderr,
@@ -65,9 +66,11 @@ describe('runConnectGithub', () => {
     const code = await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_bogus',
-      validateToken: async () => {
-        throw new Error('Bad credentials');
-      },
+      validateToken: () =>
+        errAsync({
+          code: 'GITHUB_API_ERROR',
+          message: 'Bad credentials',
+        }),
       stdout,
       stderr,
     });
@@ -87,7 +90,7 @@ describe('runConnectGithub', () => {
     await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_first',
-      validateToken: async () => ({ login: 'octocat' }),
+      validateToken: () => okAsync({ login: 'octocat' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
@@ -96,7 +99,7 @@ describe('runConnectGithub', () => {
     await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_second',
-      validateToken: async () => ({ login: 'octocat-renamed' }),
+      validateToken: () => okAsync({ login: 'octocat-renamed' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_500,

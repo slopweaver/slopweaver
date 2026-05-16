@@ -24,7 +24,7 @@ export interface GithubDatabaseError extends BaseError {
 
 export type GithubError = GithubApiError | GithubDatabaseError;
 
-const GithubErrors = {
+export const GithubErrors = {
   apiError: (
     endpoint: string,
     opts: { status?: number; cause?: unknown; message?: string } = {},

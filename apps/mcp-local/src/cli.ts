@@ -25,7 +25,7 @@ import { password } from '@inquirer/prompts';
 import { cac } from 'cac';
 import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
-import { createGithubClient } from '@slopweaver/integrations-github';
+import { createGithubClient, safeGithubCall } from '@slopweaver/integrations-github';
 import { errAsync } from '@slopweaver/errors';
 import { createSlackClient, safeSlackCall } from '@slopweaver/integrations-slack';
 import {
@@ -210,10 +210,12 @@ async function runConnect({ integration }: { integration: string }): Promise<num
       return await runConnectGithub({
         db: dbHandle.db,
         promptForToken,
-        validateToken: async (token: string): Promise<{ login: string }> => {
+        validateToken: (token: string) => {
           const octokit = createGithubClient({ token });
-          const { data } = await octokit.rest.users.getAuthenticated();
-          return { login: data.login };
+          return safeGithubCall({
+            execute: () => octokit.rest.users.getAuthenticated(),
+            endpoint: 'users.getAuthenticated',
+          }).map((res) => ({ login: res.data.login }));
         },
         stdout,
         stderr,
