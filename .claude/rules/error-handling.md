@@ -179,12 +179,25 @@ result.match(
 );
 ```
 
-…or the equivalent `if (isErr)` early-return shape — both forms appear
-in the repo. The CLI's outer `.catch()` (e.g. cac's `.action()` callback
-catching from a thrown `EnvValidationError`) also serves as a backstop
-for the typed-throw carve-out below; the `asMessage()` helper at the
-boundary extracts `.message` from BaseError-shaped values so they print
-cleanly either way.
+…or — and this is what current CLI entrypoints actually use — the
+equivalent `if (isErr)` early-return shape:
+
+```ts
+const result = await runCommand(args);
+if (result.isErr()) {
+  stderr.write(formatError(result.error) + '\n');
+  exit(1);
+  return;
+}
+stdout.write(format(result.value));
+```
+
+Either form is fine — pick whichever reads cleanly at the call site.
+The CLI's outer `.catch()` (e.g. cac's `.action()` callback catching
+from a thrown `EnvValidationError`) also serves as a backstop for the
+typed-throw carve-out below; the `asMessage()` helper at the boundary
+extracts `.message` from BaseError-shaped values so they print cleanly
+either way.
 
 **MCP tool handlers** (`packages/mcp-server/src/tools/...`) use a
 boundary helper inside the dispatcher to convert `Err` into an

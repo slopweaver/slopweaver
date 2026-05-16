@@ -6,12 +6,9 @@
  * `Result<T, E>` instead of throwing; this check is the gate (per
  * `.claude/rules/error-handling.md` and #41).
  *
- * Wiring into `pnpm validate` is intentionally deferred until Phase 6 of
- * the migration — pre-migration the boundary files contain ~37 existing
- * throws, so flipping the gate on now would lock validate red until
- * every migration commit lands. The check is runnable on demand
- * (`pnpm check:service-boundaries` script) so each migration commit can
- * verify locally that the count is going down.
+ * Wired into `pnpm validate` as the first gate. The check is also
+ * runnable on demand via `pnpm cli check-service-boundaries` so a
+ * developer can verify locally before a commit.
  */
 
 import { findMonorepoRoot } from '../lib/paths.ts';
