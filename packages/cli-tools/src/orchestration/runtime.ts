@@ -88,7 +88,7 @@ interface RunState {
   worktreePath: string;
 }
 
-interface RunOrchestrationEnvironment {
+export interface RunOrchestrationEnvironment {
   awaitCodexTurn(args: {
     cwd: string;
     jobId: string;
