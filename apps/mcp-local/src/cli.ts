@@ -25,8 +25,9 @@ import { password } from '@inquirer/prompts';
 import { cac } from 'cac';
 import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
-import { createGithubClient } from '@slopweaver/integrations-github';
-import { createSlackClient } from '@slopweaver/integrations-slack';
+import { createGithubClient, safeGithubCall } from '@slopweaver/integrations-github';
+import { errAsync } from '@slopweaver/errors';
+import { createSlackClient, safeSlackCall } from '@slopweaver/integrations-slack';
 import {
   createMcpServer,
   createPingTool,
@@ -78,13 +79,25 @@ function resolveWebUiPort(): number {
 
 async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void> {
   // Validate the environment before opening the SQLite file or starting the
-  // server. Aggregated `EnvValidationError` propagates out and the process
-  // exits non-zero — single fail-fast boundary for bad env.
-  loadEnv();
+  // server. The `EnvValidationError` is unwrapped at this CLI boundary so the
+  // outer .catch() in the cac action prints + exits non-zero.
+  const envResult = loadEnv();
+  if (envResult.isErr()) {
+    throw envResult.error;
+  }
+
+  const dbPathResult = resolveDbPath();
+  if (dbPathResult.isErr()) {
+    throw dbPathResult.error;
+  }
+  const dataDirResult = resolveDataDir();
+  if (dataDirResult.isErr()) {
+    throw dataDirResult.error;
+  }
 
   const startedAtMs = Date.now();
-  const dbHandle = createDb({ path: resolveDbPath() });
-  const dataDir = resolveDataDir();
+  const dbHandle = createDb({ path: dbPathResult.value });
+  const dataDir = dataDirResult.value;
 
   const server = createMcpServer({
     db: dbHandle.db,
@@ -178,9 +191,17 @@ async function runConnect({ integration }: { integration: string }): Promise<num
   // Mirror runMcpServer's env contract — bad NODE_ENV / LOG_LEVEL must reject
   // here too, otherwise the connect path would silently honour invalid values
   // that the stdio path rejects.
-  loadEnv();
+  const envResult = loadEnv();
+  if (envResult.isErr()) {
+    throw envResult.error;
+  }
 
-  const dbHandle = createDb({ path: resolveDbPath() });
+  const dbPathResult = resolveDbPath();
+  if (dbPathResult.isErr()) {
+    throw dbPathResult.error;
+  }
+
+  const dbHandle = createDb({ path: dbPathResult.value });
   try {
     const promptForToken = async ({ message }: { message: string }): Promise<string> =>
       password({ message, mask: true });
@@ -189,10 +210,12 @@ async function runConnect({ integration }: { integration: string }): Promise<num
       return await runConnectGithub({
         db: dbHandle.db,
         promptForToken,
-        validateToken: async (token: string): Promise<{ login: string }> => {
+        validateToken: ({ token }: { token: string }) => {
           const octokit = createGithubClient({ token });
-          const { data } = await octokit.rest.users.getAuthenticated();
-          return { login: data.login };
+          return safeGithubCall({
+            execute: () => octokit.rest.users.getAuthenticated(),
+            endpoint: 'users.getAuthenticated',
+          }).map((res) => ({ login: res.data.login }));
         },
         stdout,
         stderr,
@@ -202,10 +225,16 @@ async function runConnect({ integration }: { integration: string }): Promise<num
     return await runConnectSlack({
       db: dbHandle.db,
       promptForToken,
-      validateToken: async (token: string): Promise<{ team: string | null }> => {
-        const slack = createSlackClient({ token });
-        const auth = await slack.auth.test();
-        return { team: auth.team ?? null };
+      validateToken: ({ token }: { token: string }) => {
+        const slackResult = createSlackClient({ token });
+        if (slackResult.isErr()) {
+          return errAsync(slackResult.error);
+        }
+        const slack = slackResult.value;
+        return safeSlackCall({
+          execute: () => slack.auth.test(),
+          endpoint: 'auth.test',
+        }).map((auth) => ({ team: auth.team ?? null }));
       },
       stdout,
       stderr,
@@ -216,7 +245,16 @@ async function runConnect({ integration }: { integration: string }): Promise<num
 }
 
 function asMessage({ error }: { error: unknown }): string {
-  return error instanceof Error ? error.message : String(error);
+  // Native Error instances expose `.message` directly. Result-pattern errors
+  // (BaseError-shaped plain objects from @slopweaver/errors) also carry a
+  // string `message` field — extract it explicitly so they print cleanly at
+  // this CLI boundary instead of stringifying to `[object Object]`.
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return String(error);
 }
 
 const cli = cac('slopweaver');

@@ -27,6 +27,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@slopweaver/errors": "workspace:*",
     "zod": "4.4.2"
   },
   "devDependencies": {

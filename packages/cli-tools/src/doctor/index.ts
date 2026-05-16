@@ -60,12 +60,29 @@ export async function runDoctor({
   log(pc.bold('SlopWeaver doctor'));
   log('');
 
+  // Resolve the data dir up front; if XDG_DATA_HOME is misconfigured every
+  // downstream check that needs the path would be meaningless, so we report
+  // the validation failure as a single failed check and bail.
+  const dataDirResult = resolveDataDir();
+  if (dataDirResult.isErr()) {
+    const failure: CheckResult = {
+      name: 'Data dir',
+      status: 'fail',
+      detail: dataDirResult.error.message,
+    };
+    log(formatRow(failure));
+    log('');
+    log(pc.red('1 check failed. Fix the items above and re-run.'));
+    return { ok: false, failed: 1, exitCode: 1 };
+  }
+  const dataDir = dataDirResult.value;
+
   const codexResult = checkCodexAgent();
   const results: CheckResult[] = [
     checkNodeVersion(),
     checkPnpmVersion(),
     await checkPortFree({ port: LOCAL_API_PORT }),
-    checkDataDir(),
+    checkDataDir({ dataDir }),
     ...(codexResult ? [codexResult] : []),
   ];
 
@@ -76,12 +93,11 @@ export async function runDoctor({
   // Offer the one fix we know how to apply.
   const dataDirIndex = results.findIndex((r) => r.fixable === 'create-data-dir');
   if (dataDirIndex !== -1) {
-    const dataDir = resolveDataDir();
     log('');
     const shouldCreate = await prompt(`Create data dir at ${dataDir}?`);
     if (shouldCreate) {
       mkdir(dataDir);
-      const recheck = checkDataDir();
+      const recheck = checkDataDir({ dataDir });
       results[dataDirIndex] = recheck;
       log(formatRow(recheck));
     }

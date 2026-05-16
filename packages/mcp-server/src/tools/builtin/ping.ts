@@ -6,6 +6,7 @@
  */
 
 import { PingArgs, PingResult } from '@slopweaver/contracts';
+import { ok } from '@slopweaver/errors';
 import { defineTool, type Tool } from '../registry.ts';
 
 export type CreatePingToolArgs = {
@@ -33,11 +34,11 @@ export function createPingTool({ version, startedAtMs, now = Date.now }: CreateP
     outputSchema: PingResult,
     handler: async () => {
       const elapsedMs = Math.max(0, now() - startedAtMs);
-      return {
+      return ok({
         ok: true as const,
         version,
         uptime_s: Math.floor(elapsedMs / 1000),
-      };
+      });
     },
   });
 }

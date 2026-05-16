@@ -17,12 +17,19 @@ import {
 } from './core.ts';
 
 function readChainFixture({ relativePath }: { relativePath: string }): ParsedChain {
-  const repoRoot = findMonorepoRoot();
-  const chainPath = path.join(repoRoot, relativePath);
-  return parseOrchestrationChain({
+  const rootResult = findMonorepoRoot();
+  if (rootResult.isErr()) {
+    throw new Error(`readChainFixture: ${rootResult.error.message}`);
+  }
+  const chainPath = path.join(rootResult.value, relativePath);
+  const result = parseOrchestrationChain({
     chainPath,
     markdown: fs.readFileSync(chainPath, 'utf8'),
   });
+  if (result.isErr()) {
+    throw new Error(`readChainFixture: ${result.error.message}`);
+  }
+  return result.value;
 }
 
 describe('orchestration core', () => {
@@ -106,11 +113,14 @@ describe('orchestration core', () => {
       '```',
     ].join('\n');
 
-    const chain = parseOrchestrationChain({
+    const result = parseOrchestrationChain({
       chainPath: '/repo/slopweaver/test-chain.md',
       markdown,
     });
 
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) return;
+    const chain = result.value;
     expect(chain.steps).toHaveLength(2);
     expect(chain.steps[0]?.title).toBe('Plan');
     expect(chain.steps[1]?.title).toBe('Review');

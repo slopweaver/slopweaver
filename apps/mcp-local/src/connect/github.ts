@@ -14,13 +14,14 @@
  */
 
 import { type SlopweaverDatabase, saveIntegrationToken } from '@slopweaver/db';
+import type { BaseError, ResultAsync } from '@slopweaver/errors';
 
 const INTEGRATION = 'github';
 
 export type RunConnectGithubDeps = {
   db: SlopweaverDatabase;
   promptForToken: (opts: { message: string }) => Promise<string>;
-  validateToken: (token: string) => Promise<{ login: string }>;
+  validateToken: (args: { token: string }) => ResultAsync<{ login: string }, BaseError>;
   stdout: { write: (s: string) => void };
   stderr: { write: (s: string) => void };
   now?: () => number;
@@ -42,22 +43,24 @@ export async function runConnectGithub({
     message: 'GitHub fine-grained PAT (input hidden):',
   });
 
-  let login: string;
-  try {
-    ({ login } = await validateToken(token));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    stderr.write(`slopweaver: GitHub token rejected: ${message}\n`);
+  const validateResult = await validateToken({ token });
+  if (validateResult.isErr()) {
+    stderr.write(`slopweaver: GitHub token rejected: ${validateResult.error.message}\n`);
     return 1;
   }
+  const { login } = validateResult.value;
 
-  saveIntegrationToken({
+  const saveResult = await saveIntegrationToken({
     db,
     integration: INTEGRATION,
     token,
     accountLabel: login,
     ...(now ? { now } : {}),
   });
+  if (saveResult.isErr()) {
+    stderr.write(`slopweaver: failed to save GitHub token: ${saveResult.error.message}\n`);
+    return 1;
+  }
 
   stdout.write(`Connected to GitHub as ${login}.\n`);
   return 0;

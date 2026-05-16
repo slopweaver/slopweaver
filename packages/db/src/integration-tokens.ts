@@ -12,8 +12,10 @@
  * boundary, not a storage one.
  */
 
+import type { DatabaseError, ResultAsync } from '@slopweaver/errors';
 import { eq } from 'drizzle-orm';
 import type { SlopweaverDatabase } from './index.ts';
+import { safeQuery } from './safe-query.ts';
 import { integrationTokens } from './schema/integration-tokens.ts';
 
 export type LoadIntegrationTokenArgs = {
@@ -30,22 +32,27 @@ export type LoadIntegrationTokenResult = {
  * Returns the stored token for `integration`, or `null` if no row exists.
  *
  * Polling code must treat `null` as "not connected — skip this integration"
- * rather than throwing, so the local binary can run partially-configured
- * (e.g. user has connected GitHub but not Slack yet).
+ * rather than treating it as an error, so the local binary can run
+ * partially-configured (e.g. user has connected GitHub but not Slack yet).
+ * `Err` is reserved for actual database failures.
  */
 export function loadIntegrationToken({
   db,
   integration,
-}: LoadIntegrationTokenArgs): LoadIntegrationTokenResult | null {
-  const row = db
-    .select({
-      token: integrationTokens.token,
-      accountLabel: integrationTokens.accountLabel,
-    })
-    .from(integrationTokens)
-    .where(eq(integrationTokens.integration, integration))
-    .get();
-  return row ?? null;
+}: LoadIntegrationTokenArgs): ResultAsync<LoadIntegrationTokenResult | null, DatabaseError> {
+  return safeQuery({
+    execute: () => {
+      const row = db
+        .select({
+          token: integrationTokens.token,
+          accountLabel: integrationTokens.accountLabel,
+        })
+        .from(integrationTokens)
+        .where(eq(integrationTokens.integration, integration))
+        .get();
+      return row ?? null;
+    },
+  });
 }
 
 export type SaveIntegrationTokenArgs = {
@@ -68,23 +75,27 @@ export function saveIntegrationToken({
   token,
   accountLabel,
   now = () => Date.now(),
-}: SaveIntegrationTokenArgs): void {
-  const stamp = now();
-  db.insert(integrationTokens)
-    .values({
-      integration,
-      token,
-      accountLabel,
-      createdAtMs: stamp,
-      updatedAtMs: stamp,
-    })
-    .onConflictDoUpdate({
-      target: integrationTokens.integration,
-      set: {
-        token,
-        accountLabel,
-        updatedAtMs: stamp,
-      },
-    })
-    .run();
+}: SaveIntegrationTokenArgs): ResultAsync<void, DatabaseError> {
+  return safeQuery({
+    execute: () => {
+      const stamp = now();
+      db.insert(integrationTokens)
+        .values({
+          integration,
+          token,
+          accountLabel,
+          createdAtMs: stamp,
+          updatedAtMs: stamp,
+        })
+        .onConflictDoUpdate({
+          target: integrationTokens.integration,
+          set: {
+            token,
+            accountLabel,
+            updatedAtMs: stamp,
+          },
+        })
+        .run();
+    },
+  });
 }

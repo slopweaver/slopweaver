@@ -9,12 +9,19 @@
  * `external_id` is kind-prefixed (`pr_`, `issue_`, `mention_`) so a single
  * GitHub item observed via both `involves:@me` and `mentions:@me` queries
  * occupies separate rows in `evidence_log`.
+ *
+ * Returns `ResultAsync<PollResult, GithubError>`. Octokit calls flow through
+ * `safeGithubCall` which extracts `RequestError.status`; DB writes flow
+ * through `safeQuery` with `DatabaseError` mapped to `GithubDatabaseError`
+ * via `fromDatabaseError`.
  */
 
 import type { RestEndpointMethodTypes } from '@octokit/rest';
 import type { SlopweaverDatabase } from '@slopweaver/db';
-import { createGithubClient } from './client.ts';
+import { err, ok, type Result, ResultAsync } from '@slopweaver/errors';
 import { markPollCompleted, markPollStarted, upsertEvidence } from '@slopweaver/integrations-core';
+import { createGithubClient } from './client.ts';
+import { fromDatabaseError, type GithubError, safeGithubCall } from './errors.ts';
 
 const INTEGRATION = 'github';
 const PER_PAGE = 50;
@@ -46,15 +53,15 @@ export type PollResult = {
   newCursor: string | null;
 };
 
-export function pollPullRequests(args: PollArgs): Promise<PollResult> {
+export function pollPullRequests(args: PollArgs): ResultAsync<PollResult, GithubError> {
   return runSearch({ ...args, kind: 'pull_request', qualifier: 'is:pr involves:@me' });
 }
 
-export function pollIssues(args: PollArgs): Promise<PollResult> {
+export function pollIssues(args: PollArgs): ResultAsync<PollResult, GithubError> {
   return runSearch({ ...args, kind: 'issue', qualifier: 'is:issue involves:@me' });
 }
 
-export function pollMentions(args: PollMentionsArgs): Promise<PollResult> {
+export function pollMentions(args: PollMentionsArgs): ResultAsync<PollResult, GithubError> {
   return runSearch({
     ...args,
     kind: 'mention',
@@ -62,31 +69,44 @@ export function pollMentions(args: PollMentionsArgs): Promise<PollResult> {
   });
 }
 
-async function runSearch({
+function runSearch(
+  args: PollArgs & { kind: string; qualifier: string },
+): ResultAsync<PollResult, GithubError> {
+  return ResultAsync.fromSafePromise(runSearchInner(args)).andThen((r) => r);
+}
+
+async function runSearchInner({
   db,
   token,
   since,
   kind,
   qualifier,
   now = () => Date.now(),
-}: PollArgs & { kind: string; qualifier: string }): Promise<PollResult> {
+}: PollArgs & { kind: string; qualifier: string }): Promise<Result<PollResult, GithubError>> {
   const startedAt = now();
-  markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  const startResult = await markPollStarted({ db, integration: INTEGRATION, now: startedAt });
+  if (startResult.isErr()) return err(fromDatabaseError(startResult.error));
 
   const sinceClause = since ? ` updated:>${since.toISOString()}` : '';
   const octokit = createGithubClient({ token });
-  const { data } = await octokit.rest.search.issuesAndPullRequests({
-    q: `${qualifier}${sinceClause}`,
-    per_page: PER_PAGE,
-    sort: 'updated',
-    order: 'desc',
+  const responseResult = await safeGithubCall({
+    execute: () =>
+      octokit.rest.search.issuesAndPullRequests({
+        q: `${qualifier}${sinceClause}`,
+        per_page: PER_PAGE,
+        sort: 'updated',
+        order: 'desc',
+      }),
+    endpoint: 'search.issuesAndPullRequests',
   });
+  if (responseResult.isErr()) return err(responseResult.error);
+  const { data } = responseResult.value;
 
   const items = data.items ?? [];
   const observedAt = now();
 
   for (const item of items) {
-    upsertEvidence({
+    const upsertResult = await upsertEvidence({
       db,
       integration: INTEGRATION,
       externalId: externalIdFor({ item, kind }),
@@ -98,14 +118,22 @@ async function runSearch({
       occurredAtMs: Date.parse(item.updated_at),
       now: observedAt,
     });
+    if (upsertResult.isErr()) return err(fromDatabaseError(upsertResult.error));
   }
 
   // When the poll returns zero items, preserve the prior watermark (`since`)
   // instead of resetting the cursor to null — otherwise the next poll would
   // backfill from the beginning unnecessarily.
   const newCursor = items[0]?.updated_at ?? since?.toISOString() ?? null;
-  markPollCompleted({ db, integration: INTEGRATION, cursor: newCursor, now: observedAt });
-  return { fetched: items.length, newCursor };
+  const completedResult = await markPollCompleted({
+    db,
+    integration: INTEGRATION,
+    cursor: newCursor,
+    now: observedAt,
+  });
+  if (completedResult.isErr()) return err(fromDatabaseError(completedResult.error));
+
+  return ok({ fetched: items.length, newCursor });
 }
 
 function externalIdFor({ item, kind }: { item: SearchItem; kind: string }): string {

@@ -12,6 +12,17 @@
  */
 
 export { createSlackClient } from './client.ts';
+export {
+  fromDatabaseError,
+  safeSlackCall,
+  SlackErrors,
+  type SlackApiError,
+  type SlackDatabaseError,
+  type SlackError,
+  type SlackPaginationCapError,
+  type SlackTokenInvalidError,
+  type SlackTsParseError,
+} from './errors.ts';
 export { fetchIdentity, type FetchIdentityArgs, type FetchIdentityResult } from './identity.ts';
 export {
   pollMentions,

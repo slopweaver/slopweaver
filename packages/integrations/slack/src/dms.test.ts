@@ -82,15 +82,17 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      now: () => 8_888,
-    });
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        now: () => 8_888,
+      })
+    )._unsafeUnwrap();
 
-    expect(result.fetched).toBe(3);
-    expect(result.newCursor).toBe(new Date(1_762_000_021_000).toISOString());
+    expect(value.fetched).toBe(3);
+    expect(value.newCursor).toBe(new Date(1_762_000_021_000).toISOString());
 
     const rows = dbHandle.db.select().from(evidenceLog).all();
     expect(rows).toHaveLength(3);
@@ -117,14 +119,16 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      now: () => nowCounter++,
-    });
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        now: () => nowCounter++,
+      })
+    )._unsafeUnwrap();
 
-    expect(result.newCursor).toBe(new Date(7_000).toISOString());
+    expect(value.newCursor).toBe(new Date(7_000).toISOString());
 
     const state = dbHandle.db.select().from(integrationState).all();
     expect(state).toHaveLength(1);
@@ -147,15 +151,17 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      since: new Date('2026-05-01T00:00:00Z'),
-      now: () => 1,
-    });
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        since: new Date('2026-05-01T00:00:00Z'),
+        now: () => 1,
+      })
+    )._unsafeUnwrap();
 
-    expect(result.newCursor).toBe('2026-05-01T00:00:00.000Z');
+    expect(value.newCursor).toBe('2026-05-01T00:00:00.000Z');
   });
 
   it('aggregates messages across multiple history pages for one channel', async () => {
@@ -176,15 +182,17 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: 'xoxb-test',
-      client,
-      now: () => 1,
-    });
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: 'xoxb-test',
+        client,
+        now: () => 1,
+      })
+    )._unsafeUnwrap();
 
-    expect(result.fetched).toBe(3);
-    expect(result.newCursor).toBe(new Date(3_000).toISOString());
+    expect(value.fetched).toBe(3);
+    expect(value.newCursor).toBe(new Date(3_000).toISOString());
     expect(dbHandle.db.select().from(evidenceLog).all()).toHaveLength(3);
   });
 
@@ -204,13 +212,14 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    await pollDMs({
+    const result = await pollDMs({
       db: dbHandle.db,
       token: 'xoxb-test',
       client,
       since: new Date('2026-05-01T00:00:00Z'),
       now: () => 1,
     });
+    expect(result.isOk()).toBe(true);
 
     expect(historySeen).toHaveLength(1);
     expect(historySeen[0]).toMatchObject({
@@ -234,8 +243,10 @@ describe('pollDMs', () => {
       },
     } as unknown as WebClient;
 
-    await pollDMs({ db: dbHandle.db, token: 'xoxb-test', client, now: () => 100 });
-    await pollDMs({ db: dbHandle.db, token: 'xoxb-test', client, now: () => 200 });
+    const r1 = await pollDMs({ db: dbHandle.db, token: 'xoxb-test', client, now: () => 100 });
+    expect(r1.isOk()).toBe(true);
+    const r2 = await pollDMs({ db: dbHandle.db, token: 'xoxb-test', client, now: () => 200 });
+    expect(r2.isOk()).toBe(true);
 
     expect(dbHandle.db.select().from(evidenceLog).all()).toHaveLength(1);
   });
@@ -255,14 +266,16 @@ describe('pollDMs (cassette)', () => {
   });
 
   it('returns a fetched count and writes integration_state for slack', async () => {
-    const result = await pollDMs({
-      db: dbHandle.db,
-      token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
-      now: () => 1_000,
-    });
+    const value = (
+      await pollDMs({
+        db: dbHandle.db,
+        token: process.env['SLACK_USER_TOKEN'] ?? 'xoxp-replay-token',
+        now: () => 1_000,
+      })
+    )._unsafeUnwrap();
 
-    expect(typeof result.fetched).toBe('number');
-    expect(result.fetched).toBeGreaterThanOrEqual(0);
+    expect(typeof value.fetched).toBe('number');
+    expect(value.fetched).toBeGreaterThanOrEqual(0);
 
     const state = dbHandle.db.select().from(integrationState).all();
     expect(state).toHaveLength(1);

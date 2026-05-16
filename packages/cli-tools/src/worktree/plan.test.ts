@@ -28,20 +28,20 @@ describe('sanitiseTaskName', () => {
 });
 
 describe('buildWorktreePlan', () => {
-  it('returns a plan with the worktree path, branch name, and base ref', () => {
+  it('returns ok with the worktree path, branch name, and base ref', () => {
     const result = buildWorktreePlan({
       rawName: 'fix-issue-42',
       worktreesRoot: '/Users/me/dev/worktrees',
     });
-    expect(result).toEqual({
-      ok: true,
-      plan: {
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({
         safeName: 'fix-issue-42',
         worktreePath: '/Users/me/dev/worktrees/fix-issue-42',
         branchName: 'worktree/fix-issue-42',
         baseRef: 'origin/main',
-      },
-    });
+      });
+    }
   });
 
   it('sanitises the raw name before building the path', () => {
@@ -49,22 +49,23 @@ describe('buildWorktreePlan', () => {
       rawName: 'Fix Issue 42!!',
       worktreesRoot: '/wt',
     });
-    expect(result).toEqual({
-      ok: true,
-      plan: {
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({
         safeName: 'fix-issue-42',
         worktreePath: '/wt/fix-issue-42',
         branchName: 'worktree/fix-issue-42',
         baseRef: 'origin/main',
-      },
-    });
+      });
+    }
   });
 
-  it('returns an error when the sanitised name is empty', () => {
+  it('returns err WORKTREE_INVALID_NAME when the sanitised name is empty', () => {
     const result = buildWorktreePlan({ rawName: '!!!', worktreesRoot: '/wt' });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/empty slug/);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('WORKTREE_INVALID_NAME');
+      expect(result.error.message).toMatch(/empty slug/);
     }
   });
 });

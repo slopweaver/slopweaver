@@ -14,8 +14,8 @@ afterEach(() => {
 });
 
 describe('upsertEvidence', () => {
-  it('inserts a new row keyed by (integration, externalId)', () => {
-    upsertEvidence({
+  it('inserts a new row keyed by (integration, externalId)', async () => {
+    const result = await upsertEvidence({
       db: handle.db,
       integration: 'github',
       externalId: 'pr_1',
@@ -27,6 +27,7 @@ describe('upsertEvidence', () => {
       occurredAtMs: 100,
       now: 200,
     });
+    expect(result.isOk()).toBe(true);
 
     const rows = handle.db.select().from(evidenceLog).all();
     expect(rows).toHaveLength(1);
@@ -42,8 +43,8 @@ describe('upsertEvidence', () => {
     });
   });
 
-  it('on conflict updates mutable fields but preserves firstSeenAtMs and createdAtMs', () => {
-    upsertEvidence({
+  it('on conflict updates mutable fields but preserves firstSeenAtMs and createdAtMs', async () => {
+    await upsertEvidence({
       db: handle.db,
       integration: 'github',
       externalId: 'pr_1',
@@ -56,7 +57,7 @@ describe('upsertEvidence', () => {
       now: 200,
     });
 
-    upsertEvidence({
+    await upsertEvidence({
       db: handle.db,
       integration: 'github',
       externalId: 'pr_1',
@@ -84,8 +85,8 @@ describe('upsertEvidence', () => {
     });
   });
 
-  it('keeps rows for different integrations independent under the same externalId', () => {
-    upsertEvidence({
+  it('keeps rows for different integrations independent under the same externalId', async () => {
+    await upsertEvidence({
       db: handle.db,
       integration: 'github',
       externalId: 'shared_id',
@@ -97,7 +98,7 @@ describe('upsertEvidence', () => {
       occurredAtMs: 1,
       now: 1,
     });
-    upsertEvidence({
+    await upsertEvidence({
       db: handle.db,
       integration: 'slack',
       externalId: 'shared_id',
@@ -116,8 +117,9 @@ describe('upsertEvidence', () => {
 });
 
 describe('integration_state helpers', () => {
-  it('markPollStarted inserts a fresh row when none exists', () => {
-    markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
+  it('markPollStarted inserts a fresh row when none exists', async () => {
+    const result = await markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
+    expect(result.isOk()).toBe(true);
 
     const row = handle.db
       .select()
@@ -134,9 +136,9 @@ describe('integration_state helpers', () => {
     });
   });
 
-  it('markPollStarted bumps the timestamp on subsequent calls', () => {
-    markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
-    markPollStarted({ db: handle.db, integration: 'github', now: 2000 });
+  it('markPollStarted bumps the timestamp on subsequent calls', async () => {
+    await markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
+    await markPollStarted({ db: handle.db, integration: 'github', now: 2000 });
 
     const row = handle.db
       .select()
@@ -148,14 +150,15 @@ describe('integration_state helpers', () => {
     expect(row?.createdAtMs).toBe(1000);
   });
 
-  it('markPollCompleted writes cursor + completion timestamp', () => {
-    markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
-    markPollCompleted({
+  it('markPollCompleted writes cursor + completion timestamp', async () => {
+    await markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
+    const result = await markPollCompleted({
       db: handle.db,
       integration: 'github',
       cursor: '2026-05-01T00:00:00Z',
       now: 1500,
     });
+    expect(result.isOk()).toBe(true);
 
     const row = handle.db
       .select()
@@ -169,28 +172,39 @@ describe('integration_state helpers', () => {
     });
   });
 
-  it('markPollCompleted returns 0 if markPollStarted never ran', () => {
-    const changes = markPollCompleted({
+  it('markPollCompleted returns ok(0) if markPollStarted never ran', async () => {
+    const result = await markPollCompleted({
       db: handle.db,
       integration: 'github',
       cursor: 'x',
       now: 1,
     });
-    expect(changes).toBe(0);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe(0);
+    }
   });
 
-  it('readCursor returns null when no row exists', () => {
-    expect(readCursor({ db: handle.db, integration: 'github' })).toBeNull();
+  it('readCursor returns ok(null) when no row exists', async () => {
+    const result = await readCursor({ db: handle.db, integration: 'github' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBeNull();
+    }
   });
 
-  it('readCursor returns the stored cursor', () => {
-    markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
-    markPollCompleted({
+  it('readCursor returns ok with the stored cursor', async () => {
+    await markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
+    await markPollCompleted({
       db: handle.db,
       integration: 'github',
       cursor: '2026-05-01T00:00:00Z',
       now: 1500,
     });
-    expect(readCursor({ db: handle.db, integration: 'github' })).toBe('2026-05-01T00:00:00Z');
+    const result = await readCursor({ db: handle.db, integration: 'github' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe('2026-05-01T00:00:00Z');
+    }
   });
 });

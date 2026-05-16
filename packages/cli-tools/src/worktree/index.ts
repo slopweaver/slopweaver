@@ -8,10 +8,17 @@
  * Pure plan-building lives in `./plan.ts`. This file orchestrates: it
  * resolves the monorepo root, builds the plan, then runs git + pnpm via
  * the injected `exec` so tests can stub the subprocess layer.
+ *
+ * Returns `Result<{ worktreePath }, WorktreeError>`. Each `WorktreeError`
+ * variant carries an `exitCode` so the CLI boundary can pass it straight
+ * to `process.exit(...)` without re-deriving from the discriminant.
  */
 
+import { err, ok, type Result } from '@slopweaver/errors';
 import { spawnSync } from 'node:child_process';
+import type { MonorepoRootNotFoundError } from '../lib/errors.ts';
 import { findMonorepoRoot, resolveWorktreesRoot } from '../lib/paths.ts';
+import { type WorktreeError, WorktreeErrors } from './errors.ts';
 import { buildWorktreePlan } from './plan.ts';
 
 export type WorktreeNewOptions = { install: boolean };
@@ -20,14 +27,17 @@ export type ExecResult = { status: number };
 
 export type ExecFn = (cmd: string, args: string[], opts: { cwd: string }) => ExecResult;
 
-export type RunWorktreeNewResult =
-  | { ok: true; worktreePath: string }
-  | { ok: false; error: string; exitCode: number };
+export type RunWorktreeNewSuccess = { worktreePath: string };
+
+export type ResolveRootsResult = Result<
+  { repoRoot: string; worktreesRoot: string },
+  MonorepoRootNotFoundError
+>;
 
 export type RunWorktreeNewDeps = {
   exec?: ExecFn;
   log?: (line: string) => void;
-  resolveRoots?: () => { repoRoot: string; worktreesRoot: string };
+  resolveRoots?: () => ResolveRootsResult;
 };
 
 const defaultExec: ExecFn = (cmd, args, opts) => {
@@ -35,9 +45,11 @@ const defaultExec: ExecFn = (cmd, args, opts) => {
   return { status: result.status ?? 1 };
 };
 
-const defaultResolveRoots = (): { repoRoot: string; worktreesRoot: string } => {
-  const repoRoot = findMonorepoRoot();
-  return { repoRoot, worktreesRoot: resolveWorktreesRoot({ repoRoot }) };
+const defaultResolveRoots = (): ResolveRootsResult => {
+  return findMonorepoRoot().map((repoRoot) => ({
+    repoRoot,
+    worktreesRoot: resolveWorktreesRoot({ repoRoot }),
+  }));
 };
 
 export function runWorktreeNew({
@@ -48,17 +60,17 @@ export function runWorktreeNew({
   rawName: string;
   options: WorktreeNewOptions;
   deps?: RunWorktreeNewDeps;
-}): RunWorktreeNewResult {
+}): Result<RunWorktreeNewSuccess, WorktreeError | MonorepoRootNotFoundError> {
   const exec = deps.exec ?? defaultExec;
   const log = deps.log ?? console.log;
   const resolveRoots = deps.resolveRoots ?? defaultResolveRoots;
 
-  const { repoRoot, worktreesRoot } = resolveRoots();
+  const rootsResult = resolveRoots();
+  if (rootsResult.isErr()) return err(rootsResult.error);
+  const { repoRoot, worktreesRoot } = rootsResult.value;
   const planResult = buildWorktreePlan({ rawName, worktreesRoot });
-  if (!planResult.ok) {
-    return { ok: false, error: planResult.error, exitCode: 1 };
-  }
-  const { plan } = planResult;
+  if (planResult.isErr()) return err(planResult.error);
+  const plan = planResult.value;
 
   log(`creating worktree: ${plan.worktreePath}`);
   log(`new branch:        ${plan.branchName}`);
@@ -67,7 +79,7 @@ export function runWorktreeNew({
 
   const fetchResult = exec('git', ['fetch', 'origin', 'main'], { cwd: repoRoot });
   if (fetchResult.status !== 0) {
-    return { ok: false, error: 'git fetch origin main failed', exitCode: fetchResult.status };
+    return err(WorktreeErrors.gitFetchFailed(fetchResult.status));
   }
 
   const addResult = exec(
@@ -76,7 +88,7 @@ export function runWorktreeNew({
     { cwd: repoRoot },
   );
   if (addResult.status !== 0) {
-    return { ok: false, error: 'git worktree add failed', exitCode: addResult.status };
+    return err(WorktreeErrors.gitAddFailed(addResult.status));
   }
 
   if (options.install) {
@@ -84,12 +96,12 @@ export function runWorktreeNew({
     log(`installing deps in ${plan.worktreePath}`);
     const installResult = exec('pnpm', ['install'], { cwd: plan.worktreePath });
     if (installResult.status !== 0) {
-      return { ok: false, error: 'pnpm install failed', exitCode: installResult.status };
+      return err(WorktreeErrors.pnpmInstallFailed(installResult.status));
     }
   }
 
   log('');
   log('✓ worktree ready');
   log(`next: cd ${plan.worktreePath}`);
-  return { ok: true, worktreePath: plan.worktreePath };
+  return ok({ worktreePath: plan.worktreePath });
 }

@@ -22,10 +22,10 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "knip": "knip",
-    "lint": "biome lint .",
+    "lint": "biome lint . && eslint .",
     "prepare": "lefthook install || echo 'lefthook install skipped (not a git repository)'",
     "test": "turbo run test",
-    "validate": "pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip"
+    "validate": "pnpm cli check-service-boundaries && pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",

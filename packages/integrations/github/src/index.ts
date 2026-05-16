@@ -1,5 +1,13 @@
 export { createGithubClient } from './client.ts';
 export type { CreateGithubClientArgs, GithubClient } from './client.ts';
+export {
+  fromDatabaseError,
+  GithubErrors,
+  safeGithubCall,
+  type GithubApiError,
+  type GithubDatabaseError,
+  type GithubError,
+} from './errors.ts';
 export { fetchIdentity } from './identity.ts';
 export type { FetchIdentityArgs, FetchIdentityResult } from './identity.ts';
 export { pollIssues, pollMentions, pollPullRequests } from './polling.ts';

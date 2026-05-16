@@ -17,12 +17,15 @@ afterEach(() => {
 
 describe('fetchIdentity', () => {
   it('inserts an identity_graph row for the authenticated user', async () => {
-    const { canonicalId, externalId } = await fetchIdentity({
+    const result = await fetchIdentity({
       db: handle.db,
       token: REPLAY_TOKEN,
       now: () => 1000,
     });
 
+    expect(result.isOk()).toBe(true);
+    if (result.isErr()) return;
+    const { canonicalId, externalId } = result.value;
     expect(canonicalId).toBe(`github:${externalId}`);
 
     const row = handle.db
@@ -42,14 +45,16 @@ describe('fetchIdentity', () => {
   });
 
   it('on second call updates mutable fields but preserves createdAtMs', async () => {
-    await fetchIdentity({ db: handle.db, token: REPLAY_TOKEN, now: () => 1000 });
+    const first = await fetchIdentity({ db: handle.db, token: REPLAY_TOKEN, now: () => 1000 });
+    expect(first.isOk()).toBe(true);
     const before = handle.db
       .select()
       .from(identityGraph)
       .where(eq(identityGraph.integration, 'github'))
       .get();
 
-    await fetchIdentity({ db: handle.db, token: REPLAY_TOKEN, now: () => 2000 });
+    const second = await fetchIdentity({ db: handle.db, token: REPLAY_TOKEN, now: () => 2000 });
+    expect(second.isOk()).toBe(true);
     const after = handle.db
       .select()
       .from(identityGraph)

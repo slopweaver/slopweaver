@@ -3,6 +3,7 @@
  */
 
 import { createDb, loadIntegrationToken } from '@slopweaver/db';
+import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runConnectSlack } from './slack.ts';
 
@@ -37,9 +38,9 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-test',
-      validateToken: async (token) => {
+      validateToken: ({ token }) => {
         expect(token).toBe('xoxp-test');
-        return { team: 'AcmeCorp' };
+        return okAsync({ team: 'AcmeCorp' });
       },
       stdout,
       stderr,
@@ -49,17 +50,18 @@ describe('runConnectSlack', () => {
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Connected to Slack workspace "AcmeCorp"');
     expect(stderr.text()).toBe('');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'slack' })).toEqual({
-      token: 'xoxp-test',
-      accountLabel: 'AcmeCorp',
-    });
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toEqual({ token: 'xoxp-test', accountLabel: 'AcmeCorp' });
+    }
   });
 
   it('happy path with no team name: persists with null label and prints generic success', async () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-test',
-      validateToken: async () => ({ team: null }),
+      validateToken: () => okAsync({ team: null }),
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
@@ -67,10 +69,11 @@ describe('runConnectSlack', () => {
 
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Connected to Slack.');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'slack' })).toEqual({
-      token: 'xoxp-test',
-      accountLabel: null,
-    });
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toEqual({ token: 'xoxp-test', accountLabel: null });
+    }
   });
 
   it('rejects xoxb- bot tokens before calling validateToken or persisting', async () => {
@@ -79,9 +82,9 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxb-bot-token',
-      validateToken: async () => {
+      validateToken: () => {
         validateCalled = true;
-        return { team: 'AcmeCorp' };
+        return okAsync({ team: 'AcmeCorp' });
       },
       stdout,
       stderr,
@@ -92,30 +95,40 @@ describe('runConnectSlack', () => {
     expect(stderr.text()).toContain('user token (xoxp-) is required');
     expect(stderr.text()).toContain('search.messages');
     expect(stdout.text()).toBe('');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'slack' })).toBeNull();
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toBeNull();
+    }
   });
 
   it('rejects unknown token prefixes (xapp-, xoxa-, garbage) with the same xoxp- guidance', async () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xapp-app-level',
-      validateToken: async () => ({ team: 'AcmeCorp' }),
+      validateToken: () => okAsync({ team: 'AcmeCorp' }),
       stdout,
       stderr,
     });
 
     expect(code).toBe(1);
     expect(stderr.text()).toContain('user token (xoxp-) is required');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'slack' })).toBeNull();
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toBeNull();
+    }
   });
 
   it('invalid token: prints the error, exits 1, does NOT persist', async () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-bogus',
-      validateToken: async () => {
-        throw new Error('invalid_auth');
-      },
+      validateToken: () =>
+        errAsync({
+          code: 'SLACK_API_ERROR',
+          message: 'invalid_auth',
+        }),
       stdout,
       stderr,
     });
@@ -124,14 +137,18 @@ describe('runConnectSlack', () => {
     expect(stderr.text()).toContain('Slack token rejected');
     expect(stderr.text()).toContain('invalid_auth');
     expect(stdout.text()).toBe('');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'slack' })).toBeNull();
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toBeNull();
+    }
   });
 
   it('repeat connect overwrites the previous value with one row total', async () => {
     await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-first',
-      validateToken: async () => ({ team: 'AcmeCorp' }),
+      validateToken: () => okAsync({ team: 'AcmeCorp' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
@@ -140,15 +157,16 @@ describe('runConnectSlack', () => {
     await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-second',
-      validateToken: async () => ({ team: 'AcmeCorp-Renamed' }),
+      validateToken: () => okAsync({ team: 'AcmeCorp-Renamed' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_500,
     });
 
-    expect(loadIntegrationToken({ db: handle.db, integration: 'slack' })).toEqual({
-      token: 'xoxp-second',
-      accountLabel: 'AcmeCorp-Renamed',
-    });
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toEqual({ token: 'xoxp-second', accountLabel: 'AcmeCorp-Renamed' });
+    }
   });
 });

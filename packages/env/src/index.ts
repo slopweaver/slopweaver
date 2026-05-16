@@ -1,3 +1,4 @@
+import { err, ok, type Result } from '@slopweaver/errors';
 import { z } from 'zod';
 
 export const NodeEnvSchema = z.enum(['development', 'production', 'test']);
@@ -36,7 +37,11 @@ export class EnvValidationError extends Error {
   }
 }
 
-export function loadEnv({ env = process.env }: { env?: NodeJS.ProcessEnv } = {}): Readonly<Env> {
+export function loadEnv({
+  env = process.env,
+}: {
+  env?: NodeJS.ProcessEnv;
+} = {}): Result<Readonly<Env>, EnvValidationError> {
   const result = EnvSchema.safeParse(env);
   if (!result.success) {
     const issues: EnvIssue[] = result.error.issues.map((i) => {
@@ -48,7 +53,7 @@ export function loadEnv({ env = process.env }: { env?: NodeJS.ProcessEnv } = {})
           : undefined;
       return { path, message: i.message, received };
     });
-    throw new EnvValidationError(issues);
+    return err(new EnvValidationError(issues));
   }
-  return Object.freeze(result.data);
+  return ok(Object.freeze(result.data));
 }

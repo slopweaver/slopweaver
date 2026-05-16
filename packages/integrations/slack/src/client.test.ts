@@ -11,23 +11,33 @@ import { describe, expect, it } from 'vitest';
 import { createSlackClient } from './client.ts';
 
 describe('createSlackClient', () => {
-  it('returns a WebClient instance', () => {
-    const client = createSlackClient({ token: 'xoxb-test' });
-    expect(client).toBeInstanceOf(WebClient);
+  it('returns ok with a WebClient instance', () => {
+    const result = createSlackClient({ token: 'xoxb-test' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBeInstanceOf(WebClient);
+    }
   });
 
-  it('rejects empty tokens at construction time', () => {
-    expect(() => createSlackClient({ token: '' })).toThrowError(/non-empty string/);
+  it('returns err with SLACK_TOKEN_INVALID when token is empty', () => {
+    const result = createSlackClient({ token: '' });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('SLACK_TOKEN_INVALID');
+    }
   });
 
   it('accepts a custom retryConfig override', () => {
-    const client = createSlackClient({
+    const result = createSlackClient({
       token: 'xoxb-test',
       retryConfig: { retries: 7 },
     });
     // The SDK doesn't expose the resolved retry config, so we settle for the
-    // construction-doesn't-throw assertion. The real behaviour is exercised
+    // construction-doesn't-fail assertion. The real behaviour is exercised
     // by integration tests against cassettes.
-    expect(client).toBeInstanceOf(WebClient);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBeInstanceOf(WebClient);
+    }
   });
 });

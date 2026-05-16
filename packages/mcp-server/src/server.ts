@@ -12,6 +12,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SlopweaverDatabase } from '@slopweaver/db';
+import { McpErrors } from './errors.ts';
 import type { Tool } from './tools/registry.ts';
 
 export type CreateMcpServerArgs = {
@@ -35,9 +36,39 @@ export function createMcpServer({ db, tools, version }: CreateMcpServerArgs): Mc
         outputSchema: tool.outputSchema,
       },
       async (input: unknown) => {
-        const output = await tool.handler({ input, ctx: { db } });
+        let result: Awaited<ReturnType<typeof tool.handler>>;
+        try {
+          result = await tool.handler({ input, ctx: { db } });
+        } catch (cause) {
+          // Handlers should return `Err` rather than throw, but a runaway
+          // exception is still bound to the tool — wrap as isError so the
+          // client sees a structured envelope. Sanitize: only `code` and
+          // `message` cross the MCP boundary; `cause` (which may carry
+          // HTTP response bodies, stack traces, or internal paths via
+          // safeApiCall's wrap) stays server-side.
+          const error = McpErrors.unexpected(
+            tool.name,
+            cause,
+            cause instanceof Error ? cause.message : undefined,
+          );
+          const clientError = { code: error.code, message: error.message };
+          return {
+            isError: true,
+            structuredContent: clientError,
+            content: [{ type: 'text', text: JSON.stringify(clientError) }],
+          };
+        }
+        if (result.isErr()) {
+          const clientError = { code: result.error.code, message: result.error.message };
+          return {
+            isError: true,
+            structuredContent: clientError,
+            content: [{ type: 'text', text: JSON.stringify(clientError) }],
+          };
+        }
+        const output = result.value;
         return {
-          structuredContent: output as Record<string, unknown>,
+          structuredContent: output,
           content: [{ type: 'text', text: JSON.stringify(output) }],
         };
       },

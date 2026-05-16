@@ -4,9 +4,9 @@
 
 Single source of truth for the SlopWeaver binary's environment variable
 contract. Defines a Zod schema and a `loadEnv()` helper that parses,
-freezes, and returns the result. On invalid input, throws one
-`EnvValidationError` with the full list of issues — never fail-fast on
-the first.
+freezes, and returns the result wrapped in a neverthrow `Result`. On
+invalid input the `Err` carries one `EnvValidationError` with the full
+list of issues — never fail-fast on the first.
 
 ## API
 
@@ -14,18 +14,24 @@ the first.
   string), `NODE_ENV` (`'development' | 'production' | 'test'`, default
   `'production'`), and `LOG_LEVEL` (`'debug' | 'info' | 'warn' | 'error'`,
   default `'info'`).
-- `loadEnv({ env = process.env })` — parses and returns a frozen `Env`.
-  Throws `EnvValidationError` (with `.issues: ReadonlyArray<EnvIssue>`)
-  on failure.
-- `Env`, `NodeEnv`, `LogLevel`, `EnvIssue` — inferred and helper types.
+- `loadEnv({ env = process.env })` — returns
+  `Result<Readonly<Env>, EnvValidationError>`. The `Err` value is an
+  `EnvValidationError` instance with `.issues: ReadonlyArray<EnvIssue>`.
+- `Env`, `NodeEnv`, `LogLevel`, `EnvIssue`, `EnvValidationError` —
+  inferred and helper types.
 
 ## Usage
 
 ```ts
 import { loadEnv } from '@slopweaver/env';
 
-// At the top of an app entrypoint:
-const env = loadEnv();
+// At an app entrypoint, unwrap the Result at the user-facing boundary:
+const result = loadEnv();
+if (result.isErr()) {
+  process.stderr.write(`${result.error.message}\n`);
+  process.exit(1);
+}
+const env = result.value;
 // env.NODE_ENV, env.LOG_LEVEL, env.XDG_DATA_HOME — all validated and frozen.
 ```
 

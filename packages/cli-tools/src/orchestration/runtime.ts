@@ -2,7 +2,9 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { err, ok, type Result } from '@slopweaver/errors';
 import { BLUE, GREEN, NC, YELLOW } from '../lib/colors.ts';
+import type { MonorepoRootNotFoundError } from '../lib/errors.ts';
 import { findMonorepoRoot, resolveWorktreesRoot } from '../lib/paths.ts';
 import {
   buildCiDiagnosisPrompt,
@@ -31,6 +33,12 @@ import {
   resolveRunSlug,
   resolveWorktreeName,
 } from './core.ts';
+import {
+  type OrchestrationError,
+  OrchestrationErrors,
+  type OrchestrationModelAttemptError,
+  type OrchestrationSubprocessFailedError,
+} from './errors.ts';
 
 interface RunOrchestrationOptions {
   chainInputPath: string;
@@ -80,20 +88,38 @@ interface RunState {
   worktreePath: string;
 }
 
-interface RunOrchestrationEnvironment {
-  awaitCodexTurn(args: { cwd: string; jobId: string }): string;
+export interface RunOrchestrationEnvironment {
+  awaitCodexTurn(args: {
+    cwd: string;
+    jobId: string;
+  }): Result<string, OrchestrationSubprocessFailedError>;
   closeCodexJob(args: { cwd: string; jobId: string }): void;
-  commitAll(args: { cwd: string; ignoredPaths: string[]; message: string }): boolean;
-  createOrReusePr(args: { body: string; cwd: string; title: string }): string;
-  ensureWorktree(args: { repoRoot: string; worktreeName: string }): string;
-  getBranchName(args: { cwd: string }): string;
+  commitAll(args: {
+    cwd: string;
+    ignoredPaths: string[];
+    message: string;
+  }): Result<boolean, OrchestrationSubprocessFailedError>;
+  createOrReusePr(args: {
+    body: string;
+    cwd: string;
+    title: string;
+  }): Result<string, OrchestrationError>;
+  ensureWorktree(args: {
+    repoRoot: string;
+    worktreeName: string;
+  }): Result<string, OrchestrationSubprocessFailedError>;
+  getBranchName(args: { cwd: string }): Result<string, OrchestrationSubprocessFailedError>;
   getLatestCiRunId(args: { branchName: string; cwd: string }): string | null;
   getWorktreeStatus(args: { cwd: string }): string[];
   hasDependencies(args: { cwd: string }): boolean;
-  installDependencies(args: { cwd: string }): void;
+  installDependencies(args: { cwd: string }): Result<void, OrchestrationSubprocessFailedError>;
   notify(args: { body: string; enabled: boolean; title: string }): void;
-  pushBranch(args: { cwd: string }): void;
-  sendCodexInput(args: { cwd: string; jobId: string; prompt: string }): void;
+  pushBranch(args: { cwd: string }): Result<void, OrchestrationSubprocessFailedError>;
+  sendCodexInput(args: {
+    cwd: string;
+    jobId: string;
+    prompt: string;
+  }): Result<void, OrchestrationSubprocessFailedError>;
   startCodexJob(args: {
     cwd: string;
     model: string;
@@ -101,7 +127,7 @@ interface RunOrchestrationEnvironment {
     prompt: string;
     reasoning: ModelSelection['reasoning'];
     sandbox: 'read-only' | 'workspace-write';
-  }): string;
+  }): Result<string, OrchestrationSubprocessFailedError>;
   syncEnvFiles(args: { repoRoot: string; worktreePath: string }): void;
   watchCi(args: { cwd: string }): { output: string; success: boolean };
 }
@@ -336,24 +362,26 @@ function getRelevantWorktreeStatus({
   });
 }
 
-function assertWorktreeIsReady({
+function checkWorktreeIsReady({
   env,
   state,
 }: {
   env: RunOrchestrationEnvironment;
   state: RunState;
-}): void {
+}): Result<void, OrchestrationError> {
   const relevantStatus = getRelevantWorktreeStatus({ env, state });
   const hasMergeConflicts = relevantStatus.some(
     (line) => line.startsWith('UU ') || line.startsWith('AA ') || line.startsWith('DD '),
   );
   if (hasMergeConflicts) {
-    throw new Error(`Worktree has merge conflicts: ${state.worktreePath}`);
+    return err(OrchestrationErrors.worktreeMergeConflict(state.worktreePath));
   }
 
   if (relevantStatus.length > 0) {
-    throw new Error(`Worktree is dirty: ${state.worktreePath}`);
+    return err(OrchestrationErrors.worktreeDirty(state.worktreePath));
   }
+
+  return ok(undefined);
 }
 
 function syncChainFileIntoWorktree({
@@ -429,8 +457,10 @@ function bootstrapRunState({
   repoRoot: string;
   state: RunState;
   worktreeName: string;
-}): void {
-  state.worktreePath = env.ensureWorktree({ repoRoot, worktreeName });
+}): Result<void, OrchestrationError> {
+  const worktreeResult = env.ensureWorktree({ repoRoot, worktreeName });
+  if (worktreeResult.isErr()) return err(worktreeResult.error);
+  state.worktreePath = worktreeResult.value;
   env.syncEnvFiles({ repoRoot, worktreePath: state.worktreePath });
 
   const syncedChainPath = syncChainFileIntoWorktree({
@@ -443,11 +473,96 @@ function bootstrapRunState({
   }
 
   if (!env.hasDependencies({ cwd: state.worktreePath })) {
-    env.installDependencies({ cwd: state.worktreePath });
+    const installResult = env.installDependencies({ cwd: state.worktreePath });
+    if (installResult.isErr()) return err(installResult.error);
   }
 
-  state.branchName = env.getBranchName({ cwd: state.worktreePath });
-  assertWorktreeIsReady({ env, state });
+  const branchResult = env.getBranchName({ cwd: state.worktreePath });
+  if (branchResult.isErr()) return err(branchResult.error);
+  state.branchName = branchResult.value;
+
+  return checkWorktreeIsReady({ env, state });
+}
+
+/**
+ * One attempt at a codex job. The catch-IS-the-classifier pattern from the
+ * pre-Result implementation is preserved structurally: every subprocess
+ * failure inside the attempt is classified via `looksLikeTransientModelFailure`
+ * and surfaced as `ORCHESTRATION_MODEL_ATTEMPT { kind: 'transient' | 'fatal' }`.
+ * Job-id parse failures count as fatal — a malformed codex-agent CLI output
+ * isn't going to recover by re-running the same prompt.
+ *
+ * The `finally { closeCodexJob }` cleanup matches the original imperative
+ * shape; keeping it imperative is simpler than threading it through `.map`.
+ */
+function runOneModelAttempt({
+  candidate,
+  cwd,
+  env,
+  notifyOnComplete,
+  prompt,
+  sandbox,
+}: {
+  candidate: ModelSelection;
+  cwd: string;
+  env: RunOrchestrationEnvironment;
+  notifyOnComplete: boolean;
+  prompt: string;
+  sandbox: 'read-only' | 'workspace-write';
+}): Result<string, OrchestrationModelAttemptError> {
+  let jobId: string | null = null;
+
+  try {
+    const startResult = env.startCodexJob({
+      cwd,
+      model: candidate.model,
+      notifyOnComplete,
+      prompt,
+      reasoning: candidate.reasoning,
+      sandbox,
+    });
+    if (startResult.isErr()) {
+      const lastError = startResult.error.message;
+      return err(
+        OrchestrationErrors.modelAttempt({
+          kind: looksLikeTransientModelFailure({ output: lastError }) ? 'transient' : 'fatal',
+          lastError,
+        }),
+      );
+    }
+
+    const jobIdResult = parseCodexJobId({ output: startResult.value });
+    if (jobIdResult.isErr()) {
+      return err(
+        OrchestrationErrors.modelAttempt({ kind: 'fatal', lastError: jobIdResult.error.message }),
+      );
+    }
+    jobId = jobIdResult.value;
+
+    const awaitResult = env.awaitCodexTurn({ cwd, jobId });
+    env.closeCodexJob({ cwd, jobId });
+    jobId = null;
+    if (awaitResult.isErr()) {
+      const lastError = awaitResult.error.message;
+      return err(
+        OrchestrationErrors.modelAttempt({
+          kind: looksLikeTransientModelFailure({ output: lastError }) ? 'transient' : 'fatal',
+          lastError,
+        }),
+      );
+    }
+
+    const output = awaitResult.value;
+    if (looksLikeTransientModelFailure({ output })) {
+      return err(OrchestrationErrors.modelAttempt({ kind: 'transient', lastError: output }));
+    }
+
+    return ok(output);
+  } finally {
+    if (jobId !== null) {
+      env.closeCodexJob({ cwd, jobId });
+    }
+  }
 }
 
 function runCodexPromptWithFallback({
@@ -470,54 +585,46 @@ function runCodexPromptWithFallback({
   runDirectory: string;
   sandbox: 'read-only' | 'workspace-write';
   state: RunState;
-}): string {
+}): Result<string, OrchestrationError> {
   const attemptCount = bumpRetryCount({ key: retryKey, state }) - 1;
   const candidates = getModelCandidates({ attempts: attemptCount, kind });
   let lastError = '';
 
   for (const candidate of candidates) {
-    let jobId: string | null = null;
+    const attempt = runOneModelAttempt({
+      candidate,
+      cwd,
+      env,
+      notifyOnComplete,
+      prompt,
+      sandbox,
+    });
 
-    try {
-      const startOutput = env.startCodexJob({
-        cwd,
-        model: candidate.model,
-        notifyOnComplete,
-        prompt,
-        reasoning: candidate.reasoning,
-        sandbox,
-      });
-      jobId = parseCodexJobId({ output: startOutput });
-      const output = env.awaitCodexTurn({ cwd, jobId });
-      env.closeCodexJob({ cwd, jobId });
-      jobId = null;
-
-      if (looksLikeTransientModelFailure({ output })) {
-        lastError = output;
-        continue;
-      }
-
+    if (attempt.isOk()) {
       writeArtifact({
         filename: `${retryKey}-${candidate.model}.md`,
         runDirectory,
-        value: output,
+        value: attempt.value,
       });
-      return output;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      if (!looksLikeTransientModelFailure({ output: lastError })) {
-        throw error;
-      }
-    } finally {
-      if (jobId !== null) {
-        env.closeCodexJob({ cwd, jobId });
-      }
+      return ok(attempt.value);
     }
+
+    lastError = attempt.error.lastError;
+    if (attempt.error.kind === 'fatal') {
+      return err(attempt.error);
+    }
+    // transient → try next candidate
   }
 
-  throw new Error(`All model attempts failed for ${retryKey}.\n${lastError}`);
+  return err(OrchestrationErrors.allModelsFailed({ retryKey, lastError }));
 }
 
+/**
+ * The planning conversation has the same retry-loop structure as
+ * runCodexPromptWithFallback but with an additional follow-up loop: after
+ * the initial plan, each `codex-send` step issues another prompt into the
+ * same job. Every follow-up step is also classified by transient/fatal.
+ */
 function runPlanningConversationWithFallback({
   chain,
   env,
@@ -528,10 +635,10 @@ function runPlanningConversationWithFallback({
   env: RunOrchestrationEnvironment;
   runDirectory: string;
   state: RunState;
-}): { finalPlan: string; initialPlan: string } {
+}): Result<{ finalPlan: string; initialPlan: string }, OrchestrationError> {
   const planStep = chain.steps.find((step) => step.role === 'codex-plan');
   if (!planStep?.promptTemplate) {
-    throw new Error(`Missing codex-plan prompt in chain: ${chain.chainPath}`);
+    return err(OrchestrationErrors.missingPlanPrompt(chain.chainPath));
   }
 
   const sendSteps = chain.steps.filter(
@@ -546,69 +653,153 @@ function runPlanningConversationWithFallback({
   let lastError = '';
 
   for (const candidate of candidates) {
-    let jobId: string | null = null;
+    const attemptResult = runOnePlanningAttempt({
+      candidate,
+      chain,
+      env,
+      initialPrompt,
+      runDirectory,
+      sendSteps,
+      state,
+    });
 
-    try {
-      const startOutput = env.startCodexJob({
-        cwd: state.worktreePath,
-        model: candidate.model,
-        notifyOnComplete: false,
-        prompt: initialPrompt,
-        reasoning: candidate.reasoning,
-        sandbox: 'read-only',
+    if (attemptResult.isOk()) {
+      return ok(attemptResult.value);
+    }
+
+    lastError = attemptResult.error.lastError;
+    if (attemptResult.error.kind === 'fatal') {
+      return err(attemptResult.error);
+    }
+    // transient → try next candidate
+  }
+
+  return err(OrchestrationErrors.allModelsFailed({ retryKey: 'planner-main', lastError }));
+}
+
+function runOnePlanningAttempt({
+  candidate,
+  chain,
+  env,
+  initialPrompt,
+  runDirectory,
+  sendSteps,
+  state,
+}: {
+  candidate: ModelSelection;
+  chain: ParsedChain;
+  env: RunOrchestrationEnvironment;
+  initialPrompt: string;
+  runDirectory: string;
+  sendSteps: ParsedChain['steps'];
+  state: RunState;
+}): Result<{ finalPlan: string; initialPlan: string }, OrchestrationModelAttemptError> {
+  let jobId: string | null = null;
+
+  try {
+    const startResult = env.startCodexJob({
+      cwd: state.worktreePath,
+      model: candidate.model,
+      notifyOnComplete: false,
+      prompt: initialPrompt,
+      reasoning: candidate.reasoning,
+      sandbox: 'read-only',
+    });
+    if (startResult.isErr()) {
+      const lastError = startResult.error.message;
+      return err(
+        OrchestrationErrors.modelAttempt({
+          kind: looksLikeTransientModelFailure({ output: lastError }) ? 'transient' : 'fatal',
+          lastError,
+        }),
+      );
+    }
+
+    const jobIdResult = parseCodexJobId({ output: startResult.value });
+    if (jobIdResult.isErr()) {
+      return err(
+        OrchestrationErrors.modelAttempt({ kind: 'fatal', lastError: jobIdResult.error.message }),
+      );
+    }
+    jobId = jobIdResult.value;
+
+    const initialPlanResult = env.awaitCodexTurn({ cwd: state.worktreePath, jobId });
+    if (initialPlanResult.isErr()) {
+      const lastError = initialPlanResult.error.message;
+      return err(
+        OrchestrationErrors.modelAttempt({
+          kind: looksLikeTransientModelFailure({ output: lastError }) ? 'transient' : 'fatal',
+          lastError,
+        }),
+      );
+    }
+    const initialPlan = initialPlanResult.value;
+    if (looksLikeTransientModelFailure({ output: initialPlan })) {
+      return err(OrchestrationErrors.modelAttempt({ kind: 'transient', lastError: initialPlan }));
+    }
+
+    writeArtifact({
+      filename: `planner-main-step-0-${candidate.model}.md`,
+      runDirectory,
+      value: initialPlan,
+    });
+
+    let finalPlan = initialPlan;
+    const activeJobId = jobId;
+    for (let index = 0; index < sendSteps.length; index += 1) {
+      const step = sendSteps[index];
+      if (!step) continue;
+      const prompt = interpolateTemplate({
+        template: step.promptTemplate ?? '',
+        variables: chain.variables,
       });
-      jobId = parseCodexJobId({ output: startOutput });
 
-      const initialPlan = env.awaitCodexTurn({ cwd: state.worktreePath, jobId });
-      if (looksLikeTransientModelFailure({ output: initialPlan })) {
-        lastError = initialPlan;
-        env.closeCodexJob({ cwd: state.worktreePath, jobId });
-        jobId = null;
-        continue;
+      const sendResult = env.sendCodexInput({
+        cwd: state.worktreePath,
+        jobId: activeJobId,
+        prompt,
+      });
+      if (sendResult.isErr()) {
+        const lastError = sendResult.error.message;
+        return err(
+          OrchestrationErrors.modelAttempt({
+            kind: looksLikeTransientModelFailure({ output: lastError }) ? 'transient' : 'fatal',
+            lastError,
+          }),
+        );
+      }
+
+      const awaitResult = env.awaitCodexTurn({ cwd: state.worktreePath, jobId: activeJobId });
+      if (awaitResult.isErr()) {
+        const lastError = awaitResult.error.message;
+        return err(
+          OrchestrationErrors.modelAttempt({
+            kind: looksLikeTransientModelFailure({ output: lastError }) ? 'transient' : 'fatal',
+            lastError,
+          }),
+        );
+      }
+      finalPlan = awaitResult.value;
+
+      if (looksLikeTransientModelFailure({ output: finalPlan })) {
+        return err(OrchestrationErrors.modelAttempt({ kind: 'transient', lastError: finalPlan }));
       }
 
       writeArtifact({
-        filename: `planner-main-step-0-${candidate.model}.md`,
+        filename: `planner-main-step-${index + 1}-${candidate.model}.md`,
         runDirectory,
-        value: initialPlan,
+        value: finalPlan,
       });
+    }
 
-      let finalPlan = initialPlan;
-      const activeJobId = jobId;
-      sendSteps.forEach((step, index) => {
-        const prompt = interpolateTemplate({
-          template: step.promptTemplate ?? '',
-          variables: chain.variables,
-        });
-        env.sendCodexInput({ cwd: state.worktreePath, jobId: activeJobId, prompt });
-        finalPlan = env.awaitCodexTurn({ cwd: state.worktreePath, jobId: activeJobId });
-        if (looksLikeTransientModelFailure({ output: finalPlan })) {
-          throw new Error(finalPlan);
-        }
-
-        writeArtifact({
-          filename: `planner-main-step-${index + 1}-${candidate.model}.md`,
-          runDirectory,
-          value: finalPlan,
-        });
-      });
-
+    env.closeCodexJob({ cwd: state.worktreePath, jobId });
+    jobId = null;
+    return ok({ finalPlan, initialPlan });
+  } finally {
+    if (jobId !== null) {
       env.closeCodexJob({ cwd: state.worktreePath, jobId });
-      jobId = null;
-      return { finalPlan, initialPlan };
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      if (!looksLikeTransientModelFailure({ output: lastError })) {
-        throw error;
-      }
-    } finally {
-      if (jobId !== null) {
-        env.closeCodexJob({ cwd: state.worktreePath, jobId });
-      }
     }
   }
-
-  throw new Error(`All model attempts failed for planner-main.\n${lastError}`);
 }
 
 function runPlanningPhase({
@@ -621,17 +812,23 @@ function runPlanningPhase({
   env: RunOrchestrationEnvironment;
   runDirectory: string;
   state: RunState;
-}): string {
+}): Result<string, OrchestrationError> {
   advancePhase({ state, target: 'planning' });
   const cachedPlan = readArtifact({ filename: FINAL_PLAN_FILENAME, runDirectory });
   if (cachedPlan) {
-    return cachedPlan;
+    return ok(cachedPlan);
   }
 
   const planningResult = runPlanningConversationWithFallback({ chain, env, runDirectory, state });
-  writeArtifact({ filename: FINAL_PLAN_FILENAME, runDirectory, value: planningResult.finalPlan });
-  state.plannerOutputs['planner-main'] = planningResult.initialPlan;
-  return planningResult.finalPlan;
+  if (planningResult.isErr()) return err(planningResult.error);
+
+  writeArtifact({
+    filename: FINAL_PLAN_FILENAME,
+    runDirectory,
+    value: planningResult.value.finalPlan,
+  });
+  state.plannerOutputs['planner-main'] = planningResult.value.initialPlan;
+  return ok(planningResult.value.finalPlan);
 }
 
 function runImplementationPhase({
@@ -646,15 +843,15 @@ function runImplementationPhase({
   profile: ChainProfile;
   runDirectory: string;
   state: RunState;
-}): void {
+}): Result<void, OrchestrationError> {
   advancePhase({ state, target: 'implementation' });
 
-  profile.implementationSlices.forEach((slice) => {
+  for (const slice of profile.implementationSlices) {
     if (state.completedSlices.includes(slice.id)) {
-      return;
+      continue;
     }
 
-    const output = runCodexPromptWithFallback({
+    const outputResult = runCodexPromptWithFallback({
       cwd: state.worktreePath,
       env,
       kind: 'implementation',
@@ -670,23 +867,23 @@ function runImplementationPhase({
       sandbox: 'workspace-write',
       state,
     });
+    if (outputResult.isErr()) return err(outputResult.error);
 
+    const output = outputResult.value;
     state.implementationOutputs[slice.id] = output;
     writeArtifact({ filename: `${slice.id}.md`, runDirectory, value: output });
 
-    if (
-      env.commitAll({
-        cwd: state.worktreePath,
-        ignoredPaths: state.ignoredWorktreeRelativePaths,
-        message: slice.commitMessage,
-      })
-    ) {
-      state.completedSlices.push(slice.id);
-      return;
-    }
+    const commitResult = env.commitAll({
+      cwd: state.worktreePath,
+      ignoredPaths: state.ignoredWorktreeRelativePaths,
+      message: slice.commitMessage,
+    });
+    if (commitResult.isErr()) return err(commitResult.error);
 
     state.completedSlices.push(slice.id);
-  });
+  }
+
+  return ok(undefined);
 }
 
 function ensurePr({
@@ -697,14 +894,16 @@ function ensurePr({
   chain: ParsedChain;
   env: RunOrchestrationEnvironment;
   state: RunState;
-}): string {
+}): Result<string, OrchestrationError> {
   advancePhase({ state, target: 'pr' });
   if (state.prUrl) {
-    return state.prUrl;
+    return ok(state.prUrl);
   }
 
-  env.pushBranch({ cwd: state.worktreePath });
-  const prUrl = env.createOrReusePr({
+  const pushResult = env.pushBranch({ cwd: state.worktreePath });
+  if (pushResult.isErr()) return err(pushResult.error);
+
+  const prResult = env.createOrReusePr({
     body: buildPrBody({
       chainPath: chain.chainPath,
       chainTitle: chain.title,
@@ -713,8 +912,10 @@ function ensurePr({
     cwd: state.worktreePath,
     title: chain.title,
   });
-  state.prUrl = prUrl;
-  return prUrl;
+  if (prResult.isErr()) return err(prResult.error);
+
+  state.prUrl = prResult.value;
+  return ok(prResult.value);
 }
 
 function runReviewPhase({
@@ -729,29 +930,31 @@ function runReviewPhase({
   finalPlan: string;
   runDirectory: string;
   state: RunState;
-}): void {
+}): Result<void, OrchestrationError> {
   advancePhase({ state, target: 'review' });
   const reviewStep = chain.steps.find((step) => step.role === 'codex-review');
   if (!reviewStep?.promptTemplate || !state.prUrl) {
-    return;
+    return ok(undefined);
   }
 
   // Early-exit when resuming a run whose last review already passed — avoids
   // re-spawning a review agent against an already-clean PR after a crash
   // between review-success and ci-start.
   if (state.lastReviewOutput && isSuccessfulReview({ reviewOutput: state.lastReviewOutput })) {
-    return;
+    return ok(undefined);
   }
 
   for (;;) {
     if (state.reviewAttempts >= MAX_REVIEW_ATTEMPTS) {
-      throw new Error(
-        `Review loop did not converge after ${MAX_REVIEW_ATTEMPTS} attempts. ` +
-          `Inspect ${runDirectory}/artifacts/review-${state.reviewAttempts}.md and either resume with --restart, fix the chain, or address findings manually.`,
+      return err(
+        OrchestrationErrors.reviewNotConverged({
+          attempts: state.reviewAttempts,
+          runDirectory,
+        }),
       );
     }
 
-    const reviewOutput = runCodexPromptWithFallback({
+    const reviewResult = runCodexPromptWithFallback({
       cwd: state.worktreePath,
       env,
       kind: 'review',
@@ -766,6 +969,8 @@ function runReviewPhase({
       sandbox: 'read-only',
       state,
     });
+    if (reviewResult.isErr()) return err(reviewResult.error);
+    const reviewOutput = reviewResult.value;
 
     state.reviewAttempts += 1;
     state.reviewOutputs.push(reviewOutput);
@@ -777,10 +982,10 @@ function runReviewPhase({
     });
 
     if (isSuccessfulReview({ reviewOutput })) {
-      return;
+      return ok(undefined);
     }
 
-    const fixOutput = runCodexPromptWithFallback({
+    const fixResult = runCodexPromptWithFallback({
       cwd: state.worktreePath,
       env,
       kind: 'implementation',
@@ -795,18 +1000,24 @@ function runReviewPhase({
       sandbox: 'workspace-write',
       state,
     });
+    if (fixResult.isErr()) return err(fixResult.error);
+    const fixOutput = fixResult.value;
 
     writeArtifact({
       filename: `review-fix-${state.reviewAttempts}.md`,
       runDirectory,
       value: fixOutput,
     });
-    env.commitAll({
+
+    const commitResult = env.commitAll({
       cwd: state.worktreePath,
       ignoredPaths: state.ignoredWorktreeRelativePaths,
       message: `fix: address codex review findings ${state.reviewAttempts}`,
     });
-    env.pushBranch({ cwd: state.worktreePath });
+    if (commitResult.isErr()) return err(commitResult.error);
+
+    const pushResult = env.pushBranch({ cwd: state.worktreePath });
+    if (pushResult.isErr()) return err(pushResult.error);
   }
 }
 
@@ -820,14 +1031,16 @@ function runCiPhase({
   finalPlan: string;
   runDirectory: string;
   state: RunState;
-}): void {
+}): Result<void, OrchestrationError> {
   advancePhase({ state, target: 'ci' });
 
   for (;;) {
     if (state.ciAttempts >= MAX_CI_ATTEMPTS) {
-      throw new Error(
-        `CI loop did not converge after ${MAX_CI_ATTEMPTS} attempts. ` +
-          `Inspect ${runDirectory}/artifacts/ci-watch-${state.ciAttempts}.md and either resume with --restart, fix the chain, or address failures manually.`,
+      return err(
+        OrchestrationErrors.ciNotConverged({
+          attempts: state.ciAttempts,
+          runDirectory,
+        }),
       );
     }
 
@@ -840,7 +1053,7 @@ function runCiPhase({
     });
 
     if (ciResult.success) {
-      return;
+      return ok(undefined);
     }
 
     const latestRunId =
@@ -848,10 +1061,10 @@ function runCiPhase({
         ? null
         : env.getLatestCiRunId({ branchName: state.branchName, cwd: state.worktreePath });
     if (latestRunId === null) {
-      throw new Error('CI failed but no GitHub run id could be resolved for diagnosis.');
+      return err(OrchestrationErrors.ciRunIdMissing());
     }
 
-    const diagnosisOutput = runCodexPromptWithFallback({
+    const diagnosisResult = runCodexPromptWithFallback({
       cwd: state.worktreePath,
       env,
       kind: 'diagnosis',
@@ -865,6 +1078,8 @@ function runCiPhase({
       sandbox: 'read-only',
       state,
     });
+    if (diagnosisResult.isErr()) return err(diagnosisResult.error);
+    const diagnosisOutput = diagnosisResult.value;
 
     writeArtifact({
       filename: `ci-diagnosis-${state.ciAttempts}.md`,
@@ -872,7 +1087,7 @@ function runCiPhase({
       value: diagnosisOutput,
     });
 
-    const fixOutput = runCodexPromptWithFallback({
+    const fixResult = runCodexPromptWithFallback({
       cwd: state.worktreePath,
       env,
       kind: 'implementation',
@@ -887,14 +1102,20 @@ function runCiPhase({
       sandbox: 'workspace-write',
       state,
     });
+    if (fixResult.isErr()) return err(fixResult.error);
+    const fixOutput = fixResult.value;
 
     writeArtifact({ filename: `ci-fix-${state.ciAttempts}.md`, runDirectory, value: fixOutput });
-    env.commitAll({
+
+    const commitResult = env.commitAll({
       cwd: state.worktreePath,
       ignoredPaths: state.ignoredWorktreeRelativePaths,
       message: `fix: address ci failures ${state.ciAttempts}`,
     });
-    env.pushBranch({ cwd: state.worktreePath });
+    if (commitResult.isErr()) return err(commitResult.error);
+
+    const pushResult = env.pushBranch({ cwd: state.worktreePath });
+    if (pushResult.isErr()) return err(pushResult.error);
   }
 }
 
@@ -977,28 +1198,35 @@ function logResumeState({
   console.log('');
 }
 
-function resolveChainContext({ chainInputPath }: { chainInputPath: string }): {
-  chain: ParsedChain;
-  profile: ChainProfile;
-  repoRoot: string;
-  runDirectory: string;
-  runSlug: string;
-  stateFilePath: string;
-  worktreePath: string;
-  worktreeName: string;
-} {
-  const repoRoot = findMonorepoRoot();
+function resolveChainContext({ chainInputPath }: { chainInputPath: string }): Result<
+  {
+    chain: ParsedChain;
+    profile: ChainProfile;
+    repoRoot: string;
+    runDirectory: string;
+    runSlug: string;
+    stateFilePath: string;
+    worktreePath: string;
+    worktreeName: string;
+  },
+  OrchestrationError | MonorepoRootNotFoundError
+> {
+  const repoRootResult = findMonorepoRoot();
+  if (repoRootResult.isErr()) return err(repoRootResult.error);
+  const repoRoot = repoRootResult.value;
   const worktreesRoot = resolveWorktreesRoot({ repoRoot });
   const chainPath = resolveChainPath({ inputPath: chainInputPath, repoRoot });
   const markdown = fs.readFileSync(chainPath, 'utf8');
-  const chain = parseOrchestrationChain({ chainPath, markdown });
+  const chainResult = parseOrchestrationChain({ chainPath, markdown });
+  if (chainResult.isErr()) return err(chainResult.error);
+  const chain = chainResult.value;
   const profile = getProfile({ profileId: resolveProfileId() });
   const worktreeName = resolveWorktreeName({ chain });
   const worktreePath = path.join(worktreesRoot, worktreeName);
   const runSlug = resolveRunSlug({ chainPath, repoRoot });
   const runDirectory = getRunDirectory({ runSlug });
 
-  return {
+  return ok({
     chain,
     profile,
     repoRoot,
@@ -1007,7 +1235,7 @@ function resolveChainContext({ chainInputPath }: { chainInputPath: string }): {
     stateFilePath: getStateFilePath({ runDirectory }),
     worktreeName,
     worktreePath,
-  };
+  });
 }
 
 export async function prepareOrchestration({
@@ -1016,11 +1244,11 @@ export async function prepareOrchestration({
 }: {
   env?: RunOrchestrationEnvironment | undefined;
   options: PrepareOrchestrationOptions;
-}): Promise<void> {
+}): Promise<Result<void, OrchestrationError | MonorepoRootNotFoundError>> {
+  const contextResult = resolveChainContext({ chainInputPath: options.chainInputPath });
+  if (contextResult.isErr()) return err(contextResult.error);
   const { chain, runDirectory, stateFilePath, runSlug, worktreePath, worktreeName, repoRoot } =
-    resolveChainContext({
-      chainInputPath: options.chainInputPath,
-    });
+    contextResult.value;
 
   if (options.restart && fs.existsSync(runDirectory)) {
     fs.rmSync(runDirectory, { force: true, recursive: true });
@@ -1037,7 +1265,8 @@ export async function prepareOrchestration({
 
   ensureRunDirectories({ runDirectory });
   state.executor = options.executor;
-  bootstrapRunState({ env, repoRoot, state, worktreeName });
+  const bootstrapResult = bootstrapRunState({ env, repoRoot, state, worktreeName });
+  if (bootstrapResult.isErr()) return err(bootstrapResult.error);
   saveState({ runDirectory, state });
   logResumeState({ hasExistingState, state });
 
@@ -1069,6 +1298,8 @@ export async function prepareOrchestration({
   if (manifest.reviewPromptTemplateFile !== null) {
     console.log(`${BLUE}Review prompt template:${NC} ${manifest.reviewPromptTemplateFile}`);
   }
+
+  return ok(undefined);
 }
 
 export async function runOrchestration({
@@ -1077,8 +1308,10 @@ export async function runOrchestration({
 }: {
   env?: RunOrchestrationEnvironment | undefined;
   options: RunOrchestrationOptions;
-}): Promise<void> {
+}): Promise<Result<void, OrchestrationError | MonorepoRootNotFoundError>> {
   const executor = options.executor;
+  const contextResult = resolveChainContext({ chainInputPath: options.chainInputPath });
+  if (contextResult.isErr()) return err(contextResult.error);
   const {
     chain,
     profile,
@@ -1088,9 +1321,7 @@ export async function runOrchestration({
     runSlug,
     worktreePath,
     worktreeName,
-  } = resolveChainContext({
-    chainInputPath: options.chainInputPath,
-  });
+  } = contextResult.value;
 
   if (options.restart && fs.existsSync(runDirectory)) {
     fs.rmSync(runDirectory, { force: true, recursive: true });
@@ -1107,12 +1338,13 @@ export async function runOrchestration({
 
   if (options.dryRun) {
     console.log(formatDryRunPlan({ chain, executor, profile }));
-    return;
+    return ok(undefined);
   }
 
   ensureRunDirectories({ runDirectory });
   state.executor = executor;
-  bootstrapRunState({ env, repoRoot, state, worktreeName });
+  const bootstrapResult = bootstrapRunState({ env, repoRoot, state, worktreeName });
+  if (bootstrapResult.isErr()) return err(bootstrapResult.error);
   saveState({ runDirectory, state });
   logResumeState({ hasExistingState, state });
 
@@ -1121,12 +1353,14 @@ export async function runOrchestration({
       `${YELLOW}Run already paused at manual QA:${NC} ${GREEN}${state.prUrl ?? '(no PR URL)'}${NC}`,
     );
     console.log(buildStateSummary({ state }));
-    return;
+    return ok(undefined);
   }
 
   // Planning is always called: it returns the cached plan when present and
   // advancePhase() prevents it from regressing state.phase on a resumed run.
-  const finalPlan = runPlanningPhase({ chain, env, runDirectory, state });
+  const planResult = runPlanningPhase({ chain, env, runDirectory, state });
+  if (planResult.isErr()) return err(planResult.error);
+  const finalPlan = planResult.value;
   saveState({ runDirectory, state });
 
   // Skip phases that have already completed on a previous run. The phase
@@ -1135,22 +1369,26 @@ export async function runOrchestration({
   // lastReviewOutput already passed), but gating here also avoids the
   // overhead of re-entering them.
   if (phaseIndex(state.phase) <= phaseIndex('implementation')) {
-    runImplementationPhase({ env, finalPlan, profile, runDirectory, state });
+    const implResult = runImplementationPhase({ env, finalPlan, profile, runDirectory, state });
+    if (implResult.isErr()) return err(implResult.error);
     saveState({ runDirectory, state });
   }
 
   if (phaseIndex(state.phase) <= phaseIndex('pr')) {
-    ensurePr({ chain, env, state });
+    const prResult = ensurePr({ chain, env, state });
+    if (prResult.isErr()) return err(prResult.error);
     saveState({ runDirectory, state });
   }
 
   if (phaseIndex(state.phase) <= phaseIndex('review')) {
-    runReviewPhase({ chain, env, finalPlan, runDirectory, state });
+    const reviewResult = runReviewPhase({ chain, env, finalPlan, runDirectory, state });
+    if (reviewResult.isErr()) return err(reviewResult.error);
     saveState({ runDirectory, state });
   }
 
   if (phaseIndex(state.phase) <= phaseIndex('ci')) {
-    runCiPhase({ env, finalPlan, runDirectory, state });
+    const ciResult = runCiPhase({ env, finalPlan, runDirectory, state });
+    if (ciResult.isErr()) return err(ciResult.error);
   }
 
   advancePhase({ state, target: 'awaiting_manual_qa' });
@@ -1167,6 +1405,8 @@ export async function runOrchestration({
   console.log(`${BLUE}PR:${NC} ${state.prUrl ?? '(not created)'}`);
   console.log(`${BLUE}State:${NC} ${stateFilePath}`);
   console.log(`${YELLOW}Next:${NC} final review + manual staging QA`);
+
+  return ok(undefined);
 }
 
 function runProcess({
@@ -1230,20 +1470,46 @@ function collectEnvFiles({
   }
 }
 
+function runProcessAsResult({
+  args,
+  captureOutput,
+  command,
+  cwd,
+  env,
+}: {
+  args: string[];
+  captureOutput?: boolean;
+  command: string;
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+}): Result<string, OrchestrationSubprocessFailedError> {
+  const opts: Parameters<typeof runProcess>[0] = { args, command, cwd };
+  if (captureOutput !== undefined) opts.captureOutput = captureOutput;
+  if (env !== undefined) opts.env = env;
+  const result = runProcess(opts);
+  if (result.exitCode !== 0) {
+    return err(
+      OrchestrationErrors.subprocessFailed({
+        command,
+        args,
+        cwd,
+        exitCode: result.exitCode,
+        output: result.output,
+      }),
+    );
+  }
+  return ok(result.output);
+}
+
 function createDefaultEnvironment(): RunOrchestrationEnvironment {
   return {
-    awaitCodexTurn: ({ cwd, jobId }) => {
-      const result = runProcess({
+    awaitCodexTurn: ({ cwd, jobId }) =>
+      runProcessAsResult({
         args: ['await-turn', jobId],
         command: 'codex-agent',
         cwd,
         env: getAugmentedPathEnv(),
-      });
-      if (result.exitCode !== 0) {
-        throw new Error(result.output);
-      }
-      return result.output;
-    },
+      }),
     closeCodexJob: ({ cwd, jobId }) => {
       runProcess({
         args: ['send', jobId, '/quit'],
@@ -1268,7 +1534,7 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
         });
 
       if (relevantStatus.length === 0) {
-        return false;
+        return ok(false);
       }
 
       const addArgs = ['add', '-A', '--', '.'];
@@ -1276,26 +1542,23 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
         addArgs.push(`:(exclude)${ignoredPath}`);
       });
 
-      const addResult = runProcess({
+      const addResult = runProcessAsResult({
         args: addArgs,
         captureOutput: false,
         command: 'git',
         cwd,
       });
-      if (addResult.exitCode !== 0) {
-        throw new Error('Failed to stage changes before commit.');
-      }
+      if (addResult.isErr()) return err(addResult.error);
 
-      const commitResult = runProcess({
+      const commitResult = runProcessAsResult({
         args: ['commit', '-m', message],
         captureOutput: false,
         command: 'git',
         cwd,
       });
-      if (commitResult.exitCode !== 0) {
-        throw new Error(`Failed to commit changes: ${message}`);
-      }
-      return true;
+      if (commitResult.isErr()) return err(commitResult.error);
+
+      return ok(true);
     },
     createOrReusePr: ({ body, cwd, title }) => {
       const existingPr = runProcess({
@@ -1304,46 +1567,43 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
         cwd,
       });
       if (existingPr.exitCode === 0 && existingPr.output.trim()) {
-        return existingPr.output.trim();
+        return ok(existingPr.output.trim());
       }
 
-      const createdPr = runProcess({
+      const createdResult = runProcessAsResult({
         args: ['pr', 'create', '--title', title, '--body', body],
         command: 'gh',
         cwd,
       });
-      if (createdPr.exitCode !== 0) {
-        throw new Error(createdPr.output);
-      }
-      return parsePullRequestUrl({ output: createdPr.output });
+      if (createdResult.isErr()) return err(createdResult.error);
+
+      const prUrlResult = parsePullRequestUrl({ output: createdResult.value });
+      if (prUrlResult.isErr()) return err(prUrlResult.error);
+      return ok(prUrlResult.value);
     },
     ensureWorktree: ({ repoRoot, worktreeName }) => {
       const worktreePath = path.join(resolveWorktreesRoot({ repoRoot }), worktreeName);
       if (fs.existsSync(worktreePath)) {
-        return worktreePath;
+        return ok(worktreePath);
       }
 
-      const result = runProcess({
+      const result = runProcessAsResult({
         args: ['cli', 'worktree-new', worktreeName],
         captureOutput: false,
         command: 'pnpm',
         cwd: repoRoot,
       });
-      if (result.exitCode !== 0) {
-        throw new Error(`Failed to create worktree ${worktreeName}`);
-      }
-      return worktreePath;
+      if (result.isErr()) return err(result.error);
+      return ok(worktreePath);
     },
     getBranchName: ({ cwd }) => {
-      const result = runProcess({
+      const result = runProcessAsResult({
         args: ['branch', '--show-current'],
         command: 'git',
         cwd,
       });
-      if (result.exitCode !== 0) {
-        throw new Error(`Failed to determine current branch for ${cwd}`);
-      }
-      return result.output.trim();
+      if (result.isErr()) return err(result.error);
+      return ok(result.value.trim());
     },
     getLatestCiRunId: ({ branchName, cwd }) => {
       const result = runProcess({
@@ -1372,15 +1632,14 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
     },
     hasDependencies: ({ cwd }) => fs.existsSync(path.join(cwd, 'node_modules')),
     installDependencies: ({ cwd }) => {
-      const result = runProcess({
+      const result = runProcessAsResult({
         args: ['install', '--frozen-lockfile'],
         captureOutput: false,
         command: 'pnpm',
         cwd,
       });
-      if (result.exitCode !== 0) {
-        throw new Error(`Failed to install dependencies in ${cwd}`);
-      }
+      if (result.isErr()) return err(result.error);
+      return ok(undefined);
     },
     notify: ({ body, enabled, title }) => {
       if (!enabled) {
@@ -1393,26 +1652,24 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
       });
     },
     pushBranch: ({ cwd }) => {
-      const result = runProcess({
+      const result = runProcessAsResult({
         args: ['push', '-u', 'origin', 'HEAD'],
         captureOutput: false,
         command: 'git',
         cwd,
       });
-      if (result.exitCode !== 0) {
-        throw new Error(`Failed to push branch from ${cwd}`);
-      }
+      if (result.isErr()) return err(result.error);
+      return ok(undefined);
     },
     sendCodexInput: ({ cwd, jobId, prompt }) => {
-      const result = runProcess({
+      const result = runProcessAsResult({
         args: ['send', jobId, prompt],
         command: 'codex-agent',
         cwd,
         env: getAugmentedPathEnv(),
       });
-      if (result.exitCode !== 0) {
-        throw new Error(result.output);
-      }
+      if (result.isErr()) return err(result.error);
+      return ok(undefined);
     },
     startCodexJob: ({ cwd, model, notifyOnComplete, prompt, reasoning, sandbox }) => {
       const args = [
@@ -1432,16 +1689,12 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
         args.push('--notify-on-complete', 'cmux notify --title "Codex" --body "Agent ready"');
       }
 
-      const result = runProcess({
+      return runProcessAsResult({
         args,
         command: 'codex-agent',
         cwd,
         env: getAugmentedPathEnv(),
       });
-      if (result.exitCode !== 0) {
-        throw new Error(result.output);
-      }
-      return result.output;
     },
     syncEnvFiles: ({ repoRoot, worktreePath }) => {
       const envFiles: string[] = [];

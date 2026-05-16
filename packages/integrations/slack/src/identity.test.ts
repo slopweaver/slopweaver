@@ -66,10 +66,13 @@ describe('fetchIdentity', () => {
       now: () => 1_762_000_000_000,
     });
 
-    expect(result).toEqual({
-      canonicalId: 'slack:T0WORKSPACE:U0SLOPBOT',
-      externalId: 'U0SLOPBOT',
-    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({
+        canonicalId: 'slack:T0WORKSPACE:U0SLOPBOT',
+        externalId: 'U0SLOPBOT',
+      });
+    }
 
     const rows = dbHandle.db
       .select()
@@ -111,8 +114,12 @@ describe('fetchIdentity', () => {
         client: fakeWebClient({ authResponse: auth, usersInfoResponse: profile }),
         now: () => 2,
       });
-      expect(a.canonicalId).toBe(b.canonicalId);
-      expect(a.canonicalId).toBe('slack:T0:U0');
+      expect(a.isOk()).toBe(true);
+      expect(b.isOk()).toBe(true);
+      if (a.isOk() && b.isOk()) {
+        expect(a.value.canonicalId).toBe(b.value.canonicalId);
+        expect(a.value.canonicalId).toBe('slack:T0:U0');
+      }
     } finally {
       dbA.close();
       dbB.close();
@@ -150,7 +157,10 @@ describe('fetchIdentity', () => {
       now: () => 5_000,
     });
 
-    expect(result.canonicalId).toBe('slack:T0WORKSPACE:U0SLOPBOT');
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.canonicalId).toBe('slack:T0WORKSPACE:U0SLOPBOT');
+    }
 
     const rows = dbHandle.db.select().from(identityGraph).all();
     expect(rows).toHaveLength(1);
@@ -186,7 +196,7 @@ describe('fetchIdentity', () => {
     expect(row?.displayName).toBe('Alice Liddell');
   });
 
-  it('propagates SDK errors from slack.auth.test', async () => {
+  it('returns err with SLACK_API_ERROR when slack.auth.test throws', async () => {
     const client = {
       auth: {
         test: async () => {
@@ -196,14 +206,20 @@ describe('fetchIdentity', () => {
       users: { info: async () => ({ ok: true, user: { id: 'unused' } }) },
     } as unknown as WebClient;
 
-    await expect(
-      fetchIdentity({
-        db: dbHandle.db,
-        token: 'xoxb-test',
-        client,
-        now: () => 1,
-      }),
-    ).rejects.toThrowError(/invalid_auth/);
+    const result = await fetchIdentity({
+      db: dbHandle.db,
+      token: 'xoxb-test',
+      client,
+      now: () => 1,
+    });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('SLACK_API_ERROR');
+      if (result.error.code === 'SLACK_API_ERROR') {
+        expect(result.error.endpoint).toBe('auth.test');
+      }
+    }
   });
 });
 
@@ -230,16 +246,19 @@ describe('fetchIdentity (cassette)', () => {
       now: () => 1_000,
     });
 
-    expect(result.canonicalId).toMatch(/^slack:T[A-Z0-9]+:U[A-Z0-9]+$/);
-    expect(result.externalId).toMatch(/^U[A-Z0-9]+$/);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.canonicalId).toMatch(/^slack:T[A-Z0-9]+:U[A-Z0-9]+$/);
+      expect(result.value.externalId).toMatch(/^U[A-Z0-9]+$/);
 
-    const row = dbHandle.db.select().from(identityGraph).get();
-    expect(row).toMatchObject({
-      canonicalId: result.canonicalId,
-      integration: 'slack',
-      externalId: result.externalId,
-      createdAtMs: 1_000,
-      updatedAtMs: 1_000,
-    });
+      const row = dbHandle.db.select().from(identityGraph).get();
+      expect(row).toMatchObject({
+        canonicalId: result.value.canonicalId,
+        integration: 'slack',
+        externalId: result.value.externalId,
+        createdAtMs: 1_000,
+        updatedAtMs: 1_000,
+      });
+    }
   });
 });

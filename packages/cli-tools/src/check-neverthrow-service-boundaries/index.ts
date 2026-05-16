@@ -1,0 +1,64 @@
+/**
+ * `pnpm cli check-service-boundaries`
+ *
+ * CI-shaped guard: scans the configured service-boundary files for
+ * `throw` statements and reports findings. Service code must return
+ * `Result<T, E>` instead of throwing; this check is the gate (per
+ * `.claude/rules/error-handling.md` and #41).
+ *
+ * Wired into `pnpm validate` as the first gate. The check is also
+ * runnable on demand via `pnpm cli check-service-boundaries` so a
+ * developer can verify locally before a commit.
+ */
+
+import { findMonorepoRoot } from '../lib/paths.ts';
+import { listBoundaryFiles, scanFiles, type ThrowFinding } from './core.ts';
+
+interface CheckResult {
+  readonly ok: boolean;
+  readonly findings: ReadonlyArray<ThrowFinding>;
+}
+
+function runCheck({ root }: { root: string }): CheckResult {
+  const paths = listBoundaryFiles({ root });
+  const findings = scanFiles({ root, paths });
+  return { ok: findings.length === 0, findings };
+}
+
+function printReport({
+  result,
+  out = console.log,
+  err = console.error,
+}: {
+  result: CheckResult;
+  out?: (line: string) => void;
+  err?: (line: string) => void;
+}): void {
+  if (result.ok) {
+    out('OK: no `throw` statements in service-boundary files.');
+    return;
+  }
+  err('');
+  err(`ERROR: ${result.findings.length} \`throw\` site(s) found in service-boundary files.`);
+  err('Service code must return Result<T, E> via @slopweaver/errors instead of throwing.');
+  err('See .claude/rules/error-handling.md.');
+  err('');
+  err('Findings:');
+  for (const finding of result.findings) {
+    err(`  ${finding.file}:${finding.line}  ${finding.text.trim()}`);
+  }
+  err('');
+}
+
+export function runAndExit(): void {
+  const rootResult = findMonorepoRoot();
+  if (rootResult.isErr()) {
+    console.error(rootResult.error.message);
+    process.exit(1);
+  }
+  const result = runCheck({ root: rootResult.value });
+  printReport({ result });
+  if (!result.ok) {
+    process.exit(1);
+  }
+}

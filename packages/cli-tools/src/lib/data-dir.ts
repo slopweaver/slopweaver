@@ -6,10 +6,16 @@
  * otherwise under `~/.slopweaver`. Kept as a per-package helper (rather
  * than imported from `@slopweaver/db`) so cli-tools has no runtime
  * dependency on the SQLite stack.
+ *
+ * Returns the same `DataPathInvalidError` shape (`code: 'DATA_PATH_INVALID'`)
+ * that `@slopweaver/db` returns, so a caller that mixes both resolvers can
+ * exhaustively match on one union.
  */
 
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { err, ok, type Result } from '@slopweaver/errors';
+import { type DataPathInvalidError, LibErrors } from './errors.ts';
 
 /**
  * Resolve the directory SlopWeaver uses for local data (database, cached
@@ -18,15 +24,6 @@ import { isAbsolute, join } from 'node:path';
  * Per the XDG Base Directory specification, `XDG_DATA_HOME` must be an
  * absolute path; relative values are rejected so misconfigured environments
  * fail fast instead of writing data under the caller's cwd.
- *
- * @param options - Optional overrides. Inject `home` and/or `xdgDataHome`
- *   in tests to avoid touching the real environment.
- * @returns Absolute path to the SlopWeaver data directory.
- * @throws {Error} If the resolved `XDG_DATA_HOME` is not an absolute path.
- *
- * @example
- * resolveDataDir({ xdgDataHome: '/var/lib' }); // '/var/lib/slopweaver'
- * resolveDataDir({ home: '/Users/alice', xdgDataHome: '' }); // '/Users/alice/.slopweaver'
  */
 export function resolveDataDir({
   home,
@@ -34,15 +31,15 @@ export function resolveDataDir({
 }: {
   home?: string;
   xdgDataHome?: string;
-} = {}): string {
+} = {}): Result<string, DataPathInvalidError> {
   const resolvedXdgDataHome = xdgDataHome ?? process.env.XDG_DATA_HOME;
 
   if (resolvedXdgDataHome) {
     if (!isAbsolute(resolvedXdgDataHome)) {
-      throw new Error(`XDG_DATA_HOME must be an absolute path; got: "${resolvedXdgDataHome}"`);
+      return err(LibErrors.dataPathInvalid(resolvedXdgDataHome));
     }
-    return join(resolvedXdgDataHome, 'slopweaver');
+    return ok(join(resolvedXdgDataHome, 'slopweaver'));
   }
 
-  return join(home ?? homedir(), '.slopweaver');
+  return ok(join(home ?? homedir(), '.slopweaver'));
 }

@@ -5,24 +5,36 @@ import { resolveDataDir } from './data-dir.ts';
 
 describe('resolveDataDir', () => {
   it('uses XDG_DATA_HOME when supplied', () => {
-    expect(resolveDataDir({ home: '/tmp/fakehome', xdgDataHome: '/tmp/xdg' })).toBe(
-      '/tmp/xdg/slopweaver',
-    );
+    const result = resolveDataDir({ home: '/tmp/fakehome', xdgDataHome: '/tmp/xdg' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe('/tmp/xdg/slopweaver');
+    }
   });
 
   it('falls back to .slopweaver under the supplied home directory when XDG_DATA_HOME is unset', () => {
-    expect(resolveDataDir({ home: '/tmp/fakehome', xdgDataHome: '' })).toBe(
-      '/tmp/fakehome/.slopweaver',
-    );
+    const result = resolveDataDir({ home: '/tmp/fakehome', xdgDataHome: '' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe('/tmp/fakehome/.slopweaver');
+    }
   });
 
   it('defaults to os.homedir() when no home is supplied and XDG_DATA_HOME is unset', () => {
-    expect(resolveDataDir({ xdgDataHome: '' })).toBe(join(homedir(), '.slopweaver'));
+    const result = resolveDataDir({ xdgDataHome: '' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe(join(homedir(), '.slopweaver'));
+    }
   });
 
-  it('throws when XDG_DATA_HOME is set to a relative path', () => {
-    expect(() => resolveDataDir({ xdgDataHome: 'tmp/relative' })).toThrow(
-      /XDG_DATA_HOME must be an absolute path/,
-    );
+  it('returns DATA_PATH_INVALID when XDG_DATA_HOME is set to a relative path', () => {
+    const result = resolveDataDir({ xdgDataHome: 'tmp/relative' });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('DATA_PATH_INVALID');
+      expect(result.error.xdgDataHome).toBe('tmp/relative');
+      expect(result.error.message).toMatch(/XDG_DATA_HOME must be an absolute path/);
+    }
   });
 });

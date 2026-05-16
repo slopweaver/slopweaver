@@ -35,6 +35,7 @@ import {
   StartSessionResult,
 } from '@slopweaver/contracts';
 import { evidenceLog, integrationState, type SlopweaverDatabase } from '@slopweaver/db';
+import { ok } from '@slopweaver/errors';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { defineTool, type Tool } from '../registry.ts';
@@ -89,12 +90,12 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
       const requested = resolveRequested(db, input.integrations, pollers);
 
       if (requested.length === 0) {
-        return {
+        return ok({
           items: [],
           evidence: [],
           freshness: [],
           generated_at: new Date(nowMs).toISOString(),
-        };
+        });
       }
 
       for (const integration of requested) {
@@ -128,12 +129,12 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
         readFreshness(db, integration, nowMs, staleThresholdMs),
       );
 
-      return {
+      return ok({
         items,
         evidence,
         freshness,
         generated_at: new Date(nowMs).toISOString(),
-      };
+      });
     },
   });
 }

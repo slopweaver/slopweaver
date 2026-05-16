@@ -8,6 +8,7 @@
  */
 
 import { createDb, loadIntegrationToken } from '@slopweaver/db';
+import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runConnectGithub } from './github.ts';
 
@@ -42,9 +43,9 @@ describe('runConnectGithub', () => {
     const code = await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_happy',
-      validateToken: async (token) => {
+      validateToken: ({ token }) => {
         expect(token).toBe('ghp_happy');
-        return { login: 'octocat' };
+        return okAsync({ login: 'octocat' });
       },
       stdout,
       stderr,
@@ -54,19 +55,22 @@ describe('runConnectGithub', () => {
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Connected to GitHub as octocat');
     expect(stderr.text()).toBe('');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'github' })).toEqual({
-      token: 'ghp_happy',
-      accountLabel: 'octocat',
-    });
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toEqual({ token: 'ghp_happy', accountLabel: 'octocat' });
+    }
   });
 
   it('invalid token: prints the error, exits 1, does NOT persist', async () => {
     const code = await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_bogus',
-      validateToken: async () => {
-        throw new Error('Bad credentials');
-      },
+      validateToken: () =>
+        errAsync({
+          code: 'GITHUB_API_ERROR',
+          message: 'Bad credentials',
+        }),
       stdout,
       stderr,
     });
@@ -75,14 +79,18 @@ describe('runConnectGithub', () => {
     expect(stderr.text()).toContain('GitHub token rejected');
     expect(stderr.text()).toContain('Bad credentials');
     expect(stdout.text()).toBe('');
-    expect(loadIntegrationToken({ db: handle.db, integration: 'github' })).toBeNull();
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toBeNull();
+    }
   });
 
   it('repeat connect overwrites the previous value with one row total', async () => {
     await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_first',
-      validateToken: async () => ({ login: 'octocat' }),
+      validateToken: () => okAsync({ login: 'octocat' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
@@ -91,15 +99,16 @@ describe('runConnectGithub', () => {
     await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_second',
-      validateToken: async () => ({ login: 'octocat-renamed' }),
+      validateToken: () => okAsync({ login: 'octocat-renamed' }),
       stdout,
       stderr,
       now: () => 1_746_000_000_500,
     });
 
-    expect(loadIntegrationToken({ db: handle.db, integration: 'github' })).toEqual({
-      token: 'ghp_second',
-      accountLabel: 'octocat-renamed',
-    });
+    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    expect(loaded.isOk()).toBe(true);
+    if (loaded.isOk()) {
+      expect(loaded.value).toEqual({ token: 'ghp_second', accountLabel: 'octocat-renamed' });
+    }
   });
 });

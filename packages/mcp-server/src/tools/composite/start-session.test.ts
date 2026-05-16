@@ -66,13 +66,17 @@ describe('createStartSessionTool', () => {
       .run();
   }
 
-  function callHandler(
+  async function callHandler(
     tool: ReturnType<typeof createStartSessionTool>,
     rawInput: unknown,
   ): Promise<unknown> {
     // Mirror the SDK's pre-handler validation step so handler input is typed.
     const input = StartSessionArgs.parse(rawInput);
-    return tool.handler({ input, ctx: { db: dbHandle.db } });
+    const result = await tool.handler({ input, ctx: { db: dbHandle.db } });
+    if (result.isErr()) {
+      throw new Error(`start_session handler returned Err: ${result.error.code}`);
+    }
+    return result.value;
   }
 
   it('happy path: ranks a Slack mention above an equal-recency GitHub PR via the kind boost', async () => {

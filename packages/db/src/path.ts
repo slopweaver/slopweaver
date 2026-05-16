@@ -11,6 +11,8 @@
 
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { err, ok, type Result } from '@slopweaver/errors';
+import { type DataPathInvalidError, DbErrors } from './errors.ts';
 
 /**
  * Common option bag accepted by both resolvers. All fields are optional —
@@ -34,38 +36,29 @@ type ResolvePathOptions = {
  * absolute path; relative values are rejected so misconfigured environments
  * fail fast at startup instead of silently writing SQLite under the caller's
  * cwd.
- *
- * @param options - Optional overrides for testing.
- * @returns Absolute filesystem path to the SlopWeaver data directory.
- * @throws {Error} If the resolved `XDG_DATA_HOME` is not an absolute path.
- *
- * @example
- * resolveDataDir({ xdgDataHome: '/var/lib' }); // '/var/lib/slopweaver'
- * resolveDataDir({ home: '/Users/alice', xdgDataHome: '' }); // '/Users/alice/.slopweaver'
  */
-export function resolveDataDir({ home, xdgDataHome }: ResolvePathOptions = {}): string {
+export function resolveDataDir({
+  home,
+  xdgDataHome,
+}: ResolvePathOptions = {}): Result<string, DataPathInvalidError> {
   const resolvedXdgDataHome = xdgDataHome ?? process.env.XDG_DATA_HOME;
 
   if (resolvedXdgDataHome) {
     if (!isAbsolute(resolvedXdgDataHome)) {
-      throw new Error(`XDG_DATA_HOME must be an absolute path; got: "${resolvedXdgDataHome}"`);
+      return err(DbErrors.dataPathInvalid(resolvedXdgDataHome));
     }
-    return join(resolvedXdgDataHome, 'slopweaver');
+    return ok(join(resolvedXdgDataHome, 'slopweaver'));
   }
 
-  return join(home ?? homedir(), '.slopweaver');
+  return ok(join(home ?? homedir(), '.slopweaver'));
 }
 
 /**
  * Resolve the absolute path to the SlopWeaver SQLite database file.
  * Equivalent to {@link resolveDataDir} joined with `slopweaver.db`.
- *
- * @param options - Optional overrides for testing.
- * @returns Absolute filesystem path to `slopweaver.db`.
- *
- * @example
- * resolveDbPath({ xdgDataHome: '/var/lib' }); // '/var/lib/slopweaver/slopweaver.db'
  */
-export function resolveDbPath(options: ResolvePathOptions = {}): string {
-  return join(resolveDataDir(options), 'slopweaver.db');
+export function resolveDbPath(
+  options: ResolvePathOptions = {},
+): Result<string, DataPathInvalidError> {
+  return resolveDataDir(options).map((dir) => join(dir, 'slopweaver.db'));
 }
