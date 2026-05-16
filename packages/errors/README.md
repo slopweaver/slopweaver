@@ -81,5 +81,9 @@ if (result.isErr()) {
 }
 ```
 
-`eslint-plugin-neverthrow`'s `must-use-result` rule enforces that every
-`Result` / `ResultAsync` is consumed.
+`eslint-plugin-neverthrow`'s `must-use-result` rule would enforce that every
+`Result` / `ResultAsync` is consumed, but it's currently incompatible with
+ESLint 10 and is deferred (#41). The CLI service-boundary scanner at
+`packages/cli-tools/src/check-neverthrow-service-boundaries/` covers the
+highest-risk regression class (no thrown errors at service boundaries) in
+the meantime.

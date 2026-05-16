@@ -43,7 +43,7 @@ describe('runConnectGithub', () => {
     const code = await runConnectGithub({
       db: handle.db,
       promptForToken: async () => 'ghp_happy',
-      validateToken: (token) => {
+      validateToken: ({ token }) => {
         expect(token).toBe('ghp_happy');
         return okAsync({ login: 'octocat' });
       },

@@ -38,7 +38,7 @@ describe('runConnectSlack', () => {
     const code = await runConnectSlack({
       db: handle.db,
       promptForToken: async () => 'xoxp-test',
-      validateToken: (token) => {
+      validateToken: ({ token }) => {
         expect(token).toBe('xoxp-test');
         return okAsync({ team: 'AcmeCorp' });
       },

@@ -17,7 +17,7 @@
  *
  * @example
  * ```ts
- * const result = safeQuery({
+ * const result = await safeQuery({
  *   execute: () =>
  *     db.insert(integrationTokens).values({ … }).run(),
  * });

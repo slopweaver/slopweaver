@@ -127,10 +127,12 @@ export function isCommentOnlyLine({ line }: { line: string }): boolean {
 /**
  * Match `throw` as a keyword: at start of line (with whitespace), after
  * an opening brace, after a semicolon, or after `else `. The keyword
- * itself must be followed by whitespace so we don't fire on identifiers
- * like `mythrow`.
+ * uses a word boundary so we don't fire on identifiers like `mythrow`,
+ * and a lookahead accepts both `throw ` (whitespace) and `throw(` (no
+ * space — valid JS like `throw(new Error(…))`) so the scanner can't be
+ * bypassed by writing the throw without a trailing space.
  */
-const THROW_KEYWORD_PATTERN = /(?:^|[\s;{])throw\s/;
+const THROW_KEYWORD_PATTERN = /(?:^|[\s;{])throw\b(?=\s|\()/;
 
 /**
  * Find lines in `content` that contain a `throw` keyword and aren't

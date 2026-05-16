@@ -23,7 +23,7 @@ const USER_TOKEN_PREFIX = 'xoxp-';
 export type RunConnectSlackDeps = {
   db: SlopweaverDatabase;
   promptForToken: (opts: { message: string }) => Promise<string>;
-  validateToken: (token: string) => ResultAsync<{ team: string | null }, BaseError>;
+  validateToken: (args: { token: string }) => ResultAsync<{ team: string | null }, BaseError>;
   stdout: { write: (s: string) => void };
   stderr: { write: (s: string) => void };
   now?: () => number;
@@ -48,7 +48,7 @@ export async function runConnectSlack({
     return 1;
   }
 
-  const validateResult = await validateToken(token);
+  const validateResult = await validateToken({ token });
   if (validateResult.isErr()) {
     stderr.write(`slopweaver: Slack token rejected: ${validateResult.error.message}\n`);
     return 1;

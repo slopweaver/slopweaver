@@ -54,13 +54,14 @@ describe('loadIntegrationToken', () => {
   it('scopes lookups by integration slug', async () => {
     const handle = createDb({ path: ':memory:' });
     try {
-      await saveIntegrationToken({
+      const saveResult = await saveIntegrationToken({
         db: handle.db,
         integration: 'github',
         token: 'ghp_github',
         accountLabel: 'octocat',
         now: () => 1_746_000_000_000,
       });
+      expect(saveResult.isOk()).toBe(true);
 
       const result = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
       expect(result.isOk()).toBe(true);
@@ -77,20 +78,22 @@ describe('saveIntegrationToken', () => {
   it('upserts: re-saving the same integration overwrites token + account label', async () => {
     const handle = createDb({ path: ':memory:' });
     try {
-      await saveIntegrationToken({
+      const firstSave = await saveIntegrationToken({
         db: handle.db,
         integration: 'github',
         token: 'ghp_old',
         accountLabel: 'octocat',
         now: () => 1_746_000_000_000,
       });
-      await saveIntegrationToken({
+      expect(firstSave.isOk()).toBe(true);
+      const secondSave = await saveIntegrationToken({
         db: handle.db,
         integration: 'github',
         token: 'ghp_new',
         accountLabel: 'octocat-renamed',
         now: () => 1_746_000_000_500,
       });
+      expect(secondSave.isOk()).toBe(true);
 
       const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
       expect(loaded.isOk()).toBe(true);
@@ -109,20 +112,22 @@ describe('saveIntegrationToken', () => {
   it('preserves created_at_ms across re-saves and bumps updated_at_ms', async () => {
     const handle = createDb({ path: ':memory:' });
     try {
-      await saveIntegrationToken({
+      const firstSave = await saveIntegrationToken({
         db: handle.db,
         integration: 'github',
         token: 'ghp_first',
         accountLabel: 'octocat',
         now: () => 1_746_000_000_000,
       });
-      await saveIntegrationToken({
+      expect(firstSave.isOk()).toBe(true);
+      const secondSave = await saveIntegrationToken({
         db: handle.db,
         integration: 'github',
         token: 'ghp_second',
         accountLabel: 'octocat',
         now: () => 1_746_000_000_999,
       });
+      expect(secondSave.isOk()).toBe(true);
 
       const row = handle.db.select().from(integrationTokens).get();
       expect(row?.createdAtMs).toBe(1_746_000_000_000);
@@ -135,13 +140,14 @@ describe('saveIntegrationToken', () => {
   it('accepts a null account label', async () => {
     const handle = createDb({ path: ':memory:' });
     try {
-      await saveIntegrationToken({
+      const saveResult = await saveIntegrationToken({
         db: handle.db,
         integration: 'slack',
         token: 'xoxb-redacted',
         accountLabel: null,
         now: () => 1_746_000_000_000,
       });
+      expect(saveResult.isOk()).toBe(true);
 
       const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
       expect(loaded.isOk()).toBe(true);

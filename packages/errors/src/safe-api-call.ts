@@ -53,7 +53,18 @@ function mapApiCallError({
   provider: string;
   extractError?: (({ error }: { error: unknown }) => Partial<ApiCallError>) | undefined;
 }): ApiCallError {
-  const extracted = extractError?.({ error }) ?? {};
+  // Guard the extractor: a throwing extractor would propagate out of the
+  // ResultAsync.fromPromise error mapper and reject the ResultAsync instead
+  // of resolving to Err, breaking the Result-boundary guarantee. Fall back
+  // to an empty shape if it throws.
+  let extracted: Partial<ApiCallError> = {};
+  if (extractError) {
+    try {
+      extracted = extractError({ error }) ?? {};
+    } catch {
+      extracted = {};
+    }
+  }
 
   const fallbackMessage =
     error instanceof Error ? error.message : typeof error === 'string' ? error : 'API call failed';

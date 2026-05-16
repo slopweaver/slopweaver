@@ -21,7 +21,7 @@ const INTEGRATION = 'github';
 export type RunConnectGithubDeps = {
   db: SlopweaverDatabase;
   promptForToken: (opts: { message: string }) => Promise<string>;
-  validateToken: (token: string) => ResultAsync<{ login: string }, BaseError>;
+  validateToken: (args: { token: string }) => ResultAsync<{ login: string }, BaseError>;
   stdout: { write: (s: string) => void };
   stderr: { write: (s: string) => void };
   now?: () => number;
@@ -43,7 +43,7 @@ export async function runConnectGithub({
     message: 'GitHub fine-grained PAT (input hidden):',
   });
 
-  const validateResult = await validateToken(token);
+  const validateResult = await validateToken({ token });
   if (validateResult.isErr()) {
     stderr.write(`slopweaver: GitHub token rejected: ${validateResult.error.message}\n`);
     return 1;

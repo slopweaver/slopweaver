@@ -273,7 +273,7 @@ describe('runOrchestration', () => {
 
     expect(result.isErr()).toBe(true);
     // The finally block closed the job exactly once with the parsed jobId.
-    expect(closeCodexJobCalls.length).toBeGreaterThanOrEqual(1);
+    expect(closeCodexJobCalls).toHaveLength(1);
     expect(closeCodexJobCalls[0]?.jobId).toBe('12345');
   });
 });

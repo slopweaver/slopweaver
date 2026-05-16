@@ -210,7 +210,7 @@ async function runConnect({ integration }: { integration: string }): Promise<num
       return await runConnectGithub({
         db: dbHandle.db,
         promptForToken,
-        validateToken: (token: string) => {
+        validateToken: ({ token }: { token: string }) => {
           const octokit = createGithubClient({ token });
           return safeGithubCall({
             execute: () => octokit.rest.users.getAuthenticated(),
@@ -225,7 +225,7 @@ async function runConnect({ integration }: { integration: string }): Promise<num
     return await runConnectSlack({
       db: dbHandle.db,
       promptForToken,
-      validateToken: (token: string) => {
+      validateToken: ({ token }: { token: string }) => {
         const slackResult = createSlackClient({ token });
         if (slackResult.isErr()) {
           return errAsync(slackResult.error);

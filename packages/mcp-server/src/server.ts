@@ -42,23 +42,28 @@ export function createMcpServer({ db, tools, version }: CreateMcpServerArgs): Mc
         } catch (cause) {
           // Handlers should return `Err` rather than throw, but a runaway
           // exception is still bound to the tool — wrap as isError so the
-          // client sees a structured envelope.
+          // client sees a structured envelope. Sanitize: only `code` and
+          // `message` cross the MCP boundary; `cause` (which may carry
+          // HTTP response bodies, stack traces, or internal paths via
+          // safeApiCall's wrap) stays server-side.
           const error = McpErrors.unexpected(
             tool.name,
             cause,
             cause instanceof Error ? cause.message : undefined,
           );
+          const clientError = { code: error.code, message: error.message };
           return {
             isError: true,
-            structuredContent: { code: error.code, message: error.message },
-            content: [{ type: 'text', text: JSON.stringify(error) }],
+            structuredContent: clientError,
+            content: [{ type: 'text', text: JSON.stringify(clientError) }],
           };
         }
         if (result.isErr()) {
+          const clientError = { code: result.error.code, message: result.error.message };
           return {
             isError: true,
-            structuredContent: { code: result.error.code, message: result.error.message },
-            content: [{ type: 'text', text: JSON.stringify(result.error) }],
+            structuredContent: clientError,
+            content: [{ type: 'text', text: JSON.stringify(clientError) }],
           };
         }
         const output = result.value;
