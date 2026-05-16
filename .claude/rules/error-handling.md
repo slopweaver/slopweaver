@@ -71,6 +71,38 @@ Callers always go through factories — they never construct error
 literals inline. This keeps messages consistent and gives you one place
 to add fields later.
 
+## Error definition location
+
+Every error interface extends `BaseError` and lives in one of two
+places:
+
+1. **Generic / shared errors → `@slopweaver/errors`:**
+   - `BaseError` (the interface every error extends)
+   - `ApiCallError` (raw output of `safeApiCall`)
+   - `DatabaseError` (raw output of `safeQuery`)
+   - Constructors and helpers re-exported from neverthrow: `ok`, `err`,
+     `okAsync`, `errAsync`, `Result`, `ResultAsync`, `fromThrowable`
+
+2. **Domain-specific errors → per-package `errors.ts`:**
+   - Each package that can fail owns one `errors.ts`. Define the error
+     interfaces, a factory namespace (e.g. `SlackErrors.tokenInvalid({…})`),
+     and any domain-specific safe-call wrapper (`safeSlackCall`,
+     `safeGithubCall`).
+   - Examples:
+     - `packages/integrations/slack/src/errors.ts` — 5 codes
+     - `packages/integrations/github/src/errors.ts` — 2 codes
+     - `packages/cli-tools/src/orchestration/errors.ts` — 12 codes
+
+**Why:** Errors live with the domain that creates them. New packages
+(e.g. a future Linear integration) define their errors locally without
+touching shared infrastructure. The base shapes in `@slopweaver/errors`
+keep the discriminant convention enforced across all of them.
+
+**Lint enforcement:** `ok`, `err`, `okAsync`, `errAsync`, `Result`,
+`ResultAsync`, `fromThrowable` may not be imported directly from
+`neverthrow` — `eslint.config.js` redirects to `@slopweaver/errors`
+(except inside `packages/errors/**`, where the re-export barrel lives).
+
 ## Service layer: no throws
 
 A "service" here is any function that performs side effects (network,
@@ -123,16 +155,21 @@ legitimate and stay. Examples currently in the tree:
   catches per-request errors so one bad request doesn't kill the
   server.
 
-The CLI check's allowlist names these explicitly. If you need a new
-recovery catch, add a comment on the `try` line explaining why, and
-either keep it inside an allowlisted file or extend the allowlist.
+The scanner doesn't flag these because it only inspects `throw`
+statements, not catches — a `try/catch` that swallows or maps an error
+without re-throwing is invisible to it. If you need a new recovery
+catch, add a comment on the `try` line explaining why the local recovery
+is correct (so reviewers know it's intentional, not an oversight). If
+you find yourself wanting to *re-throw* from a service-boundary file,
+return a typed `Result` with a classification field instead.
 
 ## Boundary translation back to throws
 
 Errors are unwrapped only at the user-facing edge.
 
 **CLI entrypoints** (`apps/mcp-local/src/cli.ts`,
-`packages/cli-tools/src/cli.ts`) `.match()` the top-level result:
+`packages/cli-tools/src/cli.ts`) translate the Result to a process exit
+code at the top of each command action. Either `.match()`:
 
 ```ts
 const result = await runCommand(args);
@@ -141,6 +178,13 @@ result.match(
   (error) => { stderr.write(formatError(error) + '\n'); exit(1); },
 );
 ```
+
+…or the equivalent `if (isErr)` early-return shape — both forms appear
+in the repo. The CLI's outer `.catch()` (e.g. cac's `.action()` callback
+catching from a thrown `EnvValidationError`) also serves as a backstop
+for the typed-throw carve-out below; the `asMessage()` helper at the
+boundary extracts `.message` from BaseError-shaped values so they print
+cleanly either way.
 
 **MCP tool handlers** (`packages/mcp-server/src/tools/...`) use a
 boundary helper inside the dispatcher to convert `Err` into an
