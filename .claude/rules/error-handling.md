@@ -89,7 +89,7 @@ export async function pollMentions(args: PollMentionsArgs): Promise<PollResult> 
 }
 ```
 
-Enforced by `pnpm check:service-boundaries` (custom CLI check, wired
+Enforced by `pnpm cli check-service-boundaries` (custom CLI check, wired
 into `pnpm validate` as the first gate). The scanner covers these
 directories (all `.ts` files except tests, recordings, and `src/test/`):
 
@@ -252,6 +252,6 @@ in ESLint 9+; the plugin is therefore incompatible with the ESLint 10
 this repo uses. Tracked in #41.
 
 Until upstream catches up or a custom rule is written, the
-`pnpm check:service-boundaries` scanner is the runtime enforcement —
+`pnpm cli check-service-boundaries` scanner is the runtime enforcement —
 it catches new throws at service boundaries, which is the highest-risk
 regression class.

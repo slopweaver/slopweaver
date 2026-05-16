@@ -21,12 +21,11 @@
     "compile": "turbo run compile",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check:service-boundaries": "tsx packages/cli-tools/src/cli.ts check-service-boundaries",
     "knip": "knip",
     "lint": "biome lint . && eslint .",
     "prepare": "lefthook install || echo 'lefthook install skipped (not a git repository)'",
     "test": "turbo run test",
-    "validate": "pnpm check:service-boundaries && pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip"
+    "validate": "pnpm cli check-service-boundaries && pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
