@@ -12,9 +12,9 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { resolveDbPath } from './path.ts';
 import * as schema from './schema/index.ts';
 
+export * from './errors.ts';
 export * from './integration-tokens.ts';
 export * from './path.ts';
 export * from './safe-query.ts';
@@ -62,20 +62,19 @@ export type CreateDbHandle = {
  * - Enables `foreign_keys` pragma on the connection.
  * - Applies any pending migrations from `packages/db/migrations/`.
  *
- * @param path - Optional override; defaults to {@link resolveDbPath}() which
- *   honours XDG_DATA_HOME. Pass `':memory:'` for ephemeral test databases.
+ * @param path - Absolute filesystem path to the SQLite file, or `':memory:'`
+ *   for an ephemeral test database. Resolve via `resolveDbPath()` at the
+ *   caller's boundary (it returns a `Result` so the XDG validation surface
+ *   propagates cleanly).
  * @returns Handle exposing the Drizzle wrapper, raw better-sqlite3 instance,
  *   and a `close()` shortcut.
  *
  * @example
- * const { db, close } = createDb({ path: ':memory:' });
- * try {
- *   db.insert(evidenceLog).values({ ... }).run();
- * } finally {
- *   close();
- * }
+ * const pathResult = resolveDbPath();
+ * if (pathResult.isErr()) { console.error(pathResult.error.message); process.exit(1); }
+ * const { db, close } = createDb({ path: pathResult.value });
  */
-export function createDb({ path = resolveDbPath() }: { path?: string } = {}): CreateDbHandle {
+export function createDb({ path }: { path: string }): CreateDbHandle {
   if (path !== ':memory:') {
     mkdirSync(dirname(path), { recursive: true });
   }

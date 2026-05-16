@@ -85,9 +85,18 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
     throw envResult.error;
   }
 
+  const dbPathResult = resolveDbPath();
+  if (dbPathResult.isErr()) {
+    throw dbPathResult.error;
+  }
+  const dataDirResult = resolveDataDir();
+  if (dataDirResult.isErr()) {
+    throw dataDirResult.error;
+  }
+
   const startedAtMs = Date.now();
-  const dbHandle = createDb({ path: resolveDbPath() });
-  const dataDir = resolveDataDir();
+  const dbHandle = createDb({ path: dbPathResult.value });
+  const dataDir = dataDirResult.value;
 
   const server = createMcpServer({
     db: dbHandle.db,
@@ -186,7 +195,12 @@ async function runConnect({ integration }: { integration: string }): Promise<num
     throw envResult.error;
   }
 
-  const dbHandle = createDb({ path: resolveDbPath() });
+  const dbPathResult = resolveDbPath();
+  if (dbPathResult.isErr()) {
+    throw dbPathResult.error;
+  }
+
+  const dbHandle = createDb({ path: dbPathResult.value });
   try {
     const promptForToken = async ({ message }: { message: string }): Promise<string> =>
       password({ message, mask: true });
@@ -225,7 +239,16 @@ async function runConnect({ integration }: { integration: string }): Promise<num
 }
 
 function asMessage({ error }: { error: unknown }): string {
-  return error instanceof Error ? error.message : String(error);
+  // Native Error instances expose `.message` directly. Result-pattern errors
+  // (BaseError-shaped plain objects from @slopweaver/errors) also carry a
+  // string `message` field — extract it explicitly so they print cleanly at
+  // this CLI boundary instead of stringifying to `[object Object]`.
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return String(error);
 }
 
 const cli = cac('slopweaver');

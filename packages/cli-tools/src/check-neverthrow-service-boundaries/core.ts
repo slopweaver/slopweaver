@@ -29,6 +29,8 @@ export interface ThrowFinding {
 }
 
 const SERVICE_BOUNDARY_DIRS: ReadonlyArray<ServiceBoundaryDir> = [
+  { dir: 'packages/db/src', extensions: ['.ts'] },
+  { dir: 'packages/cli-tools/src/lib', extensions: ['.ts'] },
   { dir: 'packages/integrations/core/src', extensions: ['.ts'] },
   { dir: 'packages/integrations/github/src', extensions: ['.ts'] },
   { dir: 'packages/integrations/slack/src', extensions: ['.ts'] },

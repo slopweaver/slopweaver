@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { resolveDataDir } from '../lib/data-dir.ts';
 
 export const REQUIRED_NODE_MAJOR = 22;
 export const REQUIRED_NODE_MINOR = 12;
@@ -245,11 +244,7 @@ export function checkCodexAgent({
   };
 }
 
-export function checkDataDir({
-  dataDir = resolveDataDir(),
-}: {
-  dataDir?: string;
-} = {}): CheckResult {
+export function checkDataDir({ dataDir }: { dataDir: string }): CheckResult {
   try {
     const stats = statSync(dataDir);
     if (!stats.isDirectory()) {
