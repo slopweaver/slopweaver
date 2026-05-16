@@ -41,6 +41,9 @@ const SERVICE_BOUNDARY_DIRS: ReadonlyArray<ServiceBoundaryDir> = [
 const SERVICE_BOUNDARY_FILES: ReadonlyArray<string> = [
   'packages/cli-tools/src/orchestration/core.ts',
   'packages/cli-tools/src/orchestration/runtime.ts',
+  'packages/cli-tools/src/worktree/index.ts',
+  'packages/env/src/index.ts',
+  'packages/mcp-server/src/server.ts',
 ];
 
 const EXCLUDED_DIR_NAMES = new Set([
