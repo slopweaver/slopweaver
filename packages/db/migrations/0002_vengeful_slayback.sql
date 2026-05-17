@@ -1,0 +1,1 @@
+ALTER TABLE `integration_tokens` DROP COLUMN `token`;

@@ -70,14 +70,20 @@ command = "npx"
 args = ["-y", "@slopweaver/mcp-local"]
 ```
 
-Then connect your work tools (one-time setup):
+Then connect your work tools (one-time setup). The fastest path is the guided wizard:
+
+```bash
+npx -y @slopweaver/mcp-local init   # detects MCP clients, walks through GitHub + Slack, verifies tokens
+```
+
+Prefer to do it manually?
 
 ```bash
 npx -y @slopweaver/mcp-local connect github   # paste a fine-grained PAT (input is hidden)
 npx -y @slopweaver/mcp-local connect slack    # paste a Slack user token (xoxp-)
 ```
 
-(If you'd rather have `slopweaver` on your PATH directly, `npm install -g @slopweaver/mcp-local` first, then run `slopweaver connect github`.)
+(If you'd rather have `slopweaver` on your PATH directly, `npm install -g @slopweaver/mcp-local` first, then run `slopweaver init`.)
 
 Then ask your client: *"What should I work on next?"* If anything fails, [open an issue](https://github.com/slopweaver/slopweaver/issues/new) — a `doctor` subcommand ships with v1.0.0.
 
@@ -115,4 +121,4 @@ Some things require a server: real-time webhooks instead of polling, mobile push
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for vulnerability disclosure.
+Integration tokens (GitHub PAT, Slack user token) are stored in the macOS Keychain under the entry `slopweaver / <integration>` — the local SQLite database holds only presence metadata (slug, account label, timestamps). Audit a stored token with `security find-generic-password -a github -s slopweaver -w`. On first write the v1 binary is unsigned, so macOS shows a "Keychain Access wants to use the slopweaver entry" prompt; clicking "Always Allow" trusts the binary's path. macOS is the only OS that's QA'd for v1 — Linux Secret Service and Windows Credential Manager work under the hood but are best-effort untested. For vulnerability disclosure see [SECURITY.md](SECURITY.md).

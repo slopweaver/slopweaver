@@ -36,7 +36,6 @@ describe('safeQuery', () => {
       .insert(integrationTokens)
       .values({
         integration: 'github',
-        token: 'gh_xxx',
         accountLabel: null,
         createdAtMs: 1,
         updatedAtMs: 1,
@@ -49,7 +48,6 @@ describe('safeQuery', () => {
           .insert(integrationTokens)
           .values({
             integration: 'github',
-            token: 'gh_yyy',
             accountLabel: null,
             createdAtMs: 2,
             updatedAtMs: 2,
