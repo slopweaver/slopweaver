@@ -58,10 +58,10 @@ NEVER `git rebase origin/main` — it rewrites history that's already pushed and
 Before declaring work done (or before opening a PR for review), run the same checks CI runs:
 
 ```bash
-pnpm validate   # cli check-service-boundaries, format:check, lint, compile, test, knip
+pnpm validate   # check-service-boundaries → check-error-code-preservation → check-cassette-quality → format:check → lint (biome+oxlint+eslint) → compile → test → knip
 ```
 
-All six gates must pass. The first gate — `pnpm cli check-service-boundaries` — scans configured service-boundary files for `throw` statements (see `.claude/rules/error-handling.md`); it's the cheapest gate and runs first so regressions surface before the slower passes. CI also runs `gitleaks detect` as a seventh gate; the pre-commit hook covers staged content locally. CI will reject on red.
+All eight gates must pass. The first three — three custom CLI scanners (`check-service-boundaries`, `check-error-code-preservation`, `check-cassette-quality`) — run first because they're the cheapest. Then comes formatting, three linters (Biome + Oxlint + ESLint, run sequentially with explicit no-overlap ownership; see @.claude/rules/code-quality.md), tsc, tests, and dead-code detection (knip). CI runs `pnpm validate` as a single step plus `gitleaks detect` as the ninth gate; the pre-commit hook covers staged content locally.
 
 If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `validate` to verify.
 

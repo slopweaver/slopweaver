@@ -53,7 +53,7 @@ function readVersion(): string {
     typeof raw !== 'object' ||
     raw === null ||
     !('version' in raw) ||
-    typeof (raw as { version: unknown }).version !== 'string'
+    typeof raw.version !== 'string'
   ) {
     throw new Error('package.json must define a string `version`');
   }
@@ -251,7 +251,7 @@ function asMessage({ error }: { error: unknown }): string {
   // this CLI boundary instead of stringifying to `[object Object]`.
   if (error instanceof Error) return error.message;
   if (typeof error === 'object' && error !== null && 'message' in error) {
-    const message = (error as { message: unknown }).message;
+    const message = error.message;
     if (typeof message === 'string') return message;
   }
   return String(error);
@@ -265,9 +265,8 @@ cli
   .example('  slopweaver connect slack')
   .action((integration: string) => {
     runConnect({ integration })
-      .then((code) => {
-        exit(code);
-      })
+      // oxlint-disable-next-line promise/always-return -- exit() returns never
+      .then((code) => exit(code))
       .catch((error: unknown) => {
         stderr.write(`slopweaver: ${asMessage({ error })}\n`);
         exit(1);

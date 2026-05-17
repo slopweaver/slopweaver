@@ -76,9 +76,11 @@ interface RuntimePlan {
   worktreeName: string;
 }
 
+// Bounded input: regexes below run only over authored markdown headings
+// (~80 chars), never user input — ReDoS warnings are false positives.
 const STEP_HEADING_REGEX =
-  /^(#{2,4})\s+Step\s+(\d+):\s+(.+?)(?:\s+\((codex-plan|codex-send|claude-implement|codex-review)\))?\s*$/;
-const VARIABLE_REGEX = /^- `\{([^}]+)\}`:\s*(.+)$/;
+  /^(#{2,4})\s+Step\s+(\d+):\s+(.+?)(?:\s+\((codex-plan|codex-send|claude-implement|codex-review)\))?\s*$/; // eslint-disable-line regexp/no-super-linear-backtracking
+const VARIABLE_REGEX = /^- `\{([^}]+)\}`:\s*(.+)$/; // eslint-disable-line regexp/no-super-linear-backtracking
 
 function normalizeVariableValue({ rawValue }: { rawValue: string }): string {
   const trimmedValue = rawValue.trim();

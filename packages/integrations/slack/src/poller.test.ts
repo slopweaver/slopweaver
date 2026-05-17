@@ -57,7 +57,7 @@ describe('createSlackPoller (cassette)', () => {
     expect(state).toBeDefined();
     expect(state?.lastPollStartedAtMs).toBeTypeOf('number');
     expect(state?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     expect(state!.lastPollStartedAtMs).toBeLessThanOrEqual(state!.lastPollCompletedAtMs!);
 
     // evidence_log rows depend on the recording account's activity. When any
@@ -90,7 +90,7 @@ describe('createSlackPoller (cassette)', () => {
       .get();
     expect(stateAfterFirst).toBeDefined();
     expect(stateAfterFirst?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     const firstCompleted = stateAfterFirst!.lastPollCompletedAtMs!;
 
     await poller({ db: dbHandle.db, now: 1_762_500_001_000 });
@@ -105,9 +105,9 @@ describe('createSlackPoller (cassette)', () => {
     expect(stateAfterSecond).toBeDefined();
     expect(stateAfterSecond?.lastPollStartedAtMs).toBeTypeOf('number');
     expect(stateAfterSecond?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     expect(stateAfterSecond!.lastPollStartedAtMs!).toBeGreaterThan(firstCompleted);
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     expect(stateAfterSecond!.lastPollCompletedAtMs!).toBeGreaterThanOrEqual(firstCompleted);
   });
 });

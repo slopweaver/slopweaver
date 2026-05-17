@@ -11,6 +11,8 @@
  */
 
 import { cac } from 'cac';
+import { runAndExit as runCheckCassetteQuality } from './check-cassette-quality/index.ts';
+import { runAndExit as runCheckErrorCodePreservation } from './check-error-code-preservation/index.ts';
 import { runAndExit as runCheckServiceBoundaries } from './check-neverthrow-service-boundaries/index.ts';
 import { runDoctor } from './doctor/index.ts';
 import { normalizeExecutor, prepare, run } from './orchestration/index.ts';
@@ -45,10 +47,31 @@ cli
   });
 
 cli
+  .command(
+    'check-error-code-preservation',
+    'Fail if `.mapErr()` drops the `code` field from a typed error union',
+  )
+  .example('  pnpm cli check-error-code-preservation')
+  .action(() => {
+    runCheckErrorCodePreservation();
+  });
+
+cli
+  .command(
+    'check-cassette-quality',
+    'Fail if Polly HAR cassettes contain auth-failure signals outside allowlist paths',
+  )
+  .example('  pnpm cli check-cassette-quality')
+  .action(() => {
+    runCheckCassetteQuality();
+  });
+
+cli
   .command('doctor', 'Check your local environment is ready for SlopWeaver dev')
   .example('  pnpm cli doctor')
   .action(() => {
     runDoctor()
+      // oxlint-disable-next-line promise/always-return -- process.exit returns never on failure; void on success is intentional
       .then((result) => {
         if (!result.ok) {
           process.exit(result.exitCode);

@@ -315,6 +315,7 @@ describe('pollMentions', () => {
     });
   });
 
+  // oxlint-disable-next-line vitest/no-disabled-tests -- searchability placeholder; real test lives in pollMentions cassette describe block
   it.skip('cassette: real workspace happy path — see pollMentions (cassette) describe block', () => {
     // Placeholder so this comment is searchable next to the other tests.
   });

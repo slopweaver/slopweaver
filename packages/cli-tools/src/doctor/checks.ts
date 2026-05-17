@@ -136,7 +136,9 @@ const defaultTryBind: TryBindFn = (port) =>
       settle({ ok: false, code });
     });
     server.listen(port, '127.0.0.1', () => {
-      server.close(() => settle({ ok: true }));
+      server.close(() => {
+        settle({ ok: true });
+      });
     });
   });
 

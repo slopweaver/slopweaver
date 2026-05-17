@@ -80,7 +80,7 @@ async function pollDMsInner({
   });
   if (authResult.isErr()) return err(authResult.error);
   const auth = authResult.value;
-  // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
+  // non-null: SDK contract guarantees team_id on ok:true
   const teamId = auth.team_id!;
   const workspaceUrl = auth.url ?? null;
 

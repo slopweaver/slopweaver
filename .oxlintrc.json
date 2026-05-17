@@ -1,0 +1,81 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  "categories": {
+    "correctness": "warn",
+    "perf": "warn",
+    "suspicious": "warn"
+  },
+
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "node": true
+  },
+
+  "ignorePatterns": [
+    "**/__recordings__/**",
+    "**/.turbo/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/dist/**",
+    "**/generated/**",
+    "**/node_modules/**",
+    "**/out/**"
+  ],
+
+  "plugins": [
+    "eslint",
+    "import",
+    "node",
+    "oxc",
+    "promise",
+    "react",
+    "typescript",
+    "unicorn",
+    "vitest"
+  ],
+
+  "rules": {
+    "array-callback-return": "warn",
+    "eslint/no-underscore-dangle": "allow",
+    "import/no-named-as-default": "allow",
+    "import/no-unassigned-import": "allow",
+    "jest/no-disabled-tests": "error",
+    "jest/no-focused-tests": "error",
+    "no-await-in-loop": "allow",
+    "no-constructor-return": "warn",
+    "no-duplicate-imports": "allow",
+    "no-fallthrough": "warn",
+    "no-self-compare": "warn",
+    "no-unused-vars": "allow",
+    "react/button-has-type": "warn",
+    "react/react-in-jsx-scope": "allow",
+    "unicorn/consistent-function-scoping": "allow",
+    "unicorn/no-array-sort": "allow",
+    "unicorn/no-negation-in-equality-check": "warn",
+    "unicorn/no-process-exit": "allow",
+    "unicorn/no-useless-promise-resolve-reject": "warn"
+  },
+
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+      "rules": {
+        "require-await": "allow",
+        "typescript/no-explicit-any": "allow",
+        "typescript/no-non-null-assertion": "allow",
+        "vitest/no-conditional-expect": "allow",
+        "vitest/require-mock-type-parameters": "allow"
+      }
+    },
+    {
+      "files": ["**/*.cjs"],
+      "rules": {
+        "typescript/no-require-imports": "allow"
+      }
+    }
+  ],
+
+  "settings": {}
+}

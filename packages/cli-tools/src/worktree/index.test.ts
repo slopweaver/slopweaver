@@ -1,6 +1,6 @@
 import { ok } from '@slopweaver/errors';
 import { describe, expect, it, vi } from 'vitest';
-import { type ExecFn, type ExecResult, runWorktreeNew, type RunWorktreeNewDeps } from './index.ts';
+import { type ExecFn, runWorktreeNew, type RunWorktreeNewDeps } from './index.ts';
 
 const FAKE_ROOTS = { repoRoot: '/repo', worktreesRoot: '/wt' };
 
@@ -44,7 +44,7 @@ describe('runWorktreeNew', () => {
   });
 
   it('skips pnpm install when options.install is false', () => {
-    const exec = vi.fn<ExecFn>(() => ({ status: 0 }) as ExecResult);
+    const exec = vi.fn<ExecFn>(() => ({ status: 0 }));
 
     const result = runWorktreeNew({
       rawName: 'quick-fix',
@@ -60,7 +60,7 @@ describe('runWorktreeNew', () => {
   });
 
   it('returns err WORKTREE_INVALID_NAME when sanitisation produces an empty slug', () => {
-    const exec = vi.fn<ExecFn>(() => ({ status: 0 }) as ExecResult);
+    const exec = vi.fn<ExecFn>(() => ({ status: 0 }));
 
     const result = runWorktreeNew({
       rawName: '!!!',

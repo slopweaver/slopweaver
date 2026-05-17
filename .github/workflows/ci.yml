@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   ci:
-    name: format + lint + knip + compile + test + gitleaks
+    name: validate + gitleaks
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -36,20 +36,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Format check
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Knip
-        run: pnpm knip
-
-      - name: Compile
-        run: pnpm compile
-
-      - name: Test
-        run: pnpm test
+      # Single validate step so any new gate added to `package.json` flows
+      # through to CI without an extra workflow edit. The chain is:
+      #   check-service-boundaries → check-error-code-preservation →
+      #   check-cassette-quality → format:check → lint (biome+oxlint+eslint) →
+      #   compile → test → knip
+      - name: Validate
+        run: pnpm validate
 
       - name: Install gitleaks
         run: |

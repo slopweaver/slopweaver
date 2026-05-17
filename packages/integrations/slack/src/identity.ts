@@ -59,9 +59,9 @@ export function fetchIdentity({
     endpoint: 'auth.test',
   })
     .andThen((auth) => {
-      // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees user_id on ok:true
+      // non-null: SDK contract guarantees user_id on ok:true
       const userId = auth.user_id!;
-      // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
+      // non-null: SDK contract guarantees team_id on ok:true
       const teamId = auth.team_id!;
       const canonicalId = `${INTEGRATION}:${teamId}:${userId}`;
       const profileUrl = auth.url ? `${stripTrailingSlash(auth.url)}/team/${userId}` : null;

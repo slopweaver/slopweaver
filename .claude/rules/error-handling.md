@@ -235,6 +235,33 @@ return safeApiCall({ execute, provider: 'slack' }).mapErr((apiErr) =>
 );
 ```
 
+## `.mapErr` must preserve `code`
+
+The `code` field is the discriminant that lets callers branch on the
+typed union. `.mapErr` transformations must thread it through —
+otherwise auth errors get misclassified as generic 500s and the whole
+"single source of error truth" pattern collapses.
+
+```ts
+// ❌ bad — drops the code; downstream loses the discriminant
+.mapErr((e) => ({ message: e.message }))
+
+// ✅ good — go through a factory (canonical) so the code is set centrally
+.mapErr((e) => SlackErrors.upstreamFailure(e.message))
+
+// ✅ also good — preserve `code` explicitly when constructing inline
+.mapErr((e) => ({ code: e.code, message: e.message }))
+```
+
+This is enforced by `pnpm cli check-error-code-preservation` (chained
+into `pnpm validate`). The scanner is a regex-level check; it doesn't
+understand factory functions, so `.mapErr((e) => SlackErrors.x(e.message))`
+is accepted because it doesn't contain a literal `{ message: ..., }`.
+
+Type-assertion escape hatches (`as any`, `<any>`, `as unknown as`) and
+Zod escape hatches (`z.any()`, `z.coerce.boolean()`) are banned at the
+ESLint level via `no-restricted-syntax`. See @.claude/rules/code-quality.md.
+
 ## Test discipline
 
 Use strong assertions on `Result` values:

@@ -71,7 +71,6 @@ const SCRUB_AMBIGUOUS_KEYS = new Set(['user', 'team']);
 
 const REDACTED = '[redacted]';
 const REDACTED_TEXT = '[redacted-message-text]';
-const REDACTED_URL = 'https://example.slack.com/';
 
 /**
  * Walk a JSON tree and apply Slack-specific scrubbers in place.

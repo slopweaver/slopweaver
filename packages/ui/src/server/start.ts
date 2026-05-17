@@ -108,7 +108,7 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   };
 }
 
-function listen({
+async function listen({
   server,
   port,
   host,
@@ -120,7 +120,7 @@ function listen({
   return new Promise((resolveListen, rejectListen) => {
     const onError = (err: unknown): void => {
       server.removeListener('listening', onListening);
-      rejectListen(err);
+      rejectListen(err instanceof Error ? err : new Error(String(err)));
     };
     const onListening = (): void => {
       server.removeListener('error', onError);

@@ -111,7 +111,7 @@ describe('createGithubPoller (cassette)', () => {
       .where(eq(evidenceLog.integration, 'github'))
       .all();
     expect(beforeRows.length).toBeGreaterThan(0);
-    const beforeExternalIds = [...beforeRows.map((r) => r.externalId)].sort();
+    const beforeExternalIds = beforeRows.map((r) => r.externalId).sort();
 
     const stateAfterFirst = dbHandle.db
       .select()
@@ -121,9 +121,9 @@ describe('createGithubPoller (cassette)', () => {
     expect(stateAfterFirst).toBeDefined();
     expect(stateAfterFirst?.cursor).toBeTypeOf('string');
     expect(stateAfterFirst?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     const cursorAfterFirst = stateAfterFirst!.cursor!;
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     const completedAfterFirst = stateAfterFirst!.lastPollCompletedAtMs!;
 
     await poller({ db: dbHandle.db, now: 1_762_500_001_000 });
@@ -146,7 +146,7 @@ describe('createGithubPoller (cassette)', () => {
       .from(evidenceLog)
       .where(eq(evidenceLog.integration, 'github'))
       .all();
-    const afterExternalIds = [...afterRows.map((r) => r.externalId)].sort();
+    const afterExternalIds = afterRows.map((r) => r.externalId).sort();
     expect(afterExternalIds).toEqual(beforeExternalIds);
 
     const stateAfterSecond = dbHandle.db
@@ -158,9 +158,9 @@ describe('createGithubPoller (cassette)', () => {
     expect(stateAfterSecond?.lastPollStartedAtMs).toBeTypeOf('number');
     expect(stateAfterSecond?.lastPollCompletedAtMs).toBeTypeOf('number');
     expect(stateAfterSecond?.cursor).toBe(cursorAfterFirst);
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     expect(stateAfterSecond!.lastPollStartedAtMs!).toBeGreaterThan(completedAfterFirst);
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     expect(stateAfterSecond!.lastPollCompletedAtMs!).toBeGreaterThanOrEqual(completedAfterFirst);
   });
 });

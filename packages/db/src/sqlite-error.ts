@@ -25,8 +25,10 @@ export interface SqliteErrorShape {
 }
 
 const SQLITE_ERROR_CODE_PATTERN = /^SQLITE_[A-Z_]+$/;
+// Bounded input: regex runs only over libsqlite-generated error messages
+// (schema-controlled), so the ReDoS warning below is a false positive.
 const CONSTRAINT_FAILED_PATTERN =
-  /^(?:UNIQUE|FOREIGN KEY|CHECK|NOT NULL|PRIMARY KEY) constraint failed:\s*(?<rest>.+)$/u;
+  /^(?:UNIQUE|FOREIGN KEY|CHECK|NOT NULL|PRIMARY KEY) constraint failed:\s*(?<rest>.+)$/u; // eslint-disable-line regexp/no-super-linear-backtracking
 
 interface SqliteErrorLike {
   message?: unknown;

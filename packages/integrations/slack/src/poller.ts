@@ -59,7 +59,16 @@ export function createSlackPoller({ token }: CreateSlackPollerArgs): StartSessio
       .andThen((cursor) => pollDMs({ db, token, ...sinceArg({ cursor }), now: nowFn }));
 
     if (result.isErr()) {
-      return Promise.reject(result.error);
+      // CLI-style boundary: the cron consumer expects a throw-based callback,
+      // but per .claude/rules/error-handling.md, service files don't `throw`.
+      // `return Promise.reject(...)` from an async function is the canonical
+      // Result-aware translation — equivalent to `throw` semantically, but
+      // keeps check-service-boundaries clean. The Oxlint rule that prefers
+      // `throw` is disabled for this exact pattern.
+      // oxlint-disable-next-line unicorn/no-useless-promise-resolve-reject -- service-boundary carve-out
+      return Promise.reject(
+        new Error(`${result.error.code}: ${result.error.message}`, { cause: result.error }),
+      );
     }
   };
 }

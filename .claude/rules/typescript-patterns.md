@@ -35,11 +35,15 @@ function isUser(value: unknown): value is User { /* … */ }
 
 ## No `any` in production code
 
-Use `unknown` plus a type guard, or a discriminated union. ESLint enforces this; if you find yourself reaching for `any`, the type model probably needs work.
+Use `unknown` plus a type guard, or a discriminated union. Oxlint enforces `typescript/no-explicit-any`; ESLint `no-restricted-syntax` additionally bans `as any`, `<any>`, `as unknown as`, `z.any()`, and `z.coerce.boolean()`. If you find yourself reaching for any of those, the type model probably needs work. See @.claude/rules/code-quality.md for the full linter ownership table.
 
 ## Explicit return types on exported functions
 
 Exported functions declare their return type explicitly. Inferred return types are fine for internal helpers but become a maintenance hazard at module boundaries — a refactor inside the function silently changes the public type.
+
+## Exhaustive switch over discriminated unions
+
+`switch` over a discriminated union (e.g. a typed error union's `code` field) must cover every variant. Enforced by ESLint `@typescript-eslint/switch-exhaustiveness-check`. Adding a new variant becomes a compile-fail at every consuming switch, which is the desired pressure — handle the case explicitly or add a `default:` with a `satisfies never` assertion.
 
 ## `satisfies` over type assertions
 

@@ -186,7 +186,7 @@ function decompressBase64Body({ content }: { content: RecordingContent }): Buffe
     try {
       const parts: unknown = JSON.parse(trimmed);
       if (Array.isArray(parts) && parts.every((p) => typeof p === 'string')) {
-        return Buffer.concat(parts.map((p) => Buffer.from(p as string, 'base64')));
+        return Buffer.concat(parts.map((p) => Buffer.from(p, 'base64')));
       }
     } catch {
       // fall through to plain base64 decode
@@ -266,7 +266,7 @@ export function definePollySetup({
       const { default: nodeFetchFn } = (await import('node-fetch')) as unknown as {
         default: typeof fetch;
       };
-      globalThis.fetch = (async (
+      globalThis.fetch = async (
         input: Parameters<typeof fetch>[0],
         init?: Parameters<typeof fetch>[1],
       ): Promise<Response> => {
@@ -280,8 +280,8 @@ export function definePollySetup({
             resolvedInput = extraRequestRewriter(urlString);
           }
         }
-        return (await nodeFetchFn(resolvedInput, { ...init, headers })) as Response;
-      }) as typeof fetch;
+        return nodeFetchFn(resolvedInput, { ...init, headers });
+      };
     })();
   }
 

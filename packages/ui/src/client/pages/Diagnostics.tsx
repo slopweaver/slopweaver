@@ -61,7 +61,7 @@ export function Diagnostics() {
           /api/diagnostics: {error}
         </div>
       )}
-      {data && <DiagnosticsBody data={data} />}
+      {data !== null && <DiagnosticsBody data={data} />}
     </main>
   );
 }

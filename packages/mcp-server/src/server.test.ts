@@ -151,17 +151,17 @@ describe('createMcpServer + ping', () => {
       // Wrong type for `name`.
       const wrongType = await client.callTool({
         name: 'require-name',
-        arguments: { name: 42 } as unknown as Record<string, unknown>,
+        arguments: { name: 42 },
       });
       expect(wrongType.isError).toBe(true);
       expect(handlerCalled).toBe(0);
 
       // Sanity-check: a valid call DOES invoke the handler.
-      const ok = await client.callTool({
+      const okCall = await client.callTool({
         name: 'require-name',
         arguments: { name: 'world' },
       });
-      expect(ok.isError).toBeUndefined();
+      expect(okCall.isError).toBeUndefined();
       expect(handlerCalled).toBe(1);
     } finally {
       await client.close();

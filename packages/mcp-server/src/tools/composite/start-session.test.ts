@@ -169,7 +169,7 @@ describe('createStartSessionTool', () => {
 
     // Schema enforces max(25). 30 must be rejected at the SDK boundary —
     // mirror that here by parsing the raw input.
-    expect(() => StartSessionArgs.parse({ max_items: 30 })).toThrow();
+    expect(() => StartSessionArgs.parse({ max_items: 30 })).toThrow(/max_items/);
   });
 
   it('force_refresh invokes the registered poller exactly once per integration', async () => {
