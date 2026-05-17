@@ -42,7 +42,13 @@ export type TestPollFn = ({
 export type RunInitDeps = {
   db: SlopweaverDatabase;
   home: string;
-  detectClients: (args: { home: string }) => Promise<DetectedClient[]>;
+  cwd: string;
+  clineDir: string | undefined;
+  detectClients: (args: {
+    home: string;
+    cwd: string;
+    clineDir: string | undefined;
+  }) => Promise<DetectedClient[]>;
   registerClient: (args: {
     kind: McpClientKind;
     configPath: string;
@@ -72,18 +78,38 @@ export type RunInitDeps = {
   stderr: { write: (s: string) => void };
 };
 
-const CLIENT_LABEL: Record<McpClientKind, string> = {
+const CLIENT_KIND_LABEL: Record<McpClientKind, string> = {
   'claude-code': 'Claude Code',
   cursor: 'Cursor',
   cline: 'Cline',
 };
 
-const CLOSING_MESSAGE = `
+function labelFor(client: DetectedClient): string {
+  const base = CLIENT_KIND_LABEL[client.kind];
+  switch (client.variant) {
+    case 'home':
+      // No suffix when there's no ambiguity. Adding "(home)" to claude-code
+      // would just be noise since claude-code only has one variant.
+      return base;
+    case 'project':
+      return `${base} (project: ${client.configPath})`;
+    case 'env-override':
+      return `${base} ($CLINE_DIR override: ${client.configPath})`;
+  }
+}
+
+const SUCCESS_CLOSING = `
 You're all set. To try it out, ask Claude Code about your work:
 
   "What should I work on next?"
 
 If something goes wrong, re-run \`slopweaver init\` to re-test or refresh a token.
+`;
+
+const PARTIAL_CLOSING = `
+Setup completed with some issues — see the messages above. Re-run \`slopweaver init\`
+after resolving the failures (e.g. fix a malformed MCP config, install the \`claude\`
+CLI, or rerun \`slopweaver connect\` for a failing token).
 `;
 
 export async function runInit(deps: RunInitDeps): Promise<number> {
@@ -92,7 +118,7 @@ export async function runInit(deps: RunInitDeps): Promise<number> {
   stdout.write('SlopWeaver init\n');
   stdout.write('================\n\n');
 
-  await stepDetectAndRegisterClients(deps);
+  const registrationOk = await stepDetectAndRegisterClients(deps);
   const githubResult = await stepConnectAndTestIntegration({
     deps,
     integration: 'github',
@@ -105,18 +131,29 @@ export async function runInit(deps: RunInitDeps): Promise<number> {
   });
   if (slackResult !== 0) return slackResult;
 
-  stdout.write(CLOSING_MESSAGE);
+  // P1 #3 fix: if any registration attempt failed (claude mcp add returned
+  // non-zero, a JSON config was malformed and we refused to overwrite, etc.),
+  // do NOT print the "you're all set" success banner. The wizard already
+  // logged each failure to stderr; surface the partial-setup message so the
+  // user knows to fix the underlying issue before trying start_session.
+  stdout.write(registrationOk ? SUCCESS_CLOSING : PARTIAL_CLOSING);
   return 0;
 }
 
-async function stepDetectAndRegisterClients(deps: RunInitDeps): Promise<void> {
-  const { detectClients, registerClient, prompt, stdout, stderr, home } = deps;
+/**
+ * Returns `true` iff every requested registration succeeded (or was skipped
+ * by the user). `false` means at least one registration failed for a reason
+ * other than user-declined, so the wizard should suppress its success banner.
+ */
+async function stepDetectAndRegisterClients(deps: RunInitDeps): Promise<boolean> {
+  const { detectClients, registerClient, prompt, stdout, stderr, home, cwd, clineDir } = deps;
 
   stdout.write('Step 1: MCP client detection\n');
-  const clients = await detectClients({ home });
+  const clients = await detectClients({ home, cwd, clineDir });
 
+  let allRegistrationsOk = true;
   for (const client of clients) {
-    const label = CLIENT_LABEL[client.kind];
+    const label = labelFor(client);
     if (client.hasSlopweaver) {
       stdout.write(`  ✓ ${label}: slopweaver already registered (${client.configPath})\n`);
       continue;
@@ -139,11 +176,13 @@ async function stepDetectAndRegisterClients(deps: RunInitDeps): Promise<void> {
     const result = await registerClient({ kind: client.kind, configPath: client.configPath });
     if (result.isErr()) {
       stderr.write(`  ✗ ${label}: ${result.error.message}\n`);
+      allRegistrationsOk = false;
       continue;
     }
     stdout.write(`  ✓ ${label}: registered\n`);
   }
   stdout.write('\n');
+  return allRegistrationsOk;
 }
 
 async function stepConnectAndTestIntegration({

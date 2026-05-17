@@ -73,9 +73,21 @@ describe('registerClient', () => {
       });
     });
 
-    it('falls back to direct JSON write when `claude mcp add` exits non-zero', async () => {
+    it('returns INIT_CLAUDE_MCP_ADD_FAILED when `claude mcp add` exits non-zero (does NOT overwrite ~/.claude.json)', async () => {
       const configPath = join(home, '.claude.json');
-      const exec = fakeExec({ kind: 'ok', exitCode: 1, stdout: '', stderr: 'whoops' });
+      // Pre-seed an existing config with other keys so we can prove it
+      // isn't clobbered.
+      await writeFile(
+        configPath,
+        JSON.stringify({ keepMe: true, mcpServers: { other: { command: 'node' } } }, null, 2),
+        'utf-8',
+      );
+      const exec = fakeExec({
+        kind: 'non-zero',
+        exitCode: 2,
+        stdout: '',
+        stderr: 'auth required\n',
+      });
 
       const result = await registerClient({
         kind: 'claude-code',
@@ -83,12 +95,38 @@ describe('registerClient', () => {
         exec,
       });
 
-      expect(result.isOk()).toBe(true);
-      const written = JSON.parse(await readFile(configPath, 'utf-8'));
-      expect(written.mcpServers.slopweaver).toEqual({
-        command: 'npx',
-        args: ['-y', '@slopweaver/mcp-local'],
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.code).toBe('INIT_CLAUDE_MCP_ADD_FAILED');
+        expect(result.error.message).toContain('exited 2');
+        expect(result.error.message).toContain('auth required');
+      }
+      // Original config must be untouched — slopweaver MUST NOT have appeared.
+      const stillThere = JSON.parse(await readFile(configPath, 'utf-8'));
+      expect(stillThere).toEqual({ keepMe: true, mcpServers: { other: { command: 'node' } } });
+    });
+
+    it('returns INIT_CLAUDE_MCP_ADD_FAILED on a timeout-killed exit (no fallback write)', async () => {
+      // execFile's timeout fires SIGTERM and propagates as a non-numeric
+      // `code`. DEFAULT_EXEC normalises that to `kind: 'non-zero', exitCode: 1`,
+      // and the caller must treat it as a real failure rather than fallback.
+      const configPath = join(home, '.claude.json');
+      const exec = fakeExec({
+        kind: 'non-zero',
+        exitCode: 1,
+        stdout: '',
+        stderr: 'killed by SIGTERM',
       });
+
+      const result = await registerClient({
+        kind: 'claude-code',
+        configPath,
+        exec,
+      });
+
+      expect(result.isErr()).toBe(true);
+      // File should not have been created.
+      await expect(readFile(configPath, 'utf-8')).rejects.toThrow();
     });
   });
 

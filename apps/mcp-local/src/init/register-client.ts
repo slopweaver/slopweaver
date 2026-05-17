@@ -3,9 +3,13 @@
  *
  * Strategy by client:
  *   - Claude Code: prefer `claude mcp add slopweaver -- npx -y @slopweaver/mcp-local`
- *     because that's the idiomatic path the README documents. If the `claude`
- *     binary is missing or the subprocess exits non-zero, fall back to a
- *     direct JSON merge against `~/.claude.json`.
+ *     because that's the idiomatic path the README documents. Fall back to a
+ *     direct JSON merge against `~/.claude.json` ONLY when `claude` isn't
+ *     installed (ENOENT). If `claude mcp add` ran and exited non-zero (auth
+ *     failure, validation, version skew, timeout), we surface the failure as
+ *     `INIT_CLAUDE_MCP_ADD_FAILED` and refuse to overwrite `~/.claude.json`
+ *     ourselves — silently doing so would mask the upstream failure and
+ *     could corrupt the user's config.
  *   - Cursor & Cline: always read-modify-write JSON. No equivalent CLI.
  *
  * Read-modify-write semantics: if the file exists and is valid JSON, the
@@ -45,7 +49,8 @@ export type ExecImpl = (args: {
 }) => Promise<ExecResult>;
 
 export type ExecResult =
-  | { kind: 'ok'; exitCode: number; stdout: string; stderr: string }
+  | { kind: 'ok'; exitCode: 0; stdout: string; stderr: string }
+  | { kind: 'non-zero'; exitCode: number; stdout: string; stderr: string }
   | { kind: 'spawn-error'; cause: NodeJS.ErrnoException };
 
 export type FsImpl = {
@@ -71,13 +76,19 @@ const DEFAULT_EXEC: ExecImpl = ({ command, args, timeoutMs }) =>
       }
       const errno = cause as NodeJS.ErrnoException;
       if (typeof errno.code === 'string' && errno.code === 'ENOENT') {
+        // The `claude` binary isn't on PATH at all. This is the one case
+        // where falling through to a direct JSON write is safe: the user
+        // doesn't have the official CLI to compete with us.
         resolve({ kind: 'spawn-error', cause: errno });
         return;
       }
-      // Non-zero exit: errno.code is undefined here; node sets `killed` if
-      // the timeout fired. Surface as a non-spawn error so the caller can
-      // fall through to direct JSON write.
-      resolve({ kind: 'ok', exitCode: 1, stdout, stderr });
+      // Non-zero exit: errno.code is undefined for an actual non-zero exit;
+      // node sets `killed` on the cause when the timeout fired. Either way,
+      // `claude` ran and rejected — auth failure, validation, version skew,
+      // timeout — and we must NOT silently overwrite ~/.claude.json on its
+      // behalf. Surface the failure to the caller as a typed error.
+      const exitCode = typeof errno.code === 'number' ? errno.code : 1;
+      resolve({ kind: 'non-zero', exitCode, stdout, stderr });
     });
   });
 
@@ -99,7 +110,11 @@ const DEFAULT_FS: FsImpl = {
 
 /**
  * Adds the `slopweaver` entry to the detected client's MCP config.
- * Returns Ok on success, Err on a malformed existing config or filesystem failure.
+ * Returns Ok on success, Err on:
+ *   - a malformed existing config (refusing to overwrite),
+ *   - a filesystem failure, or
+ *   - `claude mcp add` failing for a reason that isn't "binary not installed"
+ *     (auth, validation, version skew, timeout).
  */
 export function registerClient({
   kind,
@@ -108,17 +123,23 @@ export function registerClient({
   fs = DEFAULT_FS,
 }: RegisterClientArgs): ResultAsync<void, InitError> {
   if (kind === 'claude-code') {
-    return tryClaudeMcpAdd({ exec }).andThen((added) =>
-      added ? okAsync(undefined as void) : writeJsonConfig({ configPath, fs }),
+    return tryClaudeMcpAdd({ exec }).andThen((outcome) =>
+      outcome === 'registered' ? okAsync(undefined as void) : writeJsonConfig({ configPath, fs }),
     );
   }
   return writeJsonConfig({ configPath, fs });
 }
 
-function tryClaudeMcpAdd({ exec }: { exec: ExecImpl }): ResultAsync<boolean, InitError> {
-  // `exec` is contract-bound to never reject — the DEFAULT_EXEC implementation
-  // resolves spawn errors to `spawn-error` and non-zero exits to `exitCode > 0`.
-  // `fromSafePromise` is correct here.
+type ClaudeMcpAddOutcome = 'registered' | 'fallback-write';
+
+function tryClaudeMcpAdd({
+  exec,
+}: {
+  exec: ExecImpl;
+}): ResultAsync<ClaudeMcpAddOutcome, InitError> {
+  // `exec` is contract-bound to never reject — DEFAULT_EXEC resolves all three
+  // branches as values (ok / non-zero / spawn-error). `fromSafePromise` is
+  // correct here.
   return ResultAsync.fromSafePromise(
     exec({
       command: 'claude',
@@ -126,8 +147,17 @@ function tryClaudeMcpAdd({ exec }: { exec: ExecImpl }): ResultAsync<boolean, Ini
       timeoutMs: CLAUDE_MCP_ADD_TIMEOUT_MS,
     }),
   ).andThen((result) => {
-    if (result.kind === 'spawn-error') return okAsync(false);
-    return okAsync(result.exitCode === 0);
+    if (result.kind === 'ok') return okAsync<ClaudeMcpAddOutcome, InitError>('registered');
+    if (result.kind === 'spawn-error') {
+      // ENOENT: `claude` isn't installed. Safe to fall back to direct write.
+      return okAsync<ClaudeMcpAddOutcome, InitError>('fallback-write');
+    }
+    // Non-zero exit: `claude mcp add` ran and rejected. Surface as an error
+    // so the wizard reports the failure to the user instead of silently
+    // clobbering whatever ~/.claude.json says.
+    return errAsync<ClaudeMcpAddOutcome, InitError>(
+      InitErrors.claudeMcpAddFailed({ exitCode: result.exitCode, stderr: result.stderr }),
+    );
   });
 }
 

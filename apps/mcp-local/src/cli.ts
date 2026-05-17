@@ -23,7 +23,7 @@
 
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { argv, env, exit, stderr, stdout } from 'node:process';
+import { argv, cwd as processCwd, env, exit, stderr, stdout } from 'node:process';
 import { confirm, password, select } from '@inquirer/prompts';
 import { cac } from 'cac';
 import { createDb, loadIntegrationToken, resolveDataDir, resolveDbPath } from '@slopweaver/db';
@@ -328,6 +328,12 @@ async function runInitCmd(): Promise<number> {
     return await runInit({
       db: dbHandle.db,
       home: homedir(),
+      cwd: processCwd(),
+      // Respect $CLINE_DIR when set so the wizard probes / writes to the same
+      // path the user's actual Cline install uses. Empty string is treated as
+      // "not set" — same as undefined — because shells often export blank
+      // variables that should be ignored.
+      clineDir: env.CLINE_DIR && env.CLINE_DIR.length > 0 ? env.CLINE_DIR : undefined,
       detectClients,
       registerClient,
       runGithubConnect: runConnectGithub,

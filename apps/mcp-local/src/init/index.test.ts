@@ -46,6 +46,8 @@ function defaultDeps({
   const deps: RunInitDeps = {
     db,
     home: '/tmp/fake-home-not-used',
+    cwd: '/tmp/fake-cwd-not-used',
+    clineDir: undefined,
     detectClients: vi.fn().mockResolvedValue([]),
     registerClient: vi.fn().mockReturnValue(okAsync(undefined)),
     runGithubConnect: vi.fn(async (d: RunConnectGithubDeps) => runConnectGithub(d)),
@@ -91,9 +93,27 @@ describe('runInit', () => {
 
   it('fresh install: detects clients, registers in detected ones, connects both integrations, verifies tokens', async () => {
     const detectClients = vi.fn().mockResolvedValue([
-      { kind: 'claude-code', configPath: '/h/.claude.json', exists: false, hasSlopweaver: false },
-      { kind: 'cursor', configPath: '/h/.cursor/mcp.json', exists: false, hasSlopweaver: false },
-      { kind: 'cline', configPath: '/h/.cline/x.json', exists: false, hasSlopweaver: false },
+      {
+        kind: 'claude-code',
+        variant: 'home',
+        configPath: '/h/.claude.json',
+        exists: false,
+        hasSlopweaver: false,
+      },
+      {
+        kind: 'cursor',
+        variant: 'home',
+        configPath: '/h/.cursor/mcp.json',
+        exists: false,
+        hasSlopweaver: false,
+      },
+      {
+        kind: 'cline',
+        variant: 'home',
+        configPath: '/h/.cline/x.json',
+        exists: false,
+        hasSlopweaver: false,
+      },
     ]);
     const registerClient = vi.fn().mockReturnValue(okAsync(undefined));
 
@@ -227,9 +247,27 @@ describe('runInit', () => {
 
   it('skips registration of clients that already list slopweaver', async () => {
     const detectClients = vi.fn().mockResolvedValue([
-      { kind: 'claude-code', configPath: '/h/.claude.json', exists: true, hasSlopweaver: true },
-      { kind: 'cursor', configPath: '/h/.cursor/mcp.json', exists: false, hasSlopweaver: false },
-      { kind: 'cline', configPath: '/h/.cline/x.json', exists: false, hasSlopweaver: false },
+      {
+        kind: 'claude-code',
+        variant: 'home',
+        configPath: '/h/.claude.json',
+        exists: true,
+        hasSlopweaver: true,
+      },
+      {
+        kind: 'cursor',
+        variant: 'home',
+        configPath: '/h/.cursor/mcp.json',
+        exists: false,
+        hasSlopweaver: false,
+      },
+      {
+        kind: 'cline',
+        variant: 'home',
+        configPath: '/h/.cline/x.json',
+        exists: false,
+        hasSlopweaver: false,
+      },
     ]);
     const registerClient = vi.fn().mockReturnValue(okAsync(undefined));
 
@@ -242,5 +280,177 @@ describe('runInit', () => {
 
     expect(registerClient).toHaveBeenCalledTimes(2);
     expect(stdout.text()).toContain('Claude Code: slopweaver already registered');
+  });
+
+  // P1 #3 fix: registration failure must suppress the success banner.
+  it('registration failure: suppresses "you\'re all set" and prints the partial-setup banner', async () => {
+    const detectClients = vi.fn().mockResolvedValue([
+      {
+        kind: 'claude-code',
+        variant: 'home',
+        configPath: '/h/.claude.json',
+        exists: true,
+        hasSlopweaver: false,
+      },
+    ]);
+    // claude mcp add returned non-zero — registerClient surfaces the error.
+    const registerClient = vi.fn().mockReturnValue(
+      errAsync({
+        code: 'INIT_CLAUDE_MCP_ADD_FAILED',
+        message: '`claude mcp add slopweaver` exited 2: auth required',
+        exitCode: 2,
+        stderr: 'auth required',
+      }),
+    );
+
+    const { deps, stdout, stderr } = defaultDeps({
+      db: handle.db,
+      overrides: { detectClients, registerClient },
+    });
+
+    const code = await runInit(deps);
+
+    expect(code).toBe(0); // wizard didn't crash, but…
+    expect(stderr.text()).toContain('auth required');
+    // Success banner suppressed — the "ask Claude Code about your work" line
+    // would be a lie when registration just failed.
+    expect(stdout.text()).not.toContain('ask Claude Code about your work');
+    // Partial-setup banner is what the user should see instead.
+    expect(stdout.text()).toContain('Setup completed with some issues');
+  });
+
+  // P2: replace branch was not covered. Pin it now.
+  it("re-init: user picks 'replace' on existing GitHub token → runConnect runs and overwrites", async () => {
+    await saveIntegrationToken({
+      db: handle.db,
+      integration: 'github',
+      token: 'ghp_old',
+      accountLabel: 'octocat',
+    });
+
+    const runGithubConnect = vi.fn(async (d: RunConnectGithubDeps) => runConnectGithub(d));
+    const selectExistingAction = vi.fn().mockImplementation(({ integration }) =>
+      // replace for github, skip slack so the test focuses on github
+      Promise.resolve(integration === 'github' ? 'replace' : 'skip'),
+    );
+
+    const { deps } = defaultDeps({
+      db: handle.db,
+      overrides: {
+        runGithubConnect,
+        buildGithubConnectDeps: ({ db: innerDb, stdout: s, stderr: e }) => ({
+          db: innerDb,
+          promptForToken: async () => 'ghp_new',
+          validateToken: () => okAsync({ login: 'octocat-renamed' }),
+          stdout: s,
+          stderr: e,
+        }),
+        prompt: {
+          confirm: vi.fn().mockResolvedValue(true),
+          selectExistingAction,
+        },
+      },
+    });
+
+    const code = await runInit(deps);
+    expect(code).toBe(0);
+
+    expect(runGithubConnect).toHaveBeenCalledTimes(1);
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    expect(githubLoaded.isOk() && githubLoaded.value).toEqual({
+      token: 'ghp_new',
+      accountLabel: 'octocat-renamed',
+    });
+  });
+
+  // P2: partial prior setup — one integration connected, one missing.
+  it('partial prior setup: GitHub already connected, Slack fresh → only Slack runs connect', async () => {
+    await saveIntegrationToken({
+      db: handle.db,
+      integration: 'github',
+      token: 'ghp_existing',
+      accountLabel: 'octocat',
+    });
+
+    const runGithubConnect = vi.fn().mockResolvedValue(0);
+    const runSlackConnect = vi.fn(async (d: RunConnectSlackDeps) => runConnectSlack(d));
+    const selectExistingAction = vi.fn().mockResolvedValue('retest');
+
+    const { deps } = defaultDeps({
+      db: handle.db,
+      overrides: {
+        runGithubConnect,
+        runSlackConnect,
+        prompt: {
+          confirm: vi.fn().mockResolvedValue(true),
+          selectExistingAction,
+        },
+      },
+    });
+
+    const code = await runInit(deps);
+    expect(code).toBe(0);
+
+    expect(runGithubConnect).not.toHaveBeenCalled(); // retest, not replace
+    expect(runSlackConnect).toHaveBeenCalledTimes(1); // slack: fresh, ran
+    // Both tokens are present at the end.
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    expect(githubLoaded.isOk() && githubLoaded.value?.token).toBe('ghp_existing');
+    expect(slackLoaded.isOk() && slackLoaded.value?.token).toBe('xoxp-happy');
+  });
+
+  // P2: idempotency after successful `claude mcp add`. The first run hands off
+  // to the claude CLI (no local file write); the second run must detect the
+  // already-registered entry via hasSlopweaver: true and NOT call register again.
+  it('idempotency: re-run after successful claude mcp add detects already-registered and skips', async () => {
+    // First run: clients all unregistered, claude mcp add succeeds.
+    const detectFirstRun = vi.fn().mockResolvedValue([
+      {
+        kind: 'claude-code',
+        variant: 'home',
+        configPath: '/h/.claude.json',
+        exists: false,
+        hasSlopweaver: false,
+      },
+    ]);
+    const registerClient = vi.fn().mockReturnValue(okAsync(undefined));
+
+    const { deps: depsRun1 } = defaultDeps({
+      db: handle.db,
+      overrides: { detectClients: detectFirstRun, registerClient },
+    });
+    await runInit(depsRun1);
+    expect(registerClient).toHaveBeenCalledTimes(1);
+
+    // Second run: same client now hasSlopweaver: true. registerClient must NOT
+    // be called again.
+    registerClient.mockClear();
+    const detectSecondRun = vi.fn().mockResolvedValue([
+      {
+        kind: 'claude-code',
+        variant: 'home',
+        configPath: '/h/.claude.json',
+        exists: true,
+        hasSlopweaver: true,
+      },
+    ]);
+    const { deps: depsRun2, stdout: stdoutRun2 } = defaultDeps({
+      db: handle.db,
+      overrides: {
+        detectClients: detectSecondRun,
+        registerClient,
+        prompt: {
+          confirm: vi.fn().mockResolvedValue(true),
+          // Both integrations now have tokens (from run 1); test passes 'skip'
+          // so we focus on the registration-already-detected behaviour.
+          selectExistingAction: vi.fn().mockResolvedValue('skip'),
+        },
+      },
+    });
+    await runInit(depsRun2);
+
+    expect(registerClient).not.toHaveBeenCalled();
+    expect(stdoutRun2.text()).toContain('Claude Code: slopweaver already registered');
   });
 });
