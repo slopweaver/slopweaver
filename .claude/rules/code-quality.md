@@ -120,15 +120,15 @@ mirrors). Time-budget: ~30s on a clean cache.
 Individual gates:
 
 ```
-pnpm cli check-service-boundaries
-pnpm cli check-error-code-preservation
-pnpm cli check-cassette-quality
 pnpm format:check
 pnpm lint            # biome lint . && oxlint -c .oxlintrc.jsonc && eslint .
 pnpm lint:biome      # biome only
 pnpm lint:oxlint     # oxlint only
 pnpm lint:eslint     # eslint only
-pnpm compile
+pnpm compile         # required before the scanners below — they import @slopweaver/errors from dist
+pnpm cli check-service-boundaries
+pnpm cli check-error-code-preservation
+pnpm cli check-cassette-quality
 pnpm test
 pnpm knip
 ```

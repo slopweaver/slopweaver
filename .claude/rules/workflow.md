@@ -58,10 +58,10 @@ NEVER `git rebase origin/main` — it rewrites history that's already pushed and
 Before declaring work done (or before opening a PR for review), run the same checks CI runs:
 
 ```bash
-pnpm validate   # check-service-boundaries → check-error-code-preservation → check-cassette-quality → format:check → lint (biome+oxlint+eslint) → compile → test → knip
+pnpm validate   # format:check → lint (biome+oxlint+eslint) → compile → check-service-boundaries → check-error-code-preservation → check-cassette-quality → test → knip
 ```
 
-All eight gates must pass. The first three — three custom CLI scanners (`check-service-boundaries`, `check-error-code-preservation`, `check-cassette-quality`) — run first because they're the cheapest. Then comes formatting, three linters (Biome + Oxlint + ESLint, run sequentially with explicit no-overlap ownership; see @.claude/rules/code-quality.md), tsc, tests, and dead-code detection (knip). CI runs `pnpm validate` as a single step plus `gitleaks detect` as the ninth gate; the pre-commit hook covers staged content locally.
+All eight gates must pass. Formatting and the three linters (Biome + Oxlint + ESLint, run sequentially with explicit no-overlap ownership; see @.claude/rules/code-quality.md) run first because they're the cheapest. Then `tsc` (`compile`), which is also what produces the workspace `dist/` that the next three CLI scanners (`check-service-boundaries`, `check-error-code-preservation`, `check-cassette-quality`) need at runtime — they `import` from `@slopweaver/errors`, so they require its built `dist/` to resolve. Tests and dead-code detection (`knip`) run last. CI runs `pnpm validate` as a single step plus `gitleaks detect` as the ninth gate; the pre-commit hook covers staged content locally.
 
 If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `validate` to verify.
 

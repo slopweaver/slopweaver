@@ -38,9 +38,12 @@ jobs:
 
       # Single validate step so any new gate added to `package.json` flows
       # through to CI without an extra workflow edit. The chain is:
+      #   format:check → lint (biome+oxlint+eslint) → compile →
       #   check-service-boundaries → check-error-code-preservation →
-      #   check-cassette-quality → format:check → lint (biome+oxlint+eslint) →
-      #   compile → test → knip
+      #   check-cassette-quality → test → knip
+      # (compile runs before the CLI scanners because they import
+      # `@slopweaver/errors` from workspace dist, which doesn't exist on a
+      # fresh checkout.)
       - name: Validate
         run: pnpm validate
 
