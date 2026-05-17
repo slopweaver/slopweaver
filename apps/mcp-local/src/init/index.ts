@@ -23,7 +23,7 @@
  * the register helper without touching real stdin/filesystem/network.
  */
 
-import type { SlopweaverDatabase } from '@slopweaver/db';
+import type { KeychainAdapter, SlopweaverDatabase } from '@slopweaver/db';
 import { loadIntegrationToken } from '@slopweaver/db';
 import type { BaseError, ResultAsync } from '@slopweaver/errors';
 import type { RunConnectGithubDeps } from '../connect/github.ts';
@@ -69,6 +69,8 @@ export type RunInitDeps = {
   };
   stdout: { write: (s: string) => void };
   stderr: { write: (s: string) => void };
+  /** Inject in tests so token reads/writes hit an in-memory store, not the OS keychain. Defaults to the real adapter inside `loadIntegrationToken`/`saveIntegrationToken`. */
+  keychainAdapter?: KeychainAdapter;
 };
 
 const CLIENT_KIND_LABEL: Record<McpClientKind, string> = {
@@ -185,11 +187,15 @@ async function stepConnectAndTestIntegration({
   deps: RunInitDeps;
   integration: 'github' | 'slack';
 }): Promise<number> {
-  const { db, prompt, stdout, stderr } = deps;
+  const { db, prompt, stdout, stderr, keychainAdapter } = deps;
   const headerLabel = integration === 'github' ? 'GitHub' : 'Slack';
   stdout.write(`Step ${integration === 'github' ? 2 : 3}: Connect ${headerLabel}\n`);
 
-  const tokenResult = await loadIntegrationToken({ db, integration });
+  const tokenResult = await loadIntegrationToken({
+    db,
+    integration,
+    ...(keychainAdapter ? { keychainAdapter } : {}),
+  });
   if (tokenResult.isErr()) {
     stderr.write(`slopweaver: failed to read stored ${headerLabel} token: ${tokenResult.error.message}\n`);
     return 1;
@@ -238,12 +244,18 @@ async function runConnectFor({
   deps: RunInitDeps;
   integration: 'github' | 'slack';
 }): Promise<number> {
-  const { db, stdout, stderr } = deps;
+  const { db, stdout, stderr, keychainAdapter } = deps;
   if (integration === 'github') {
-    const githubDeps = deps.buildGithubConnectDeps({ db, stdout, stderr });
+    const githubDeps: RunConnectGithubDeps = {
+      ...deps.buildGithubConnectDeps({ db, stdout, stderr }),
+      ...(keychainAdapter ? { keychainAdapter } : {}),
+    };
     return deps.runGithubConnect(githubDeps);
   }
-  const slackDeps = deps.buildSlackConnectDeps({ db, stdout, stderr });
+  const slackDeps: RunConnectSlackDeps = {
+    ...deps.buildSlackConnectDeps({ db, stdout, stderr }),
+    ...(keychainAdapter ? { keychainAdapter } : {}),
+  };
   return deps.runSlackConnect(slackDeps);
 }
 
@@ -254,10 +266,14 @@ async function runTestPoll({
   deps: RunInitDeps;
   integration: 'github' | 'slack';
 }): Promise<void> {
-  const { db, stdout, stderr } = deps;
+  const { db, stdout, stderr, keychainAdapter } = deps;
   const label = integration === 'github' ? 'GitHub' : 'Slack';
 
-  const tokenResult = await loadIntegrationToken({ db, integration });
+  const tokenResult = await loadIntegrationToken({
+    db,
+    integration,
+    ...(keychainAdapter ? { keychainAdapter } : {}),
+  });
   if (tokenResult.isErr() || tokenResult.value === null) {
     // Shouldn't happen — we either just persisted a token or are in retest
     // mode where one already exists. Print and move on rather than fail the

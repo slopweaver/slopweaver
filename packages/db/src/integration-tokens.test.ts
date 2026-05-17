@@ -14,23 +14,7 @@ import { createDb } from './index.ts';
 import { loadIntegrationToken, saveIntegrationToken } from './integration-tokens.ts';
 import type { KeychainAdapter } from './keychain.ts';
 import { integrationTokens } from './schema/integration-tokens.ts';
-
-function makeMemoryAdapter(): KeychainAdapter & { store: Map<string, string> } {
-  const store = new Map<string, string>();
-  const key = ({ service, account }: { service: string; account: string }) => `${service}:${account}`;
-  return {
-    store,
-    async setPassword({ service, account, password }) {
-      store.set(key({ service, account }), password);
-    },
-    async getPassword({ service, account }) {
-      return store.get(key({ service, account })) ?? null;
-    },
-    async deletePassword({ service, account }) {
-      return store.delete(key({ service, account }));
-    },
-  };
-}
+import { createInMemoryKeychainAdapter as makeMemoryAdapter } from './test/index.ts';
 
 describe('loadIntegrationToken', () => {
   it('returns ok(null) when no row exists for the integration', async () => {

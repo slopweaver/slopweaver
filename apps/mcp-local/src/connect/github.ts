@@ -13,7 +13,7 @@
  * prompt + fake validate without `vi.mock`.
  */
 
-import { type SlopweaverDatabase, saveIntegrationToken } from '@slopweaver/db';
+import { type KeychainAdapter, saveIntegrationToken, type SlopweaverDatabase } from '@slopweaver/db';
 import type { BaseError, ResultAsync } from '@slopweaver/errors';
 
 const INTEGRATION = 'github';
@@ -25,6 +25,8 @@ export type RunConnectGithubDeps = {
   stdout: { write: (s: string) => void };
   stderr: { write: (s: string) => void };
   now?: () => number;
+  /** Inject in tests so token writes hit an in-memory store, not the OS keychain. Defaults to the real adapter inside `saveIntegrationToken`. */
+  keychainAdapter?: KeychainAdapter;
 };
 
 /**
@@ -38,6 +40,7 @@ export async function runConnectGithub({
   stdout,
   stderr,
   now,
+  keychainAdapter,
 }: RunConnectGithubDeps): Promise<number> {
   const token = await promptForToken({
     message: 'GitHub fine-grained PAT (input hidden):',
@@ -56,6 +59,7 @@ export async function runConnectGithub({
     token,
     accountLabel: login,
     ...(now ? { now } : {}),
+    ...(keychainAdapter ? { keychainAdapter } : {}),
   });
   if (saveResult.isErr()) {
     stderr.write(`slopweaver: failed to save GitHub token: ${saveResult.error.message}\n`);

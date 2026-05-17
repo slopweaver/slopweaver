@@ -7,7 +7,8 @@
  * repeat connect overwrites the previous value.
  */
 
-import { createDb, loadIntegrationToken } from '@slopweaver/db';
+import { createDb, type KeychainAdapter, loadIntegrationToken } from '@slopweaver/db';
+import { createInMemoryKeychainAdapter } from '@slopweaver/db/test';
 import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runConnectGithub } from './github.ts';
@@ -28,11 +29,15 @@ describe('runConnectGithub', () => {
   let handle: ReturnType<typeof createDb>;
   let stdout: Buf;
   let stderr: Buf;
+  let keychainAdapter: KeychainAdapter;
 
   beforeEach(() => {
     handle = createDb({ path: ':memory:' });
     stdout = makeBuf();
     stderr = makeBuf();
+    // Per-test in-memory keychain so writes don't leak between tests
+    // (or into the developer's real OS keychain).
+    keychainAdapter = createInMemoryKeychainAdapter();
   });
 
   afterEach(() => {
@@ -50,12 +55,17 @@ describe('runConnectGithub', () => {
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
+      keychainAdapter,
     });
 
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Connected to GitHub as octocat');
     expect(stderr.text()).toBe('');
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'github',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toEqual({ token: 'ghp_happy', accountLabel: 'octocat' });
@@ -73,13 +83,18 @@ describe('runConnectGithub', () => {
         }),
       stdout,
       stderr,
+      keychainAdapter,
     });
 
     expect(code).toBe(1);
     expect(stderr.text()).toContain('GitHub token rejected');
     expect(stderr.text()).toContain('Bad credentials');
     expect(stdout.text()).toBe('');
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'github',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toBeNull();
@@ -94,6 +109,7 @@ describe('runConnectGithub', () => {
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
+      keychainAdapter,
     });
 
     await runConnectGithub({
@@ -103,9 +119,14 @@ describe('runConnectGithub', () => {
       stdout,
       stderr,
       now: () => 1_746_000_000_500,
+      keychainAdapter,
     });
 
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'github',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toEqual({ token: 'ghp_second', accountLabel: 'octocat-renamed' });

@@ -15,7 +15,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createDb, loadIntegrationToken, saveIntegrationToken } from '@slopweaver/db';
+import { createDb, type KeychainAdapter, loadIntegrationToken, saveIntegrationToken } from '@slopweaver/db';
+import { createInMemoryKeychainAdapter } from '@slopweaver/db/test';
 import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunConnectGithubDeps } from '../connect/github.ts';
@@ -39,9 +40,11 @@ function makeBuf(): Buf {
 
 function defaultDeps({
   db,
+  keychainAdapter,
   overrides = {},
 }: {
   db: ReturnType<typeof createDb>['db'];
+  keychainAdapter: KeychainAdapter;
   overrides?: Partial<RunInitDeps>;
 }): { deps: RunInitDeps; stdout: Buf; stderr: Buf } {
   const stdout = makeBuf();
@@ -78,6 +81,7 @@ function defaultDeps({
     },
     stdout,
     stderr,
+    keychainAdapter,
     ...overrides,
   };
 
@@ -86,9 +90,13 @@ function defaultDeps({
 
 describe('runInit', () => {
   let handle: ReturnType<typeof createDb>;
+  let keychainAdapter: KeychainAdapter;
 
   beforeEach(() => {
     handle = createDb({ path: ':memory:' });
+    // Per-test in-memory keychain so writes don't leak between tests
+    // (or into the developer's real OS keychain).
+    keychainAdapter = createInMemoryKeychainAdapter();
   });
 
   afterEach(() => {
@@ -123,6 +131,7 @@ describe('runInit', () => {
 
     const { deps, stdout, stderr } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: { detectClients, registerClient },
     });
 
@@ -133,8 +142,8 @@ describe('runInit', () => {
     expect(stdout.text()).toContain('ask Claude Code about your work');
     expect(stderr.text()).toBe('');
 
-    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
-    const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github', keychainAdapter });
+    const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack', keychainAdapter });
     expect(githubLoaded.isOk() && githubLoaded.value).toEqual({
       token: 'ghp_happy',
       accountLabel: 'octocat',
@@ -152,12 +161,14 @@ describe('runInit', () => {
       integration: 'github',
       token: 'ghp_existing',
       accountLabel: 'octocat',
+      keychainAdapter,
     });
     await saveIntegrationToken({
       db: handle.db,
       integration: 'slack',
       token: 'xoxp-existing',
       accountLabel: 'AcmeCorp',
+      keychainAdapter,
     });
 
     const runGithubConnect = vi.fn().mockResolvedValue(0);
@@ -172,6 +183,7 @@ describe('runInit', () => {
 
     const { deps, stdout } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: {
         runGithubConnect,
         testPollGithub,
@@ -193,7 +205,7 @@ describe('runInit', () => {
     expect(stdout.text()).toContain('Slack: token verified');
 
     // Existing tokens must not have been overwritten.
-    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github', keychainAdapter });
     expect(githubLoaded.isOk() && githubLoaded.value?.token).toBe('ghp_existing');
   });
 
@@ -206,6 +218,7 @@ describe('runInit', () => {
 
     const { deps, stdout } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: {
         prompt: {
           confirm,
@@ -218,9 +231,9 @@ describe('runInit', () => {
 
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Slack: skipped');
-    const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack', keychainAdapter });
     expect(slackLoaded.isOk() && slackLoaded.value).toBeNull();
-    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github', keychainAdapter });
     expect(githubLoaded.isOk() && githubLoaded.value?.token).toBe('ghp_happy');
   });
 
@@ -229,6 +242,7 @@ describe('runInit', () => {
 
     const { deps, stdout, stderr } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: { testPollGithub },
     });
 
@@ -241,7 +255,7 @@ describe('runInit', () => {
     expect(stdout.text()).toContain('ask Claude Code about your work');
     // GitHub token persistence still succeeded — the test poll failure is
     // post-persistence, so the row exists.
-    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github', keychainAdapter });
     expect(githubLoaded.isOk() && githubLoaded.value?.token).toBe('ghp_happy');
   });
 
@@ -273,6 +287,7 @@ describe('runInit', () => {
 
     const { deps, stdout } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: { detectClients, registerClient },
     });
 
@@ -305,6 +320,7 @@ describe('runInit', () => {
 
     const { deps, stdout, stderr } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: { detectClients, registerClient },
     });
 
@@ -326,6 +342,7 @@ describe('runInit', () => {
       integration: 'github',
       token: 'ghp_old',
       accountLabel: 'octocat',
+      keychainAdapter,
     });
 
     const runGithubConnect = vi.fn(async (d: RunConnectGithubDeps) => runConnectGithub(d));
@@ -336,6 +353,7 @@ describe('runInit', () => {
 
     const { deps } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: {
         runGithubConnect,
         buildGithubConnectDeps: ({ db: innerDb, stdout: s, stderr: e }) => ({
@@ -356,7 +374,7 @@ describe('runInit', () => {
     expect(code).toBe(0);
 
     expect(runGithubConnect).toHaveBeenCalledTimes(1);
-    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github', keychainAdapter });
     expect(githubLoaded.isOk() && githubLoaded.value).toEqual({
       token: 'ghp_new',
       accountLabel: 'octocat-renamed',
@@ -370,6 +388,7 @@ describe('runInit', () => {
       integration: 'github',
       token: 'ghp_existing',
       accountLabel: 'octocat',
+      keychainAdapter,
     });
 
     const runGithubConnect = vi.fn().mockResolvedValue(0);
@@ -378,6 +397,7 @@ describe('runInit', () => {
 
     const { deps } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: {
         runGithubConnect,
         runSlackConnect,
@@ -394,8 +414,8 @@ describe('runInit', () => {
     expect(runGithubConnect).not.toHaveBeenCalled(); // retest, not replace
     expect(runSlackConnect).toHaveBeenCalledTimes(1); // slack: fresh, ran
     // Both tokens are present at the end.
-    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github' });
-    const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const githubLoaded = await loadIntegrationToken({ db: handle.db, integration: 'github', keychainAdapter });
+    const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack', keychainAdapter });
     expect(githubLoaded.isOk() && githubLoaded.value?.token).toBe('ghp_existing');
     expect(slackLoaded.isOk() && slackLoaded.value?.token).toBe('xoxp-happy');
   });
@@ -430,6 +450,7 @@ describe('runInit', () => {
 
       const { deps, stdout } = defaultDeps({
         db: handle.db,
+        keychainAdapter,
         overrides: {
           home: tempHome,
           cwd: tempCwd,
@@ -473,6 +494,7 @@ describe('runInit', () => {
 
     const { deps: depsRun1 } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: { detectClients: detectFirstRun, registerClient },
     });
     await runInit(depsRun1);
@@ -492,6 +514,7 @@ describe('runInit', () => {
     ]);
     const { deps: depsRun2, stdout: stdoutRun2 } = defaultDeps({
       db: handle.db,
+      keychainAdapter,
       overrides: {
         detectClients: detectSecondRun,
         registerClient,
