@@ -113,9 +113,11 @@ describe('createGetFreshnessTool', () => {
     expect(parsed.freshness[0]?.stale).toBe(true);
   });
 
-  it('returns one entry per integration_state row in insertion order', async () => {
-    seedIntegrationState({ integration: 'github', lastPollCompletedAtMs: FIXED_NOW - FIVE_MIN });
+  it('returns entries sorted alphabetically by integration (deterministic across SQLite plans)', async () => {
+    // Seed in reverse-alphabetical insertion order so a missing ORDER BY would
+    // produce `['slack', 'github']` and fail this assertion.
     seedIntegrationState({ integration: 'slack', lastPollCompletedAtMs: null });
+    seedIntegrationState({ integration: 'github', lastPollCompletedAtMs: FIXED_NOW - FIVE_MIN });
 
     const tool = createGetFreshnessTool({ now: () => FIXED_NOW });
     const raw = await callHandler(tool, {});

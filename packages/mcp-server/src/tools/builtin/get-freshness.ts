@@ -14,6 +14,7 @@
 import { type Freshness, GetFreshnessArgs, GetFreshnessResult } from '@slopweaver/contracts';
 import { integrationState } from '@slopweaver/db';
 import { ok } from '@slopweaver/errors';
+import { asc } from 'drizzle-orm';
 import { defineTool, type Tool } from '../registry.ts';
 
 /** Default: a poll older than 10 minutes is considered stale. Matches start_session. */
@@ -38,12 +39,17 @@ export function createGetFreshnessTool(args: CreateGetFreshnessToolArgs = {}): T
     outputSchema: GetFreshnessResult,
     handler: async ({ ctx: { db } }) => {
       const nowMs = now();
+      // Explicit ORDER BY so the wire response is deterministic across SQLite
+      // versions / query plans. Sort by `integration` alphabetically — stable
+      // across re-polls (which only touch `last_poll_*` timestamps) and
+      // independent of insertion order. The test pins this contract.
       const rows = db
         .select({
           integration: integrationState.integration,
           lastPollCompletedAtMs: integrationState.lastPollCompletedAtMs,
         })
         .from(integrationState)
+        .orderBy(asc(integrationState.integration))
         .all();
 
       const freshness: Freshness[] = rows.map((row) => {
