@@ -145,10 +145,11 @@ slopweaver/
 1. `loadEnv()` (from `@slopweaver/env`) — validates `NODE_ENV`, `LOG_LEVEL`; throws on invalid.
 2. `resolveDbPath()` / `resolveDataDir()`.
 3. `createDb({ path })` — opens SQLite, runs migrations.
-4. `createMcpServer({ db, version, tools: [createPingTool(...), createStartSessionTool()] })` — v1 has no pollers wired into `start_session` yet.
-5. If UI enabled: `startUiServer({ db, dataDir, port })` (resolved from `SLOPWEAVER_WEB_UI_PORT`, default 60701). `EADDRINUSE` is non-fatal.
-6. Registers `SIGINT`/`SIGTERM` → close server → close UI → close DB.
-7. `startStdio({ server })`.
+4. Load `integration_tokens` rows via `loadIntegrationToken({ db, integration })` for github and slack in parallel; for github, call `fetchIdentity` to resolve the username (skipped + logged on identity failure, e.g. revoked PAT). Build `pollers: Record<string, StartSessionPoller>` from the surviving tokens via `createGithubPoller` / `createSlackPoller`.
+5. `createMcpServer({ db, version, tools: [createPingTool(...), createStartSessionTool({ pollers })] })`.
+6. If UI enabled: `startUiServer({ db, dataDir, port })` (resolved from `SLOPWEAVER_WEB_UI_PORT`, default 60701). `EADDRINUSE` is non-fatal.
+7. Registers `SIGINT`/`SIGTERM` → close server → close UI → close DB.
+8. `startStdio({ server })`.
 
 **`connect <integration>` flow**: prompt (masked via `@inquirer/prompts` `password`) → validate token against API → `saveIntegrationToken` upsert → stdout confirmation. Slack rejects `xoxb-` tokens before the network call (because `search.messages` requires `xoxp-`). Connect does NOT write to `identity_graph` — that is done by the polling layer.
 
@@ -178,7 +179,7 @@ slopweaver/
 - Staleness threshold: 10 minutes (`DEFAULT_STALE_THRESHOLD_MS`). Polls when `force_refresh: true`, no completed poll yet, or last completion older than threshold.
 - **Per-platform failure handling**: v1 has NO try/catch around individual poller invocations. A throwing poller fails the whole call (the outer dispatcher catches and returns `isError: true`). Per-platform isolation is a planned improvement.
 - `pollers` are factory-injected closures (NOT in `ToolHandlerContext`) — auth tokens are captured at host-app startup.
-- `mcp-local` currently calls `createStartSessionTool()` with **no pollers**, so v1 serves cached evidence without polling.
+- `mcp-local` loads connected integration tokens at startup and passes a populated `pollers` map to `createStartSessionTool({ pollers })`; a missing token (not connected) silently skips that integration, and a failed GitHub identity resolve logs to stderr and omits github without aborting the binary.
 - Defensive row shaping: rows missing `title` AND `kind` are skipped; malformed `citation_url` downgrades to a `canonical` ref; unparseable `payload_json` becomes `null`. A single bad row never aborts the call.
 
 **MCP boundary translation**:
@@ -572,7 +573,7 @@ sequenceDiagram
 - **`pnpm validate` has SIX gates** (not four as some older docs say): `check-service-boundaries` → `format:check` → `lint` → `compile` → `test` → `knip`. CI also runs `gitleaks detect` as a seventh gate.
 - **Drizzle migrations are tool-generated only** — run `pnpm drizzle-kit generate` from a clean `main` baseline. Never hand-edit or generate from stale worktree state.
 - **`start_session` has no per-platform isolation in v1** — a throwing poller fails the whole tool call. Per-platform try/catch is a planned improvement.
-- **`createStartSessionTool()` is called with no pollers in `mcp-local`** — v1 serves cached evidence only; live polling is wired in a follow-up PR.
+- **`createStartSessionTool({ pollers })` in `mcp-local`** is populated from `integration_tokens` at startup — a missing token (user hasn't run `connect <integration>`) silently skips that integration; a failed GitHub identity resolve logs and omits github but leaves the binary running.
 - **Slack `search.messages` rejects bot tokens** — `mcp-local`'s `connect slack` pre-rejects `xoxb-` prefix before the network call.
 - **GitHub's `mentions:` qualifier rejects `@me`** — `pollMentions` requires an explicit `username` arg.
 - **GitHub pollers fetch only the first page** (`PER_PAGE = 50`, no pagination loop). The second page is silently dropped.
@@ -637,4 +638,4 @@ sequenceDiagram
 
 ## Repo State
 
-This repo is pre-alpha — v1.0.0 is in active development per the [v1.0.0 roadmap tracking issue](https://github.com/slopweaver/slopweaver/issues/2). The published binary `slopweaver` and the React Diagnostics page exist; live polling is wired in `connect` and the integration packages but not yet attached to `start_session` (the composite tool currently serves cached evidence only). Per-platform isolation, OAuth flows, token encryption at rest, and HTTP transport are all known follow-ups.
+This repo is pre-alpha — v1.0.0 is in active development per the [v1.0.0 roadmap tracking issue](https://github.com/slopweaver/slopweaver/issues/2). The published binary `slopweaver` and the React Diagnostics page exist; live polling is wired through to `start_session` via `createStartSessionTool({ pollers })`, populated from `integration_tokens` at startup. Per-platform isolation inside `start-session.ts`, OAuth flows, token encryption at rest, and HTTP transport are all known follow-ups.

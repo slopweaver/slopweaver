@@ -25,6 +25,7 @@ export type FetchIdentityArgs = {
 export type FetchIdentityResult = {
   canonicalId: string;
   externalId: string;
+  username: string;
 };
 
 export function fetchIdentity({
@@ -68,6 +69,6 @@ export function fetchIdentity({
       },
     })
       .mapErr(fromDatabaseError)
-      .map(() => ({ canonicalId, externalId }));
+      .map(() => ({ canonicalId, externalId, username: user.login }));
   });
 }
