@@ -202,9 +202,7 @@ describe('runInit', () => {
     //   - 'Register slopweaver in <client>?' (none detected, so no calls) — not triggered
     //   - 'Connect GitHub?' → true
     //   - 'Connect Slack?' → false
-    const confirm = vi
-      .fn()
-      .mockImplementation(({ message }) => Promise.resolve(!String(message).includes('Slack')));
+    const confirm = vi.fn().mockImplementation(({ message }) => Promise.resolve(!String(message).includes('Slack')));
 
     const { deps, stdout } = defaultDeps({
       db: handle.db,
@@ -227,9 +225,7 @@ describe('runInit', () => {
   });
 
   it('test poll fails: wizard prints the error and still exits 0', async () => {
-    const testPollGithub = vi
-      .fn()
-      .mockReturnValue(errAsync({ code: 'GITHUB_API_ERROR', message: 'rate limited' }));
+    const testPollGithub = vi.fn().mockReturnValue(errAsync({ code: 'GITHUB_API_ERROR', message: 'rate limited' }));
 
     const { deps, stdout, stderr } = defaultDeps({
       db: handle.db,

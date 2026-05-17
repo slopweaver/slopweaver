@@ -44,15 +44,8 @@ export type RunInitDeps = {
   home: string;
   cwd: string;
   clineDir: string | undefined;
-  detectClients: (args: {
-    home: string;
-    cwd: string;
-    clineDir: string | undefined;
-  }) => Promise<DetectedClient[]>;
-  registerClient: (args: {
-    kind: McpClientKind;
-    configPath: string;
-  }) => ResultAsync<void, InitError>;
+  detectClients: (args: { home: string; cwd: string; clineDir: string | undefined }) => Promise<DetectedClient[]>;
+  registerClient: (args: { kind: McpClientKind; configPath: string }) => ResultAsync<void, InitError>;
   runGithubConnect: (deps: RunConnectGithubDeps) => Promise<number>;
   runSlackConnect: (deps: RunConnectSlackDeps) => Promise<number>;
   buildGithubConnectDeps: (args: {
@@ -198,9 +191,7 @@ async function stepConnectAndTestIntegration({
 
   const tokenResult = await loadIntegrationToken({ db, integration });
   if (tokenResult.isErr()) {
-    stderr.write(
-      `slopweaver: failed to read stored ${headerLabel} token: ${tokenResult.error.message}\n`,
-    );
+    stderr.write(`slopweaver: failed to read stored ${headerLabel} token: ${tokenResult.error.message}\n`);
     return 1;
   }
 

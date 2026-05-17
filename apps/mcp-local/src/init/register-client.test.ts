@@ -48,14 +48,14 @@ describe('registerClient', () => {
       });
       // File should NOT have been created — `claude mcp add` is responsible
       // for writing to ~/.claude.json on its own.
-      await expect(readFile(configPath, 'utf-8')).rejects.toThrow();
+      await expect(readFile(configPath, 'utf-8')).rejects.toThrow(/ENOENT/);
     });
 
     it('falls back to direct JSON write when `claude` is missing (ENOENT)', async () => {
       const configPath = join(home, '.claude.json');
       const exec = fakeExec({
         kind: 'spawn-error',
-        cause: Object.assign(new Error('not found'), { code: 'ENOENT' }) as NodeJS.ErrnoException,
+        cause: Object.assign(new Error('not found'), { code: 'ENOENT' }),
       });
 
       const result = await registerClient({
@@ -126,7 +126,7 @@ describe('registerClient', () => {
 
       expect(result.isErr()).toBe(true);
       // File should not have been created.
-      await expect(readFile(configPath, 'utf-8')).rejects.toThrow();
+      await expect(readFile(configPath, 'utf-8')).rejects.toThrow(/ENOENT/);
     });
   });
 

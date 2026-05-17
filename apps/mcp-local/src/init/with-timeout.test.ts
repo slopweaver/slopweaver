@@ -73,10 +73,11 @@ describe('withTimeout', () => {
     const result = await withTimeout({
       operation: okAsync({ login: 'octocat' }),
       timeoutMs: 50,
-      // Cast: vi.fn signatures don't perfectly line up with `typeof setTimeout`,
-      // but the runtime contract holds.
+      // `setSpy`'s typing doesn't quite line up with `typeof setTimeout` so
+      // we cast it explicitly; `clearSpy` (a plain `vi.fn()`) is already
+      // assignable to `typeof clearTimeout` per TS, so no cast there.
       setTimeoutImpl: setSpy as unknown as typeof setTimeout,
-      clearTimeoutImpl: clearSpy as unknown as typeof clearTimeout,
+      clearTimeoutImpl: clearSpy,
     });
 
     expect(result.isOk()).toBe(true);

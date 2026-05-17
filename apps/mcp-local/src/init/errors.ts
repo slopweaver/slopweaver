@@ -41,11 +41,7 @@ export interface InitClaudeMcpAddFailedError extends BaseError {
   readonly stderr: string;
 }
 
-export type InitError =
-  | InitTimeoutError
-  | InitMcpConfigMalformedError
-  | InitFsError
-  | InitClaudeMcpAddFailedError;
+export type InitError = InitTimeoutError | InitMcpConfigMalformedError | InitFsError | InitClaudeMcpAddFailedError;
 
 export const InitErrors = {
   timeout: ({ timeoutMs }: { timeoutMs: number }): InitTimeoutError => ({
@@ -73,13 +69,7 @@ export const InitErrors = {
     operation,
     cause,
   }),
-  claudeMcpAddFailed: ({
-    exitCode,
-    stderr,
-  }: {
-    exitCode: number;
-    stderr: string;
-  }): InitClaudeMcpAddFailedError => ({
+  claudeMcpAddFailed: ({ exitCode, stderr }: { exitCode: number; stderr: string }): InitClaudeMcpAddFailedError => ({
     code: 'INIT_CLAUDE_MCP_ADD_FAILED',
     message: `\`claude mcp add slopweaver\` exited ${exitCode}: ${stderr.trim() || '(no stderr output)'}. Refusing to overwrite ~/.claude.json directly; resolve the upstream failure (auth, claude version, permissions) and re-run \`slopweaver init\`.`,
     exitCode,

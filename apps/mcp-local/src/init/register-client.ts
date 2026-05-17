@@ -24,12 +24,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import {
-  access,
-  mkdir as fsMkdir,
-  readFile as fsReadFile,
-  writeFile as fsWriteFile,
-} from 'node:fs/promises';
+import { access, mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { errAsync, okAsync, ResultAsync } from '@slopweaver/errors';
 import { type InitError, InitErrors } from './errors.ts';
@@ -42,11 +37,7 @@ export type RegisterClientArgs = {
   fs?: FsImpl;
 };
 
-export type ExecImpl = (args: {
-  command: string;
-  args: string[];
-  timeoutMs: number;
-}) => Promise<ExecResult>;
+export type ExecImpl = (args: { command: string; args: string[]; timeoutMs: number }) => Promise<ExecResult>;
 
 export type ExecResult =
   | { kind: 'ok'; exitCode: 0; stdout: string; stderr: string }
@@ -132,11 +123,7 @@ export function registerClient({
 
 type ClaudeMcpAddOutcome = 'registered' | 'fallback-write';
 
-function tryClaudeMcpAdd({
-  exec,
-}: {
-  exec: ExecImpl;
-}): ResultAsync<ClaudeMcpAddOutcome, InitError> {
+function tryClaudeMcpAdd({ exec }: { exec: ExecImpl }): ResultAsync<ClaudeMcpAddOutcome, InitError> {
   // `exec` is contract-bound to never reject — DEFAULT_EXEC resolves all three
   // branches as values (ok / non-zero / spawn-error). `fromSafePromise` is
   // correct here.
@@ -161,13 +148,7 @@ function tryClaudeMcpAdd({
   });
 }
 
-function writeJsonConfig({
-  configPath,
-  fs,
-}: {
-  configPath: string;
-  fs: FsImpl;
-}): ResultAsync<void, InitError> {
+function writeJsonConfig({ configPath, fs }: { configPath: string; fs: FsImpl }): ResultAsync<void, InitError> {
   return fsCall({
     promise: fs.fileExists(configPath),
     path: configPath,
@@ -202,10 +183,7 @@ function writeJsonConfig({
         return errAsync(InitErrors.mcpConfigMalformed({ path: configPath }));
       }
       return fsCall({
-        promise: fs.writeFile(
-          configPath,
-          serializeConfig({ existing: parsed as Record<string, unknown> }),
-        ),
+        promise: fs.writeFile(configPath, serializeConfig({ existing: parsed as Record<string, unknown> })),
         path: configPath,
         operation: 'write',
       });
@@ -222,15 +200,14 @@ function fsCall<T>({
   path: string;
   operation: 'read' | 'write' | 'mkdir';
 }): ResultAsync<T, InitError> {
-  return ResultAsync.fromPromise(promise, (cause) =>
-    InitErrors.fsError({ path, operation, cause }),
-  );
+  return ResultAsync.fromPromise(promise, (cause) => InitErrors.fsError({ path, operation, cause }));
 }
 
 function serializeConfig({ existing }: { existing: Record<string, unknown> }): string {
+  const existingMcpServers = existing['mcpServers'];
   const existingServers =
-    typeof existing.mcpServers === 'object' && existing.mcpServers !== null
-      ? (existing.mcpServers as Record<string, unknown>)
+    typeof existingMcpServers === 'object' && existingMcpServers !== null
+      ? (existingMcpServers as Record<string, unknown>)
       : {};
   const merged: Record<string, unknown> = {
     ...existing,

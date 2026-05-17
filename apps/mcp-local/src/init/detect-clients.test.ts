@@ -26,13 +26,7 @@ describe('detectClients', () => {
     await rm(cwd, { recursive: true, force: true });
   });
 
-  async function writeConfig({
-    path,
-    contents,
-  }: {
-    path: string;
-    contents: string;
-  }): Promise<void> {
+  async function writeConfig({ path, contents }: { path: string; contents: string }): Promise<void> {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, contents, 'utf-8');
   }
@@ -41,11 +35,7 @@ describe('detectClients', () => {
     const results = await detectClients({ home, cwd, clineDir: undefined });
     // Three entries: claude-code/home, cursor/home, cline/home. The
     // project-local cursor entry is suppressed when the file doesn't exist.
-    expect(results.map((r) => `${r.kind}:${r.variant}`)).toEqual([
-      'claude-code:home',
-      'cursor:home',
-      'cline:home',
-    ]);
+    expect(results.map((r) => `${r.kind}:${r.variant}`)).toEqual(['claude-code:home', 'cursor:home', 'cline:home']);
     for (const r of results) {
       expect(r.exists).toBe(false);
       expect(r.hasSlopweaver).toBe(false);

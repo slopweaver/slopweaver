@@ -78,13 +78,7 @@ export function configPathFor({ kind, home }: { kind: McpClientKind; home: strin
 /**
  * Resolve the actual on-disk Cline config path, honouring `$CLINE_DIR` when set.
  */
-export function clineConfigPath({
-  home,
-  clineDir,
-}: {
-  home: string;
-  clineDir: string | undefined;
-}): string {
+export function clineConfigPath({ home, clineDir }: { home: string; clineDir: string | undefined }): string {
   const base = clineDir ?? join(home, '.cline');
   return join(base, 'data', 'settings', 'cline_mcp_settings.json');
 }
@@ -145,13 +139,7 @@ export async function detectClients({
   return results;
 }
 
-async function fileExists({
-  path,
-  fs,
-}: {
-  path: string;
-  fs: NonNullable<DetectClientsArgs['fs']>;
-}): Promise<boolean> {
+async function fileExists({ path, fs }: { path: string; fs: NonNullable<DetectClientsArgs['fs']> }): Promise<boolean> {
   try {
     await fs.access(path);
     return true;

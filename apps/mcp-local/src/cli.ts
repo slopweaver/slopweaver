@@ -322,7 +322,7 @@ async function runInitCmd(): Promise<number> {
       // path the user's actual Cline install uses. Empty string is treated as
       // "not set" — same as undefined — because shells often export blank
       // variables that should be ignored.
-      clineDir: env.CLINE_DIR && env.CLINE_DIR.length > 0 ? env.CLINE_DIR : undefined,
+      clineDir: env['CLINE_DIR'] !== undefined && env['CLINE_DIR'].length > 0 ? env['CLINE_DIR'] : undefined,
       detectClients,
       registerClient,
       runGithubConnect: runConnectGithub,
@@ -407,20 +407,16 @@ function asMessage({ error }: { error: unknown }): string {
 const cli = cac('slopweaver');
 
 cli
-  .command(
-    'init',
-    'First-run interactive wizard: register slopweaver in MCP clients and connect integrations',
-  )
+  .command('init', 'First-run interactive wizard: register slopweaver in MCP clients and connect integrations')
   .example('  slopweaver init')
-  .action(() => {
-    runInitCmd()
-      .then((code) => {
-        exit(code);
-      })
-      .catch((error: unknown) => {
-        stderr.write(`slopweaver: ${asMessage({ error })}\n`);
-        exit(1);
-      });
+  .action(async () => {
+    try {
+      const code = await runInitCmd();
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
   });
 
 cli

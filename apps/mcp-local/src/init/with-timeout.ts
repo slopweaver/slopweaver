@@ -32,20 +32,31 @@ export function withTimeout<T, E extends BaseError>({
   clearTimeoutImpl = clearTimeout,
 }: WithTimeoutArgs<T, E>): ResultAsync<T, E | InitTimeoutError> {
   const racedPromise = new Promise<Result<T, E | InitTimeoutError>>((resolve) => {
-    let settled = false;
+    // Use an object wrapper for `settled` rather than a bare `let` so the
+    // typescript-eslint `no-unnecessary-condition` rule can't narrow it to
+    // "always falsy" inside the async IIFE below. The timer callback and the
+    // IIFE race for the resolve(); TS can't model "the timer fired during the
+    // await", so a bare `let settled` would look like an unconditional false.
+    const state = { settled: false };
 
     const timer = setTimeoutImpl(() => {
-      if (settled) return;
-      settled = true;
+      if (state.settled) return;
+      state.settled = true;
       resolve(err(InitErrors.timeout({ timeoutMs })));
     }, timeoutMs);
 
-    void Promise.resolve(operation).then((result) => {
-      if (settled) return;
-      settled = true;
+    // Use an async IIFE rather than `.then(...)` so we don't trip
+    // `oxlint promise/always-return`. The outer Promise contract is "resolve
+    // exactly once" — every code path inside either resolves or short-circuits
+    // on the `state.settled` guard, so there's nothing meaningful to "return"
+    // from a then-callback anyway.
+    void (async () => {
+      const result = await operation;
+      if (state.settled) return;
+      state.settled = true;
       clearTimeoutImpl(timer);
       resolve(result);
-    });
+    })();
   });
 
   return ResultAsync.fromSafePromise(racedPromise).andThen((result) =>
