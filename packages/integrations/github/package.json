@@ -33,6 +33,7 @@
     "@slopweaver/db": "workspace:*",
     "@slopweaver/errors": "workspace:*",
     "@slopweaver/integrations-core": "workspace:*",
+    "@slopweaver/mcp-server": "workspace:*",
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {

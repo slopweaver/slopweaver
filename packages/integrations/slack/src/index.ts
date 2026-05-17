@@ -31,6 +31,7 @@ export {
   type AnySlackMessage,
 } from './mentions.ts';
 export { pollDMs, type PollDMsArgs, type PollResult as PollDMsResult } from './dms.ts';
+export { createSlackPoller, type CreateSlackPollerArgs } from './poller.ts';
 export {
   upsertSlackMessage,
   pickNewestTs,
