@@ -367,7 +367,41 @@ describe('createStartSessionTool', () => {
     expect(slackFreshness?.stale).toBe(false);
 
     // Stderr log format: human-readable, single line, includes slug + error message.
-    expect(stderrSpy).toHaveBeenCalledWith('slopweaver: github poller failed: Error: boom\n');
+    expect(stderrSpy).toHaveBeenCalledWith('slopweaver: github poller failed: boom\n');
+
+    stderrSpy.mockRestore();
+  });
+
+  it('isolates a poller that rejects with a BaseError-shaped plain object — log surfaces the typed .message, not [object Object]', async () => {
+    // Real integration adapters (e.g. `createSlackPoller`) bridge from the
+    // Result world to the StartSessionPoller's Promise contract via
+    // `Promise.reject(slackError)`, where `slackError` is a plain
+    // `{ code, message, ... }` object — not a native Error instance. Guard
+    // against `String(error) === '[object Object]'` for that case.
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const baseErrorShape = {
+      code: 'SLACK_API_ERROR',
+      message: 'auth.test failed: invalid_auth',
+    };
+    const adapterStylePoller: StartSessionPoller = vi.fn(async () => {
+      return Promise.reject(baseErrorShape);
+    });
+
+    const tool = createStartSessionTool({
+      now: () => FIXED_NOW,
+      pollers: { slack: adapterStylePoller },
+    });
+    const raw = await callHandler(tool, { force_refresh: true });
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(adapterStylePoller).toHaveBeenCalledTimes(1);
+    expect(parsed.items).toEqual([]);
+    expect(parsed.freshness).toEqual([{ integration: 'slack', last_polled_at: null, stale: true }]);
+
+    expect(stderrSpy).toHaveBeenCalledWith(
+      'slopweaver: slack poller failed: auth.test failed: invalid_auth\n',
+    );
 
     stderrSpy.mockRestore();
   });
