@@ -73,13 +73,25 @@ to add fields later.
 
 ## Error definition location
 
-Every error interface extends `BaseError` and lives in one of two
-places:
+There are two categories of error shape in this repo:
+
+- **Domain errors** — every domain error interface extends `BaseError` and
+  carries a discriminant `code` field. These live in a per-package
+  `errors.ts` (see (2) below).
+- **Raw boundary-wrapper shapes** — `ApiCallError` and `DatabaseError` are
+  the unmodified output of `safeApiCall` / `safeQuery`. They have an
+  *optional* `code` field (because the upstream SDK may or may not give us
+  one) and intentionally do **not** extend `BaseError`. Service layers
+  typically `.mapErr()` these into a domain-coded error before returning to
+  callers.
+
+Where they live:
 
 1. **Generic / shared errors → `@slopweaver/errors`:**
-   - `BaseError` (the interface every error extends)
-   - `ApiCallError` (raw output of `safeApiCall`)
-   - `DatabaseError` (raw output of `safeQuery`)
+   - `BaseError` (the interface every domain error extends)
+   - `ApiCallError` (raw output of `safeApiCall` — distinct shape, not a
+     subtype of `BaseError`)
+   - `DatabaseError` (raw output of `safeQuery` — same)
    - Constructors and helpers re-exported from neverthrow: `ok`, `err`,
      `okAsync`, `errAsync`, `Result`, `ResultAsync`, `fromThrowable`
 
@@ -303,11 +315,15 @@ file a `decision-record` issue rather than working around it.
 The "no throws at service boundaries" rule has three intentional
 exemptions. Code in any of these places may throw without being a bug:
 
-- **Browser-side data fetchers** (`packages/ui/src/client/api/**`) — React
-  consumers catch via `<ErrorBoundary>`, React Query's `onError`, or
-  SWR's `error` field; all three expect throw-based async. Threading
-  `Result` into the JSX layer would buy nothing and force every render
-  site to `.match()`. The scanner does not cover `packages/ui/src`.
+- **Browser-side data fetchers** (`packages/ui/src/client/api/**`) — the
+  fetcher (e.g. `fetchDiagnostics`) throws on non-2xx; the component's
+  `useEffect` wraps the call in a local `try/catch` and renders an error
+  banner. This is the throw-based async shape React hooks expect, and
+  threading `Result` into the JSX layer would force every render site to
+  `.match()` for no real safety win. (When the UI grows to use
+  `<ErrorBoundary>`, React Query's `onError`, or SWR's `error` field, those
+  are the same shape.) The service-boundary scanner does not cover
+  `packages/ui/src`.
 
 - **CLI entry points** (`apps/*/src/cli.ts`, `packages/cli-tools/src/cli.ts`)
   — these are the boundary where Result is unwrapped via `.match()` and

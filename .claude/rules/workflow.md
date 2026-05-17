@@ -94,10 +94,10 @@ This repo is public. Never commit:
 
 - API keys, OAuth secrets, MCP tokens, bearer tokens
 - Real customer / employer / coworker names
-- HAR files, Polly cassettes, or any HTTP recording with real auth headers
+- HAR files / Polly cassettes that still contain real auth headers, real PII, or any token shape. **Scrubbed cassettes under `packages/integrations/{github,slack}/**/__recordings__/` are explicitly allowlisted** (see @.claude/rules/testing.md "Cassette safety" + the gitignore allow-list); the redactors in `packages/integrations/core/src/test-setup/polly.ts` are the chokepoint. If a cassette ends up with an unredacted secret, **fix the redactor and re-record** — don't just delete the cassette.
 - Personal email addresses (other than `admin@slopweaver.ai` which is the project address)
 
-The `.gitignore` excludes common offenders (`.env*`, `*.har`) but verify any test fixture you add doesn't include real data.
+The `.gitignore` excludes `.env*` outright and blocks `*.har` everywhere except the integration `__recordings__/` allow-list. Verify any test fixture you add doesn't include real data; `pnpm cli check-cassette-quality` catches the most common regression (re-recording against an expired token).
 
 ## Secret scanning is enforced
 
