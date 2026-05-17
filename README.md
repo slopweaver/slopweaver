@@ -70,14 +70,20 @@ command = "npx"
 args = ["-y", "@slopweaver/mcp-local"]
 ```
 
-Then connect your work tools (one-time setup):
+Then connect your work tools (one-time setup). The fastest path is the guided wizard:
+
+```bash
+npx -y @slopweaver/mcp-local init   # detects MCP clients, walks through GitHub + Slack, verifies tokens
+```
+
+Prefer to do it manually?
 
 ```bash
 npx -y @slopweaver/mcp-local connect github   # paste a fine-grained PAT (input is hidden)
 npx -y @slopweaver/mcp-local connect slack    # paste a Slack user token (xoxp-)
 ```
 
-(If you'd rather have `slopweaver` on your PATH directly, `npm install -g @slopweaver/mcp-local` first, then run `slopweaver connect github`.)
+(If you'd rather have `slopweaver` on your PATH directly, `npm install -g @slopweaver/mcp-local` first, then run `slopweaver init`.)
 
 Then ask your client: *"What should I work on next?"* If anything fails, [open an issue](https://github.com/slopweaver/slopweaver/issues/new) — a `doctor` subcommand ships with v1.0.0.
 

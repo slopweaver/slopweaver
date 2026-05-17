@@ -14,14 +14,17 @@
  *   claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
  *
  * After globally installing (`npm install -g @slopweaver/mcp-local`), the
- * `slopweaver` command is available directly. Run `slopweaver connect github`
- * (or `slopweaver connect slack`) to wire up an integration before launching
- * the MCP server.
+ * `slopweaver` command is available directly. The recommended first run is
+ * `slopweaver init` — an interactive wizard that registers slopweaver in
+ * detected MCP clients and walks through connecting GitHub and Slack. The
+ * lower-level `slopweaver connect github` / `slopweaver connect slack`
+ * subcommands remain available for scripted setups.
  */
 
 import { readFileSync } from 'node:fs';
-import { argv, env, exit, stderr, stdout } from 'node:process';
-import { password } from '@inquirer/prompts';
+import { homedir } from 'node:os';
+import { argv, cwd as processCwd, env, exit, stderr, stdout } from 'node:process';
+import { confirm, password, select } from '@inquirer/prompts';
 import { cac } from 'cac';
 import { createDb, loadIntegrationToken, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
@@ -32,7 +35,12 @@ import {
   safeGithubCall,
 } from '@slopweaver/integrations-github';
 import { errAsync } from '@slopweaver/errors';
-import { createSlackClient, createSlackPoller, safeSlackCall } from '@slopweaver/integrations-slack';
+import {
+  createSlackClient,
+  createSlackPoller,
+  fetchIdentity as fetchSlackIdentity,
+  safeSlackCall,
+} from '@slopweaver/integrations-slack';
 import {
   createMcpServer,
   createPingTool,
@@ -43,6 +51,10 @@ import {
 import { DEFAULT_PORT as UI_DEFAULT_PORT, startUiServer, type UiServerHandle } from '@slopweaver/ui';
 import { runConnectGithub } from './connect/github.ts';
 import { runConnectSlack } from './connect/slack.ts';
+import { detectClients } from './init/detect-clients.ts';
+import { registerClient } from './init/register-client.ts';
+import { runInit } from './init/index.ts';
+import { withTimeout } from './init/with-timeout.ts';
 
 // Read the bin's own version from its package.json at runtime. dist/cli.js
 // sits one directory below package.json (apps/mcp-local/package.json in the
@@ -283,6 +295,102 @@ async function runConnect({ integration }: { integration: string }): Promise<num
   }
 }
 
+const INIT_TEST_POLL_TIMEOUT_MS = 10_000;
+
+async function runInitCmd(): Promise<number> {
+  // Mirror runConnect's env contract. A bad NODE_ENV / LOG_LEVEL must reject
+  // here too so init can't silently honour invalid values.
+  const envResult = loadEnv();
+  if (envResult.isErr()) {
+    throw envResult.error;
+  }
+  const dbPathResult = resolveDbPath();
+  if (dbPathResult.isErr()) {
+    throw dbPathResult.error;
+  }
+
+  const dbHandle = createDb({ path: dbPathResult.value });
+  try {
+    const promptForToken = async ({ message }: { message: string }): Promise<string> =>
+      password({ message, mask: true });
+
+    return await runInit({
+      db: dbHandle.db,
+      home: homedir(),
+      cwd: processCwd(),
+      // Respect $CLINE_DIR when set so the wizard probes / writes to the same
+      // path the user's actual Cline install uses. Empty string is treated as
+      // "not set" — same as undefined — because shells often export blank
+      // variables that should be ignored.
+      clineDir: env['CLINE_DIR'] !== undefined && env['CLINE_DIR'].length > 0 ? env['CLINE_DIR'] : undefined,
+      detectClients,
+      registerClient,
+      runGithubConnect: runConnectGithub,
+      runSlackConnect: runConnectSlack,
+      buildGithubConnectDeps: ({ db, stdout: childStdout, stderr: childStderr }) => ({
+        db,
+        promptForToken,
+        validateToken: ({ token }: { token: string }) => {
+          const octokit = createGithubClient({ token });
+          return safeGithubCall({
+            execute: () => octokit.rest.users.getAuthenticated(),
+            endpoint: 'users.getAuthenticated',
+          }).map((res) => ({ login: res.data.login }));
+        },
+        stdout: childStdout,
+        stderr: childStderr,
+      }),
+      buildSlackConnectDeps: ({ db, stdout: childStdout, stderr: childStderr }) => ({
+        db,
+        promptForToken,
+        validateToken: ({ token }: { token: string }) => {
+          const slackResult = createSlackClient({ token });
+          if (slackResult.isErr()) {
+            return errAsync(slackResult.error);
+          }
+          const slack = slackResult.value;
+          return safeSlackCall({
+            execute: () => slack.auth.test(),
+            endpoint: 'auth.test',
+          }).map((auth) => ({ team: auth.team ?? null }));
+        },
+        stdout: childStdout,
+        stderr: childStderr,
+      }),
+      testPollGithub: ({ db, token }) =>
+        withTimeout({
+          operation: fetchGithubIdentity({ db, token }),
+          timeoutMs: INIT_TEST_POLL_TIMEOUT_MS,
+        }),
+      testPollSlack: ({ db, token }) =>
+        withTimeout({
+          operation: fetchSlackIdentity({ db, token }),
+          timeoutMs: INIT_TEST_POLL_TIMEOUT_MS,
+        }),
+      prompt: {
+        confirm: ({ message, defaultValue }) => confirm({ message, default: defaultValue }),
+        selectExistingAction: ({ integration, accountLabel }) => {
+          const label = integration === 'github' ? 'GitHub' : 'Slack';
+          const accountHint = accountLabel === null ? '' : ` (${accountLabel})`;
+          return select<'retest' | 'replace' | 'skip'>({
+            message: `${label} is already connected${accountHint}. What now?`,
+            choices: [
+              { name: 'Re-test the existing token', value: 'retest' },
+              { name: 'Replace with a new token', value: 'replace' },
+              { name: 'Skip', value: 'skip' },
+            ],
+            default: 'retest',
+          });
+        },
+      },
+      stdout,
+      stderr,
+    });
+  } finally {
+    dbHandle.close();
+  }
+}
+
 function asMessage({ error }: { error: unknown }): string {
   // Native Error instances expose `.message` directly. Result-pattern errors
   // (BaseError-shaped plain objects from @slopweaver/errors) also carry a
@@ -297,6 +405,19 @@ function asMessage({ error }: { error: unknown }): string {
 }
 
 const cli = cac('slopweaver');
+
+cli
+  .command('init', 'First-run interactive wizard: register slopweaver in MCP clients and connect integrations')
+  .example('  slopweaver init')
+  .action(async () => {
+    try {
+      const code = await runInitCmd();
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
+  });
 
 cli
   .command('connect <integration>', 'Save a token for an integration (github | slack)')
