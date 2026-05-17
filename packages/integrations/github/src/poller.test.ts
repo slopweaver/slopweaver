@@ -76,10 +76,15 @@ describe('createGithubPoller (cassette)', () => {
     expect(rows.length).toBeGreaterThan(0);
 
     const kinds = new Set(rows.map((r) => r.kind));
-    // At least one of the three kinds must be present — exactly which kinds
-    // depend on whether the recording account had activity of each shape.
-    // `pull_request` is the most reliable on an active maintainer account.
-    expect(kinds.has('pull_request') || kinds.has('issue') || kinds.has('mention')).toBe(true);
+    // The cassette has one `/search/issues` recording that Polly replays for
+    // every sub-poll (matchRequestsBy.query is false), so each of the three
+    // pollers — pollPullRequests, pollIssues, pollMentions — upserts the same
+    // response items with its own `kind`-prefixed external_id. All three
+    // kinds must therefore be present; a missing kind means a sub-poll
+    // didn't run.
+    expect(kinds.has('pull_request')).toBe(true);
+    expect(kinds.has('issue')).toBe(true);
+    expect(kinds.has('mention')).toBe(true);
 
     // Every row that DID land must be kind-prefixed correctly.
     for (const row of rows) {
@@ -113,9 +118,13 @@ describe('createGithubPoller (cassette)', () => {
       .from(integrationState)
       .where(eq(integrationState.integration, 'github'))
       .get();
-    const cursorAfterFirst = stateAfterFirst?.cursor;
-    const completedAfterFirst = stateAfterFirst?.lastPollCompletedAtMs ?? 0;
-    expect(cursorAfterFirst).toBeTypeOf('string');
+    expect(stateAfterFirst).toBeDefined();
+    expect(stateAfterFirst?.cursor).toBeTypeOf('string');
+    expect(stateAfterFirst?.lastPollCompletedAtMs).toBeTypeOf('number');
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    const cursorAfterFirst = stateAfterFirst!.cursor!;
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    const completedAfterFirst = stateAfterFirst!.lastPollCompletedAtMs!;
 
     await poller({ db: dbHandle.db, now: 1_762_500_001_000 });
 
@@ -145,10 +154,13 @@ describe('createGithubPoller (cassette)', () => {
       .from(integrationState)
       .where(eq(integrationState.integration, 'github'))
       .get();
+    expect(stateAfterSecond).toBeDefined();
+    expect(stateAfterSecond?.lastPollStartedAtMs).toBeTypeOf('number');
+    expect(stateAfterSecond?.lastPollCompletedAtMs).toBeTypeOf('number');
     expect(stateAfterSecond?.cursor).toBe(cursorAfterFirst);
-    expect(stateAfterSecond?.lastPollStartedAtMs ?? 0).toBeGreaterThan(completedAfterFirst);
-    expect(stateAfterSecond?.lastPollCompletedAtMs ?? 0).toBeGreaterThanOrEqual(
-      completedAfterFirst,
-    );
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    expect(stateAfterSecond!.lastPollStartedAtMs!).toBeGreaterThan(completedAfterFirst);
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    expect(stateAfterSecond!.lastPollCompletedAtMs!).toBeGreaterThanOrEqual(completedAfterFirst);
   });
 });

@@ -54,9 +54,11 @@ describe('createSlackPoller (cassette)', () => {
       .from(integrationState)
       .where(eq(integrationState.integration, 'slack'))
       .get();
+    expect(state).toBeDefined();
     expect(state?.lastPollStartedAtMs).toBeTypeOf('number');
     expect(state?.lastPollCompletedAtMs).toBeTypeOf('number');
-    expect((state?.lastPollStartedAtMs ?? 0) <= (state?.lastPollCompletedAtMs ?? 0)).toBe(true);
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    expect(state!.lastPollStartedAtMs).toBeLessThanOrEqual(state!.lastPollCompletedAtMs!);
 
     // evidence_log rows depend on the recording account's activity. When any
     // landed, they must be kind in {mention, message} with the expected
@@ -86,7 +88,10 @@ describe('createSlackPoller (cassette)', () => {
       .from(integrationState)
       .where(eq(integrationState.integration, 'slack'))
       .get();
-    const firstCompleted = stateAfterFirst?.lastPollCompletedAtMs ?? 0;
+    expect(stateAfterFirst).toBeDefined();
+    expect(stateAfterFirst?.lastPollCompletedAtMs).toBeTypeOf('number');
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    const firstCompleted = stateAfterFirst!.lastPollCompletedAtMs!;
 
     await poller({ db: dbHandle.db, now: 1_762_500_001_000 });
 
@@ -97,7 +102,12 @@ describe('createSlackPoller (cassette)', () => {
       .get();
     // The second poll must have re-bracketed the integration_state row —
     // proving the closure ran end-to-end again with the cursor it just read.
-    expect(stateAfterSecond?.lastPollCompletedAtMs ?? 0).toBeGreaterThanOrEqual(firstCompleted);
-    expect(stateAfterSecond?.lastPollStartedAtMs ?? 0).toBeGreaterThanOrEqual(firstCompleted);
+    expect(stateAfterSecond).toBeDefined();
+    expect(stateAfterSecond?.lastPollStartedAtMs).toBeTypeOf('number');
+    expect(stateAfterSecond?.lastPollCompletedAtMs).toBeTypeOf('number');
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    expect(stateAfterSecond!.lastPollStartedAtMs!).toBeGreaterThan(firstCompleted);
+    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    expect(stateAfterSecond!.lastPollCompletedAtMs!).toBeGreaterThanOrEqual(firstCompleted);
   });
 });
