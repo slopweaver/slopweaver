@@ -315,7 +315,7 @@ function tryParseJson(json: string): z.infer<typeof EvidenceLogEntry>['payload_j
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'object' && error !== null && 'message' in error) {
-    const message = (error as { message: unknown }).message;
+    const { message } = error;
     if (typeof message === 'string') return message;
   }
   return String(error);

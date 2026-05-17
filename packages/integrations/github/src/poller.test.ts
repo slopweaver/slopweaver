@@ -156,7 +156,8 @@ describe('createGithubPoller (cassette)', () => {
       .get();
     if (!stateAfterSecond) throw new Error('integration_state row should exist after second poll');
     expect(stateAfterSecond.cursor).toBe(cursorAfterFirst);
-    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } = stateAfterSecond;
+    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } =
+      stateAfterSecond;
     if (startedAt2 === null || completedAt2 === null) {
       throw new Error('poll watermarks should be set after a completed poll');
     }

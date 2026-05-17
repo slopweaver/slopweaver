@@ -104,7 +104,8 @@ describe('createSlackPoller (cassette)', () => {
     // The second poll must have re-bracketed the integration_state row —
     // proving the closure ran end-to-end again with the cursor it just read.
     if (!stateAfterSecond) throw new Error('integration_state row should exist after second poll');
-    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } = stateAfterSecond;
+    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } =
+      stateAfterSecond;
     if (startedAt2 === null || completedAt2 === null) {
       throw new Error('poll watermarks should be set after a completed poll');
     }
