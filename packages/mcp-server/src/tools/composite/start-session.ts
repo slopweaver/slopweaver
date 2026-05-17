@@ -259,8 +259,13 @@ function compareRanked(
  *   - unparseable `payload_json` → `payload_json` becomes null
  */
 function shapeRow(row: EvidenceRow, nowMs: number): ShapedEntry | null {
-  const title = (row.title && row.title.length > 0 ? row.title : row.kind) || null;
-  if (title == null) return null;
+  // Both `row.title` and `row.kind` can be empty strings; we want either an
+  // empty-string `title` or an empty-string `kind` to collapse to `null`
+  // (and skip the row). Explicit length checks avoid the `||` / `??` choice
+  // — neither operator gets the empty-string semantics right on its own.
+  const candidate = row.title && row.title.length > 0 ? row.title : row.kind;
+  const title = candidate.length > 0 ? candidate : null;
+  if (title === null) return null;
 
   const ref = buildRef(row);
   const citationUrl = ref.kind === 'url' ? ref.url : null;
