@@ -230,6 +230,9 @@ importers:
       '@slopweaver/integrations-core':
         specifier: workspace:*
         version: link:../core
+      '@slopweaver/mcp-server':
+        specifier: workspace:*
+        version: link:../../mcp-server
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.2.0)
@@ -255,6 +258,9 @@ importers:
       '@slopweaver/integrations-core':
         specifier: workspace:*
         version: link:../core
+      '@slopweaver/mcp-server':
+        specifier: workspace:*
+        version: link:../../mcp-server
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.2.0)

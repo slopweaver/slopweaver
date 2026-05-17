@@ -10,5 +10,7 @@ export {
 } from './errors.ts';
 export { fetchIdentity } from './identity.ts';
 export type { FetchIdentityArgs, FetchIdentityResult } from './identity.ts';
+export { createGithubPoller } from './poller.ts';
+export type { CreateGithubPollerArgs } from './poller.ts';
 export { pollIssues, pollMentions, pollPullRequests } from './polling.ts';
 export type { PollArgs, PollMentionsArgs, PollResult } from './polling.ts';
