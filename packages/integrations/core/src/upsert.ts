@@ -157,11 +157,7 @@ export function readCursor({
 }): ResultAsync<string | null, DatabaseError> {
   return safeQuery({
     execute: () => {
-      const row = db
-        .select()
-        .from(integrationState)
-        .where(eq(integrationState.integration, integration))
-        .get();
+      const row = db.select().from(integrationState).where(eq(integrationState.integration, integration)).get();
       return row?.cursor ?? null;
     },
   });

@@ -9,14 +9,14 @@ describe('runDoctor (interactive contract)', () => {
   let tempHome: string | null = null;
 
   beforeEach(() => {
-    originalHome = process.env.HOME;
+    originalHome = process.env['HOME'];
     tempHome = mkdtempSync(join(tmpdir(), 'slopweaver-rundoctor-'));
-    process.env.HOME = tempHome;
+    process.env['HOME'] = tempHome;
   });
 
   afterEach(() => {
     if (originalHome !== undefined) {
-      process.env.HOME = originalHome;
+      process.env['HOME'] = originalHome;
     }
     if (tempHome) {
       rmSync(tempHome, { recursive: true, force: true });

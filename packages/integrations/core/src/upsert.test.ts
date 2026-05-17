@@ -121,11 +121,7 @@ describe('integration_state helpers', () => {
     const result = await markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
     expect(result.isOk()).toBe(true);
 
-    const row = handle.db
-      .select()
-      .from(integrationState)
-      .where(eq(integrationState.integration, 'github'))
-      .get();
+    const row = handle.db.select().from(integrationState).where(eq(integrationState.integration, 'github')).get();
     expect(row).toMatchObject({
       integration: 'github',
       cursor: null,
@@ -140,11 +136,7 @@ describe('integration_state helpers', () => {
     await markPollStarted({ db: handle.db, integration: 'github', now: 1000 });
     await markPollStarted({ db: handle.db, integration: 'github', now: 2000 });
 
-    const row = handle.db
-      .select()
-      .from(integrationState)
-      .where(eq(integrationState.integration, 'github'))
-      .get();
+    const row = handle.db.select().from(integrationState).where(eq(integrationState.integration, 'github')).get();
     expect(row?.lastPollStartedAtMs).toBe(2000);
     expect(row?.updatedAtMs).toBe(2000);
     expect(row?.createdAtMs).toBe(1000);
@@ -160,11 +152,7 @@ describe('integration_state helpers', () => {
     });
     expect(result.isOk()).toBe(true);
 
-    const row = handle.db
-      .select()
-      .from(integrationState)
-      .where(eq(integrationState.integration, 'github'))
-      .get();
+    const row = handle.db.select().from(integrationState).where(eq(integrationState.integration, 'github')).get();
     expect(row).toMatchObject({
       cursor: '2026-05-01T00:00:00Z',
       lastPollCompletedAtMs: 1500,

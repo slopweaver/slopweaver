@@ -46,11 +46,7 @@ function formatHostForUrl({ host }: { host: string }): string {
  * the browser bar are not 403'd. Anything else (different host or port) is
  * cross-origin and rejected — baseline DNS-rebinding protection.
  */
-function getAllowedOrigins({
-  bindAddress,
-}: {
-  bindAddress: { host: string; port: number };
-}): Set<string> {
+function getAllowedOrigins({ bindAddress }: { bindAddress: { host: string; port: number } }): Set<string> {
   const origins = new Set<string>();
   origins.add(`http://${formatHostForUrl({ host: bindAddress.host })}:${bindAddress.port}`);
   origins.add(`http://localhost:${bindAddress.port}`);
@@ -72,6 +68,16 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
+/**
+ * Start the local Diagnostics web server. Binds to `host:port` (defaults
+ * `127.0.0.1:60701`), serves the React SPA + the read-only `/api/diagnostics`
+ * JSON endpoint, and applies a basic same-origin + DNS-rebinding guard on
+ * `/api/*` requests. Returns a handle whose `url`/`address` reflect the
+ * actual bound port (relevant when `port: 0` is passed in tests).
+ *
+ * @returns a `UiServerHandle` with the live URL plus a `close()` that
+ *   resolves once the underlying HTTP server has shut down.
+ */
 export async function startUiServer(opts: StartUiServerOptions): Promise<UiServerHandle> {
   const requestedHost = opts.host ?? DEFAULT_HOST;
   const requestedPort = opts.port ?? DEFAULT_PORT;
@@ -83,9 +89,7 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   // when callers pass `port: 0` (tests).
   const bindAddress = { host: requestedHost, port: requestedPort };
 
-  const server = createServer(
-    createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress }),
-  );
+  const server = createServer(createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress }));
 
   await listen({ server, port: requestedPort, host: requestedHost });
 
@@ -108,19 +112,11 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   };
 }
 
-function listen({
-  server,
-  port,
-  host,
-}: {
-  server: Server;
-  port: number;
-  host: string;
-}): Promise<void> {
+async function listen({ server, port, host }: { server: Server; port: number; host: string }): Promise<void> {
   return new Promise((resolveListen, rejectListen) => {
     const onError = (err: unknown): void => {
       server.removeListener('listening', onListening);
-      rejectListen(err);
+      rejectListen(err instanceof Error ? err : new Error(String(err)));
     };
     const onListening = (): void => {
       server.removeListener('error', onError);
@@ -291,15 +287,7 @@ function fileExists({ path }: { path: string }): boolean {
   }
 }
 
-function writeText({
-  res,
-  status,
-  body,
-}: {
-  res: ServerResponse;
-  status: number;
-  body: string;
-}): void {
+function writeText({ res, status, body }: { res: ServerResponse; status: number; body: string }): void {
   res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
   res.end(body);
 }

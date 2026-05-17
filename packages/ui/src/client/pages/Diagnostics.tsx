@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react';
+import { type ReactElement, useEffect, useState } from 'react';
 import { fetchDiagnostics } from '../api/diagnostics.ts';
 import type { DiagnosticsResponse, EnvCheck, IntegrationStatus } from '../api/diagnostics.ts';
 
 const POLL_INTERVAL_MS = 30_000;
 
-export function Diagnostics() {
+/**
+ * The Diagnostics page: polls `/api/diagnostics` every 30s and renders the
+ * env-check banner, integration-status table, and a top-of-page error
+ * banner when the fetch itself fails. Skips overlapping polls so a slow
+ * response can't overwrite the newer state.
+ */
+export function Diagnostics(): ReactElement {
   const [data, setData] = useState<DiagnosticsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,21 +58,19 @@ export function Diagnostics() {
     <main className="diagnostics">
       <header>
         <h1>SlopWeaver Diagnostics</h1>
-        <p className="hint">
-          {data ? `Updated ${new Date(data.generatedAtMs).toLocaleTimeString()}` : 'No data yet'}
-        </p>
+        <p className="hint">{data ? `Updated ${new Date(data.generatedAtMs).toLocaleTimeString()}` : 'No data yet'}</p>
       </header>
       {error !== null && (
         <div role="alert" className="banner banner--error">
           /api/diagnostics: {error}
         </div>
       )}
-      {data && <DiagnosticsBody data={data} />}
+      {data !== null && <DiagnosticsBody data={data} />}
     </main>
   );
 }
 
-function DiagnosticsBody({ data }: { data: DiagnosticsResponse }) {
+function DiagnosticsBody({ data }: { data: DiagnosticsResponse }): ReactElement {
   return (
     <>
       <section>
@@ -103,7 +107,7 @@ function DiagnosticsBody({ data }: { data: DiagnosticsResponse }) {
   );
 }
 
-function CheckRow({ check }: { check: EnvCheck }) {
+function CheckRow({ check }: { check: EnvCheck }): ReactElement {
   return (
     <p className={`check check--${check.status}`}>
       <span className="check__name">{check.name}</span>
@@ -113,7 +117,7 @@ function CheckRow({ check }: { check: EnvCheck }) {
   );
 }
 
-function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }) {
+function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }): ReactElement {
   return (
     <table className="integrations">
       <thead>
@@ -126,8 +130,7 @@ function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }) {
       </thead>
       <tbody>
         {rows.map((r) => {
-          const status =
-            r.lastPollCompletedAtMs === null ? 'never run' : r.stale ? 'stale' : 'fresh';
+          const status = r.lastPollCompletedAtMs === null ? 'never run' : r.stale ? 'stale' : 'fresh';
           const badge = status === 'fresh' ? 'ok' : status === 'never run' ? 'warn' : 'fail';
           return (
             <tr key={r.integration}>

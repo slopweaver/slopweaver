@@ -32,7 +32,7 @@ export function resolveDataDir({
   home?: string;
   xdgDataHome?: string;
 } = {}): Result<string, DataPathInvalidError> {
-  const resolvedXdgDataHome = xdgDataHome ?? process.env.XDG_DATA_HOME;
+  const resolvedXdgDataHome = xdgDataHome ?? process.env['XDG_DATA_HOME'];
 
   if (resolvedXdgDataHome) {
     if (!isAbsolute(resolvedXdgDataHome)) {

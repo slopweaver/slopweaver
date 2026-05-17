@@ -34,11 +34,7 @@ import type { DatabaseError } from '@slopweaver/errors';
 import { ResultAsync } from '@slopweaver/errors';
 import { extractSqliteErrorShape } from './sqlite-error.ts';
 
-export function safeQuery<T>({
-  execute,
-}: {
-  execute: () => Promise<T> | T;
-}): ResultAsync<T, DatabaseError> {
+export function safeQuery<T>({ execute }: { execute: () => Promise<T> | T }): ResultAsync<T, DatabaseError> {
   return ResultAsync.fromPromise(
     Promise.resolve().then(execute),
     (error): DatabaseError => mapDatabaseError({ error }),
@@ -49,11 +45,7 @@ function mapDatabaseError({ error }: { error: unknown }): DatabaseError {
   const shape = extractSqliteErrorShape({ error });
 
   const fallbackMessage =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : 'Database operation failed';
+    error instanceof Error ? error.message : typeof error === 'string' ? error : 'Database operation failed';
 
   return {
     cause: error,

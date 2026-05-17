@@ -1,0 +1,129 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // Bug-catching categories only. Excluded by design:
+  //   - nursery / pedantic / restriction / style: too noisy, too opinionated.
+  // Severity is `warn` so individual rules can be bumped to `error` explicitly.
+  "categories": {
+    "correctness": "warn",
+    "perf": "warn",
+    "suspicious": "warn"
+  },
+
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "node": true
+  },
+
+  "ignorePatterns": [
+    "**/__recordings__/**",
+    "**/.turbo/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/dist/**",
+    "**/generated/**",
+    "**/node_modules/**",
+    "**/out/**"
+  ],
+
+  "plugins": ["eslint", "import", "node", "oxc", "promise", "react", "typescript", "unicorn", "vitest"],
+
+  "rules": {
+    // CHERRY-PICKED from pedantic/restriction. Bug prevention, not style.
+    // Missing return in .map(), .filter(), .reduce() callbacks → silent data loss.
+    "array-callback-return": "warn",
+    // MCP protocol fields use leading-underscore (`_meta`, `_serializeError`).
+    "eslint/no-underscore-dangle": "allow",
+    // Named exports as default are a valid pattern in this repo.
+    "import/no-named-as-default": "allow",
+    // CSS / test-setup side-effect imports are legitimate.
+    "import/no-unassigned-import": "allow",
+    // Hard-fail on `.only` / `.skip` — see .claude/rules/testing.md.
+    // Oxlint reports these under the `vitest/*` prefix at runtime; the rule
+    // ID accepts either prefix in config but `vitest/` aligns with what
+    // disable comments need to spell.
+    "vitest/no-disabled-tests": "error",
+    "vitest/no-focused-tests": "error",
+    // Many legitimate sequential loops (pagination, transaction safety).
+    "no-await-in-loop": "allow",
+    // Returning from constructor is almost always a bug.
+    "no-constructor-return": "warn",
+    // Biome's organizeImports handles dedup; no need for triple coverage.
+    "no-duplicate-imports": "allow",
+    // Missing break in switch cases is a classic bug.
+    "no-fallthrough": "warn",
+    // `x === x` is always true (except NaN) — usually a typo.
+    "no-self-compare": "warn",
+    // tsc owns this via noUnusedLocals / noUnusedParameters (see .claude/rules/code-quality.md).
+    "no-unused-vars": "allow",
+    // `<button>` without type defaults to "submit" — accidental form submissions.
+    "react/button-has-type": "warn",
+    // Modern JSX transform doesn't need React in scope.
+    "react/react-in-jsx-scope": "allow",
+    // Inner functions are fine; the unicorn warning here is overly pedantic.
+    "unicorn/consistent-function-scoping": "allow",
+    // `.toSorted()` is ES2023; our tsc lib is ES2022 (no `.toSorted` types).
+    // Revisit when bumping the lib target.
+    "unicorn/no-array-sort": "allow",
+    // `!foo === bar` — operator precedence bug (the author meant `foo !== bar`).
+    "unicorn/no-negation-in-equality-check": "warn",
+    // CLI tools and scripts legitimately call `process.exit`.
+    "unicorn/no-process-exit": "allow",
+    // Unnecessary Promise.resolve()/reject() wrapping (informational).
+    "unicorn/no-useless-promise-resolve-reject": "warn",
+    // The typescript-eslint flat-config merge idiom spreads a config inside
+    // `.map()` — `eslint.config.js:104`. That's a one-off allocation at
+    // startup, not a hot loop. False positive for our use.
+    "oxc/no-map-spread": "allow"
+  },
+
+  "overrides": [
+    {
+      // Test ergonomics: tests intentionally exercise `any`, non-null
+      // assertions on test fixtures, and the `if (result.isOk()) { expect... }`
+      // pattern that triggers no-conditional-expect under our neverthrow
+      // assertion style. `require-mock-type-parameters` would force every
+      // `vi.fn()` to carry a generic — friction without payoff.
+      // See .claude/rules/testing.md (assertion preferences) and
+      // .claude/rules/code-quality.md (ownership table).
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+      "rules": {
+        "require-await": "allow",
+        "typescript/no-explicit-any": "allow",
+        "typescript/no-non-null-assertion": "allow",
+        "vitest/no-conditional-expect": "allow",
+        "vitest/require-mock-type-parameters": "allow"
+      }
+    },
+    {
+      // CommonJS config files (`.cjs`) legitimately use `require()` and
+      // `module.exports`; there's no ESM equivalent that interops with all
+      // tooling.
+      "files": ["**/*.cjs"],
+      "rules": {
+        "typescript/no-require-imports": "allow"
+      }
+    },
+    {
+      // The Result→throw-API boundary helper. `rejectBoundaryError` is the
+      // sole sanctioned bridge between neverthrow `Result` chains (service
+      // code, where `throw` is forbidden by check-service-boundaries) and
+      // the `Promise<void>` callback shape the host expects from a
+      // StartSessionPoller. `Promise.reject(...)` inside an `async` function
+      // is semantically a throw — Oxlint correctly notes this — but here
+      // we can't actually use `throw` because the file lives inside
+      // `packages/integrations/core/src/` which check-service-boundaries
+      // scans. Centralizing the carve-out in one helper means callers
+      // (`packages/integrations/{github,slack}/src/poller.ts`) carry no
+      // per-line disables of their own. See .claude/rules/error-handling.md
+      // "Boundary translation back to throws".
+      "files": ["**/packages/integrations/core/src/boundary.ts"],
+      "rules": {
+        "unicorn/no-useless-promise-resolve-reject": "allow"
+      }
+    }
+  ],
+
+  "settings": {}
+}

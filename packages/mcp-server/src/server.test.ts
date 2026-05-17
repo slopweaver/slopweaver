@@ -80,9 +80,7 @@ describe('createMcpServer + ping', () => {
       name: 'echo',
       description: 'Returns the message and a length.',
       inputSchema: z.object({ message: z.string().min(1) }).strict(),
-      outputSchema: z
-        .object({ message: z.string(), length: z.number().int().nonnegative() })
-        .strict(),
+      outputSchema: z.object({ message: z.string(), length: z.number().int().nonnegative() }).strict(),
       handler: async ({ input }) => ok({ message: input.message, length: input.message.length }),
     });
 
@@ -107,9 +105,7 @@ describe('createMcpServer + ping', () => {
       expect(echo?.inputSchema.required).toContain('message');
 
       expect(echo?.outputSchema?.type).toBe('object');
-      expect(Object.keys(echo?.outputSchema?.properties ?? {})).toEqual(
-        expect.arrayContaining(['message', 'length']),
-      );
+      expect(Object.keys(echo?.outputSchema?.properties ?? {})).toEqual(expect.arrayContaining(['message', 'length']));
     } finally {
       await client.close();
       await server.close();
@@ -154,17 +150,17 @@ describe('createMcpServer + ping', () => {
       // Wrong type for `name`.
       const wrongType = await client.callTool({
         name: 'require-name',
-        arguments: { name: 42 } as unknown as Record<string, unknown>,
+        arguments: { name: 42 },
       });
       expect(wrongType.isError).toBe(true);
       expect(handlerCalled).toBe(0);
 
       // Sanity-check: a valid call DOES invoke the handler.
-      const ok = await client.callTool({
+      const okCall = await client.callTool({
         name: 'require-name',
         arguments: { name: 'world' },
       });
-      expect(ok.isError).toBeUndefined();
+      expect(okCall.isError).toBeUndefined();
       expect(handlerCalled).toBe(1);
     } finally {
       await client.close();

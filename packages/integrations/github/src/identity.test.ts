@@ -28,11 +28,7 @@ describe('fetchIdentity', () => {
     const { canonicalId, externalId } = result.value;
     expect(canonicalId).toBe(`github:${externalId}`);
 
-    const row = handle.db
-      .select()
-      .from(identityGraph)
-      .where(eq(identityGraph.integration, 'github'))
-      .get();
+    const row = handle.db.select().from(identityGraph).where(eq(identityGraph.integration, 'github')).get();
     expect(row).toMatchObject({
       canonicalId,
       integration: 'github',
@@ -47,19 +43,11 @@ describe('fetchIdentity', () => {
   it('on second call updates mutable fields but preserves createdAtMs', async () => {
     const first = await fetchIdentity({ db: handle.db, token: REPLAY_TOKEN, now: () => 1000 });
     expect(first.isOk()).toBe(true);
-    const before = handle.db
-      .select()
-      .from(identityGraph)
-      .where(eq(identityGraph.integration, 'github'))
-      .get();
+    const before = handle.db.select().from(identityGraph).where(eq(identityGraph.integration, 'github')).get();
 
     const second = await fetchIdentity({ db: handle.db, token: REPLAY_TOKEN, now: () => 2000 });
     expect(second.isOk()).toBe(true);
-    const after = handle.db
-      .select()
-      .from(identityGraph)
-      .where(eq(identityGraph.integration, 'github'))
-      .get();
+    const after = handle.db.select().from(identityGraph).where(eq(identityGraph.integration, 'github')).get();
 
     expect(after?.createdAtMs).toBe(before?.createdAtMs);
     expect(after?.updatedAtMs).toBe(2000);

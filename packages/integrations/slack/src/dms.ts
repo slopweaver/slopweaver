@@ -19,11 +19,7 @@
  * `DatabaseError` mapped to `SlackDatabaseError` via `fromDatabaseError`.
  */
 
-import type {
-  ConversationsHistoryResponse,
-  ConversationsListResponse,
-  WebClient,
-} from '@slack/web-api';
+import type { ConversationsHistoryResponse, ConversationsListResponse, WebClient } from '@slack/web-api';
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import { err, ok, type Result, ResultAsync } from '@slopweaver/errors';
 import { markPollCompleted, markPollStarted } from '@slopweaver/integrations-core';
@@ -64,9 +60,7 @@ async function pollDMsInner({
   client,
   now = Date.now,
 }: PollDMsArgs): Promise<Result<PollResult, SlackError>> {
-  const slackResult: Result<WebClient, SlackTokenInvalidError> = client
-    ? ok(client)
-    : createSlackClient({ token });
+  const slackResult: Result<WebClient, SlackTokenInvalidError> = client ? ok(client) : createSlackClient({ token });
   if (slackResult.isErr()) return err(slackResult.error);
   const slack = slackResult.value;
 
@@ -80,7 +74,7 @@ async function pollDMsInner({
   });
   if (authResult.isErr()) return err(authResult.error);
   const auth = authResult.value;
-  // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
+  // non-null: SDK contract guarantees team_id on ok:true
   const teamId = auth.team_id!;
   const workspaceUrl = auth.url ?? null;
 

@@ -21,12 +21,7 @@ import { identityGraph, safeQuery, type SlopweaverDatabase } from '@slopweaver/d
 import { errAsync, ok, type Result, type ResultAsync } from '@slopweaver/errors';
 import { sql } from 'drizzle-orm';
 import { createSlackClient } from './client.ts';
-import {
-  fromDatabaseError,
-  safeSlackCall,
-  type SlackError,
-  type SlackTokenInvalidError,
-} from './errors.ts';
+import { fromDatabaseError, safeSlackCall, type SlackError, type SlackTokenInvalidError } from './errors.ts';
 
 const INTEGRATION = 'slack';
 
@@ -48,9 +43,7 @@ export function fetchIdentity({
   client,
   now = Date.now,
 }: FetchIdentityArgs): ResultAsync<FetchIdentityResult, SlackError> {
-  const slackResult: Result<WebClient, SlackTokenInvalidError> = client
-    ? ok(client)
-    : createSlackClient({ token });
+  const slackResult: Result<WebClient, SlackTokenInvalidError> = client ? ok(client) : createSlackClient({ token });
   if (slackResult.isErr()) return errAsync(slackResult.error);
   const slack = slackResult.value;
 
@@ -59,9 +52,9 @@ export function fetchIdentity({
     endpoint: 'auth.test',
   })
     .andThen((auth) => {
-      // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees user_id on ok:true
+      // non-null: SDK contract guarantees user_id on ok:true
       const userId = auth.user_id!;
-      // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
+      // non-null: SDK contract guarantees team_id on ok:true
       const teamId = auth.team_id!;
       const canonicalId = `${INTEGRATION}:${teamId}:${userId}`;
       const profileUrl = auth.url ? `${stripTrailingSlash(auth.url)}/team/${userId}` : null;
@@ -74,7 +67,12 @@ export function fetchIdentity({
       const user = usersInfo.user;
       const profile = user?.profile;
       const username = user?.name ?? auth.user ?? null;
-      const displayName = profile?.display_name?.trim() || profile?.real_name?.trim() || null;
+      // `||` (not `??`) is intentional: empty-string display_name must fall
+      // through to real_name. Helper normalizes `'' | undefined` → `null` so
+      // `??` works the same way without the unsafe-falsy surprise.
+      const displayName =
+        normalizeOptionalString({ value: profile?.display_name }) ??
+        normalizeOptionalString({ value: profile?.real_name });
       const stamp = now();
 
       return safeQuery({
@@ -109,4 +107,16 @@ export function fetchIdentity({
 
 function stripTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+/**
+ * Trim a possibly-empty optional string down to `string | null`. Slack profile
+ * fields like `display_name` and `real_name` can be either missing or the
+ * literal empty string; for the identity-row contract we want both to collapse
+ * to `null` so `??` cleanly chains a fallback.
+ */
+function normalizeOptionalString({ value }: { value: string | null | undefined }): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
