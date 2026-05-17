@@ -38,8 +38,11 @@ import {
   safeSlackCall,
 } from '@slopweaver/integrations-slack';
 import {
+  createCatchMeUpTool,
+  createGetFreshnessTool,
   createMcpServer,
   createPingTool,
+  createSearchWorkContextTool,
   createStartSessionTool,
   type StartSessionPoller,
   startStdio,
@@ -163,7 +166,13 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
   const server = createMcpServer({
     db: dbHandle.db,
     version: VERSION,
-    tools: [createPingTool({ version: VERSION, startedAtMs }), createStartSessionTool({ pollers })],
+    tools: [
+      createPingTool({ version: VERSION, startedAtMs }),
+      createStartSessionTool({ pollers }),
+      createGetFreshnessTool(),
+      createCatchMeUpTool(),
+      createSearchWorkContextTool(),
+    ],
   });
 
   // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:

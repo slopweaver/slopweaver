@@ -95,3 +95,51 @@ export const StartSessionResult = z
   })
   .strict();
 export type StartSessionResult = z.infer<typeof StartSessionResult>;
+
+export const GetFreshnessArgs = z.object({}).strict();
+export type GetFreshnessArgs = z.infer<typeof GetFreshnessArgs>;
+
+export const GetFreshnessResult = z
+  .object({
+    freshness: z.array(Freshness),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type GetFreshnessResult = z.infer<typeof GetFreshnessResult>;
+
+export const CatchMeUpArgs = z
+  .object({
+    since: IsoDatetimeSchema,
+  })
+  .strict();
+export type CatchMeUpArgs = z.infer<typeof CatchMeUpArgs>;
+
+export const CatchMeUpResult = z
+  .object({
+    evidence: z.array(EvidenceLogEntry),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type CatchMeUpResult = z.infer<typeof CatchMeUpResult>;
+
+export const SearchWorkContextArgs = z
+  .object({
+    query: NonEmptyStringSchema,
+    filters: z
+      .object({
+        integration: NonEmptyStringSchema.optional(),
+        kind: NonEmptyStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type SearchWorkContextArgs = z.infer<typeof SearchWorkContextArgs>;
+
+export const SearchWorkContextResult = z
+  .object({
+    evidence: z.array(EvidenceLogEntry),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;

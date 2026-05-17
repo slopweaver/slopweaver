@@ -15,6 +15,13 @@
       "when": 1778074475311,
       "tag": "0001_solid_whirlwind",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779003614505,
+      "tag": "0002_evidence_log_fts5",
+      "breakpoints": true
     }
   ]
 }
