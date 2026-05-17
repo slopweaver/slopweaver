@@ -585,7 +585,7 @@ sequenceDiagram
 - **`apps/mcp-local`'s smoke test spawns the real `dist/cli.js`** — make sure the build succeeded before running it; failures often manifest as opaque ENOENTs.
 - **The orchestration `pnpm cli worktree-new` recursion**: the orchestration runtime shells out to the same CLI binary to create worktrees. Don't introduce circular state in `cli.ts` init.
 - **`SLOPWEAVER_WEB_UI_PORT` parses strictly** — `"60701junk"` is rejected. Use `--no-web-ui` to skip the Diagnostics server in headless setups.
-- **`identity_graph` is NOT written during `connect`** — only the polling layer writes there. `connect` writes only `integration_tokens`. This matters because `connect` is intended to be re-runnable.
+- **`identity_graph` is NOT written during `connect`** — `connect` writes only `integration_tokens` so it stays re-runnable without leaving graph-state debris on a typo. `identity_graph` is written by the GitHub `fetchIdentity` call at `runMcpServer` startup (token validation + username resolution for the github poller) and by the polling layer itself.
 - **The `_team_id` field** is injected into the stored Slack `payload_json` by `upsertSlackMessage` so consumers can resolve workspaces without a separate join.
 
 ---
