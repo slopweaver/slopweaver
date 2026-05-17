@@ -114,6 +114,24 @@
       "rules": {
         "typescript/no-require-imports": "allow"
       }
+    },
+    {
+      // The Result→throw-API boundary helper. `rejectBoundaryError` is the
+      // sole sanctioned bridge between neverthrow `Result` chains (service
+      // code, where `throw` is forbidden by check-service-boundaries) and
+      // the `Promise<void>` callback shape the host expects from a
+      // StartSessionPoller. `Promise.reject(...)` inside an `async` function
+      // is semantically a throw — Oxlint correctly notes this — but here
+      // we can't actually use `throw` because the file lives inside
+      // `packages/integrations/core/src/` which check-service-boundaries
+      // scans. Centralizing the carve-out in one helper means callers
+      // (`packages/integrations/{github,slack}/src/poller.ts`) carry no
+      // per-line disables of their own. See .claude/rules/error-handling.md
+      // "Boundary translation back to throws".
+      "files": ["**/packages/integrations/core/src/boundary.ts"],
+      "rules": {
+        "unicorn/no-useless-promise-resolve-reject": "allow"
+      }
     }
   ],
 

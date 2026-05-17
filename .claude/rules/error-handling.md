@@ -223,6 +223,28 @@ boundary helper inside the dispatcher to convert `Err` into an
 output schema to a success/error union — the dispatcher does the
 translation in one place.
 
+**Throw-API callback consumers** (the integration pollers wired into
+`StartSessionPoller`, which is typed `(args) => Promise<void>` with no
+error channel) bridge through one shared helper:
+
+```ts
+import { rejectBoundaryError } from '@slopweaver/integrations-core';
+
+// inside an `async` poller callback:
+if (result.isErr()) {
+  return rejectBoundaryError({ error: result.error });
+}
+```
+
+`rejectBoundaryError` lives in `packages/integrations/core/src/boundary.ts`
+and is the SOLE sanctioned `Promise.reject(new Error(..., { cause }))`
+in the codebase. The `.cause` chain preserves the typed Result error
+for diagnostics; the wrapping `Error` gives the catching cron loop a
+proper stack. Per-poller-file disables of
+`unicorn/no-useless-promise-resolve-reject` aren't needed because the
+disable is scoped to that one helper file in `.oxlintrc.jsonc`. Future
+poller adapters: use the helper, don't reinvent.
+
 ## External calls
 
 For any SDK / HTTP call, use `safeApiCall` from `@slopweaver/errors`:

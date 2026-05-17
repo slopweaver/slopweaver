@@ -102,7 +102,7 @@ async function runSearchInner({
   if (responseResult.isErr()) return err(responseResult.error);
   const { data } = responseResult.value;
 
-  const items = data.items ?? [];
+  const items = data.items;
   const observedAt = now();
 
   for (const item of items) {

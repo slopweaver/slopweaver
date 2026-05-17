@@ -74,7 +74,12 @@ export function fetchIdentity({
       const user = usersInfo.user;
       const profile = user?.profile;
       const username = user?.name ?? auth.user ?? null;
-      const displayName = profile?.display_name?.trim() || profile?.real_name?.trim() || null;
+      // `||` (not `??`) is intentional: empty-string display_name must fall
+      // through to real_name. Helper normalizes `'' | undefined` → `null` so
+      // `??` works the same way without the unsafe-falsy surprise.
+      const displayName =
+        normalizeOptionalString({ value: profile?.display_name }) ??
+        normalizeOptionalString({ value: profile?.real_name });
       const stamp = now();
 
       return safeQuery({
@@ -109,4 +114,16 @@ export function fetchIdentity({
 
 function stripTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+/**
+ * Trim a possibly-empty optional string down to `string | null`. Slack profile
+ * fields like `display_name` and `real_name` can be either missing or the
+ * literal empty string; for the identity-row contract we want both to collapse
+ * to `null` so `??` cleanly chains a fallback.
+ */
+function normalizeOptionalString({ value }: { value: string | null | undefined }): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }

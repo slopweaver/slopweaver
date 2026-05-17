@@ -192,10 +192,10 @@ function defaultGetCodexHealth(): CodexHealthResult {
   }
   if (result.signal === 'SIGTERM') return { kind: 'timeout' };
   if (result.status !== 0) {
-    const detail = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+    const detail = `${result.stdout}${result.stderr}`.trim();
     return { kind: 'unhealthy', detail };
   }
-  const summary = (result.stdout ?? '')
+  const summary = result.stdout
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)

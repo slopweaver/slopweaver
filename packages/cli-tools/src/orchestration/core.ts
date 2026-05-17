@@ -76,11 +76,72 @@ interface RuntimePlan {
   worktreeName: string;
 }
 
-// Bounded input: regexes below run only over authored markdown headings
-// (~80 chars), never user input — ReDoS warnings are false positives.
-const STEP_HEADING_REGEX =
-  /^(#{2,4})\s+Step\s+(\d+):\s+(.+?)(?:\s+\((codex-plan|codex-send|claude-implement|codex-review)\))?\s*$/; // eslint-disable-line regexp/no-super-linear-backtracking
-const VARIABLE_REGEX = /^- `\{([^}]+)\}`:\s*(.+)$/; // eslint-disable-line regexp/no-super-linear-backtracking
+/**
+ * Parse a markdown step heading like `## Step 1: Title` or `## Step 1: Title (codex-plan)`.
+ *
+ * Returns `null` when the line isn't a recognized heading. Heading level
+ * must be ##, ###, or ####. The title is everything between `Step N:` and
+ * (optionally) a trailing ` (role)` suffix where `role` is one of the
+ * defined orchestration roles.
+ *
+ * Hand-rolled string parsing instead of regex because the equivalent regex
+ * has overlapping quantifiers (`\s+` next to `.+?`) that trigger
+ * `regexp/no-super-linear-backtracking`. The inputs here come from authored
+ * chain markdown so the regex was safe in practice, but rewriting avoids
+ * the disable-comment.
+ */
+export function parseStepHeading(
+  line: string,
+): { headingLevel: number; index: number; title: string; role: OrchestrationRole | null } | null {
+  // Count leading `#`s (must be 2-4).
+  let hashCount = 0;
+  while (hashCount < line.length && line[hashCount] === '#') hashCount += 1;
+  if (hashCount < 2 || hashCount > 4) return null;
+
+  // Require `<spaces>Step <digits>:` after the hashes.
+  const afterHashes = line.slice(hashCount);
+  const stepPrefix = afterHashes.match(/^[ \t]+Step[ \t]+(\d+):[ \t]+/);
+  if (!stepPrefix?.[1]) return null;
+  const index = Number(stepPrefix[1]);
+  const titleStart = stepPrefix[0].length;
+
+  // Peel optional trailing ` (role)` suffix; whitespace before the paren is required.
+  const titleAndMaybeRole = afterHashes.slice(titleStart).trimEnd();
+  let title = titleAndMaybeRole;
+  let role: OrchestrationRole | null = null;
+  const roleSuffix = titleAndMaybeRole.match(
+    /[ \t]+\((codex-plan|codex-send|claude-implement|codex-review)\)$/,
+  );
+  if (roleSuffix?.[1]) {
+    role = roleSuffix[1] as OrchestrationRole;
+    title = titleAndMaybeRole.slice(0, -roleSuffix[0].length).trimEnd();
+  }
+  if (title.length === 0) return null;
+
+  return { headingLevel: hashCount, index, title, role };
+}
+
+/**
+ * Parse a chain-variable line like `` - `{worktree}`: my-feature `` or
+ * `` - `{worktree}`: `my-feature` `` (inline-code-wrapped value).
+ *
+ * Returns `null` when the line isn't a recognized variable declaration.
+ */
+export function parseVariableLine(line: string): { key: string; rawValue: string } | null {
+  const prefix = '- `{';
+  if (!line.startsWith(prefix)) return null;
+  const delimiter = '}`:';
+  const delimiterIdx = line.indexOf(delimiter, prefix.length);
+  if (delimiterIdx === -1) return null;
+
+  const key = line.slice(prefix.length, delimiterIdx);
+  if (key.length === 0 || key.includes('}')) return null;
+
+  const rawValue = line.slice(delimiterIdx + delimiter.length).trim();
+  if (rawValue.length === 0) return null;
+
+  return { key, rawValue };
+}
 
 function normalizeVariableValue({ rawValue }: { rawValue: string }): string {
   const trimmedValue = rawValue.trim();
@@ -239,16 +300,11 @@ export function parseOrchestrationChain({
       return;
     }
 
-    const headingMatch = line.match(STEP_HEADING_REGEX);
-    if (headingMatch) {
+    const heading = parseStepHeading(line);
+    if (heading) {
       finalizeStep({ endExclusive: lineIndex });
       currentStepStart = lineIndex;
-      currentStepMeta = {
-        headingLevel: headingMatch[1]?.length ?? 2,
-        index: Number(headingMatch[2]),
-        role: (headingMatch[4] as OrchestrationRole | undefined) ?? null,
-        title: headingMatch[3]?.trim() ?? `Step ${headingMatch[2]}`,
-      };
+      currentStepMeta = heading;
       inVariablesSection = false;
       return;
     }
@@ -262,15 +318,11 @@ export function parseOrchestrationChain({
       return;
     }
 
-    const variableMatch = line.match(VARIABLE_REGEX);
-    if (!variableMatch) {
+    const variable = parseVariableLine(line);
+    if (!variable) {
       return;
     }
-
-    const [, key, rawValue] = variableMatch;
-    if (key && rawValue) {
-      variables[key] = normalizeVariableValue({ rawValue });
-    }
+    variables[variable.key] = normalizeVariableValue({ rawValue: variable.rawValue });
   });
 
   finalizeStep({ endExclusive: lines.length });

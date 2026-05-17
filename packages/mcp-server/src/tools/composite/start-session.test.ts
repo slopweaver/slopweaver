@@ -385,7 +385,7 @@ describe('createStartSessionTool', () => {
       message: 'auth.test failed: invalid_auth',
     };
     const adapterStylePoller: StartSessionPoller = vi.fn(async () => {
-      return Promise.reject(baseErrorShape);
+      throw baseErrorShape;
     });
 
     const tool = createStartSessionTool({

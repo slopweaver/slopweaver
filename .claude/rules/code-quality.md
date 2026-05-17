@@ -95,20 +95,48 @@ compile-time" flags on top of `strict: true`:
   `exactOptionalPropertyTypes`, `verbatimModuleSyntax` —
   pre-existing public-repo strict flags.
 
+## Zero-warning policy
+
+All three linters run in zero-warning mode: Biome `--error-on-warnings`,
+Oxlint `--deny-warnings`, ESLint `--max-warnings 0`. A warning fails the
+lint gate locally and in CI. Warnings exist as a category in the linter
+configs (e.g. `'warn'` severity) so that severity bumps are reversible and
+to keep parity with archive conventions — but the script flags treat them
+as errors. If a rule is too noisy to be useful at any severity, downgrade
+it to `'allow'` / `'off'` in the relevant config with a comment.
+
 ## When you hit a rule you can't live with
 
 1. **Confirm the right owner.** Look at the table above. If the rule
    is misclassified (e.g. you're trying to disable a Biome rule that
    Oxlint actually owns), fix the config not the call site.
-2. **Per-line carve-out.** `// eslint-disable-next-line <rule> -- <reason>`,
+2. **Fix the code.** This is the default. Most warnings point at real
+   sloppiness — redundant guards, unsafe `||`, missing types.
+3. **Per-file override** in the linter config — preferred over inline
+   disables. Add a `files: [...]` block to the relevant config and
+   turn the rule off with prose explaining why. Patterns currently in
+   use:
+   - `apps/*/src/cli.ts` → ESLint `@typescript-eslint/only-throw-error: off`
+     (CLI entry-point unwrap pattern — see `error-handling.md`).
+   - `**/*.test.ts`, `**/src/test/**`, `**/src/test-setup/**` → relaxed
+     type-aware rules + `prefer-promise-reject-errors: off` +
+     `no-restricted-syntax: off`.
+   - `**/packages/integrations/core/src/boundary.ts` → Oxlint
+     `unicorn/no-useless-promise-resolve-reject: allow`. This file
+     contains the SOLE sanctioned `Promise.reject` inside an async
+     function — it bridges Result-returning service code to the
+     throw-API consumer (StartSessionPoller) without violating
+     `check-service-boundaries`.
+4. **Per-line carve-out** — last resort. `// eslint-disable-next-line <rule> -- <reason>`,
    `// oxlint-disable-next-line <rule> -- <reason>`, or
    `// biome-ignore lint/<category>/<rule>: <reason>`. The rationale
-   is mandatory — review will reject naked disables.
-3. **Per-file override.** Add a `files: [...]` block to the relevant
-   config and turn the rule off with a comment explaining why. This
-   is the pattern for `apps/*/src/cli.ts` (CLI entry-point throws)
-   and `**/*.test.ts` (relaxed type-aware rules).
-4. **Disable a rule globally.** Only when the rule is fundamentally
+   is mandatory. The only per-line disable in the current tree is
+   `packages/integrations/slack/src/mentions.test.ts` (the
+   `vitest/no-disabled-tests` searchability-placeholder, documented
+   in `testing.md`). If you're about to add another, ask whether a
+   per-file override or a small refactor (e.g. replacing a regex with
+   an AST walk, as `check-error-code-preservation` does) is cleaner.
+5. **Disable a rule globally.** Only when the rule is fundamentally
    wrong for this codebase. Document why in the config comment.
 
 ## Verifying locally
@@ -121,7 +149,7 @@ Individual gates:
 
 ```
 pnpm format:check
-pnpm lint            # biome lint . && oxlint -c .oxlintrc.jsonc && eslint .
+pnpm lint            # biome (--error-on-warnings) && oxlint (--deny-warnings) && eslint (--max-warnings 0)
 pnpm lint:biome      # biome only
 pnpm lint:oxlint     # oxlint only
 pnpm lint:eslint     # eslint only

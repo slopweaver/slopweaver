@@ -9,14 +9,17 @@
  * documented in `.claude/rules/error-handling.md` falls apart.
  *
  * Scope is the source trees in `packages/` and `apps/`, excluding test
- * files, cassette recordings, build output, and the neverthrow barrel
- * itself (which legitimately re-shapes errors).
+ * files, cassette recordings, build output, and sibling scanner sources.
  *
- * Ported verbatim from slopweaver-archive's check-error-code-preservation.
+ * Implementation: TypeScript AST walk via the compiler API. A previous
+ * regex-based implementation tripped `regexp/no-super-linear-backtracking`
+ * and self-flagged on its own doc comments; the AST walk has neither
+ * problem because it sees the parsed program, not raw text.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import ts from 'typescript';
 
 export interface Violation {
   readonly file: string;
@@ -25,74 +28,100 @@ export interface Violation {
 }
 
 const IGNORE_DIRS = new Set(['__recordings__', '__tests__', '.turbo', 'dist', 'node_modules']);
-
 const SCAN_ROOTS: ReadonlyArray<string> = ['packages', 'apps'];
 
 /**
- * Check whether a `.mapErr(...)` callback body has `message:` but not `code:`.
+ * Given the object literal returned by a `.mapErr(...)` callback, decide if
+ * it drops the `code` field while still defining `message`. The discriminant
+ * (`code`) must be threaded through every transformation; an inline object
+ * literal that lists `message` but not `code` is the canonical violation.
  *
- * @param objectBody - The object literal body text inside the mapErr callback
- * @returns true if the body has message without code (a violation)
+ * Spread elements (`...e`) count as "code is present" because they forward
+ * every field from the source error.
  */
-export function isCodeDropped({ objectBody }: { objectBody: string }): boolean {
-  const hasMessage = /\bmessage\s*:/.test(objectBody);
-  const hasCode = /\bcode\s*:/.test(objectBody);
+export function objectDropsCode({ node }: { node: ts.ObjectLiteralExpression }): boolean {
+  let hasMessage = false;
+  let hasCode = false;
+  for (const prop of node.properties) {
+    if (ts.isSpreadAssignment(prop)) {
+      // `...e` — forwards everything including code.
+      hasCode = true;
+      continue;
+    }
+    if (!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) continue;
+    const name = prop.name;
+    if (!ts.isIdentifier(name) && !ts.isStringLiteral(name)) continue;
+    if (name.text === 'message') hasMessage = true;
+    if (name.text === 'code') hasCode = true;
+  }
   return hasMessage && !hasCode;
 }
 
 /**
- * Scan a file's lines for `.mapErr()` calls that drop the `code` field.
- *
- * @param relPath - Relative file path from monorepo root (for reporting)
- * @param lines - Array of file lines
- * @returns Array of violations found
+ * Walk a parsed source file and return every `.mapErr(callback)` whose
+ * callback returns an object literal that drops the `code` field. Two callback
+ * shapes are inspected:
+ *   - inline-return arrow: `.mapErr((e) => ({ message: e.message }))`
+ *   - block-body arrow / function with `return { ... }`
+ * Other shapes (factory call, chained call, ternary, etc.) are skipped — if
+ * the callback isn't a literal object construction at the boundary, there's
+ * nothing for this scanner to flag.
  */
-export function scanFileLines({
-  relPath,
-  lines,
-}: {
-  relPath: string;
-  lines: ReadonlyArray<string>;
-}): Violation[] {
+export function scanSource({ relPath, source }: { relPath: string; source: string }): Violation[] {
   const violations: Violation[] = [];
+  const sourceFile = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true);
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? '';
-    if (!line.includes('.mapErr(')) continue;
-    // Skip when the trigger sits in a comment-only line (this scanner's own
-    // doc comments contain example patterns; without this guard we'd flag
-    // ourselves on every run).
-    if (/^\s*(\/\/|\*|\/\*)/.test(line)) continue;
-
-    const windowSize = 10;
-    const window = lines.slice(i, i + windowSize).join('\n');
-
-    // Inline-return arrow: `.mapErr((e) => ({ message: e.message }))`
-    // Bounded input: the scan window is at most 10 lines of source TS — ReDoS is not practical.
-    // eslint-disable-next-line regexp/no-super-linear-backtracking
-    const inlineMatch = window.match(/\.mapErr\s*\(\s*\(?[^)]*\)?\s*=>\s*\(\s*\{([^}]*)\}\s*\)/s);
-    if (inlineMatch) {
-      const objectBody = inlineMatch[1] ?? '';
-      if (isCodeDropped({ objectBody })) {
-        violations.push({ file: relPath, line: i + 1, text: line.trim() });
+  function visit(node: ts.Node): void {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'mapErr'
+    ) {
+      const arg = node.arguments[0];
+      if (arg && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg))) {
+        const objectLiteral = extractReturnedObjectLiteral({ callback: arg });
+        if (objectLiteral && objectDropsCode({ node: objectLiteral })) {
+          const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+          violations.push({
+            file: relPath,
+            line: line + 1,
+            text: source.split('\n')[line]?.trim() ?? '',
+          });
+        }
       }
-      continue;
     }
+    ts.forEachChild(node, visit);
+  }
 
-    // Block-body arrow: `.mapErr((e) => { return { message: e.message }; })`
-    // Bounded input: the scan window is at most 10 lines of source TS — ReDoS is not practical.
-    const returnMatch = window.match(
-      /\.mapErr\s*\(\s*\(?[^)]*\)?\s*=>\s*\{\s*return\s*\{\s*([^}]*)\}\s*;?\s*\}/s, // eslint-disable-line regexp/no-super-linear-backtracking
-    );
-    if (returnMatch) {
-      const objectBody = returnMatch[1] ?? '';
-      if (isCodeDropped({ objectBody })) {
-        violations.push({ file: relPath, line: i + 1, text: line.trim() });
+  visit(sourceFile);
+  return violations;
+}
+
+function extractReturnedObjectLiteral({
+  callback,
+}: {
+  callback: ts.ArrowFunction | ts.FunctionExpression;
+}): ts.ObjectLiteralExpression | null {
+  const body = callback.body;
+  // Arrow with expression body: `(e) => ({ ... })` — body is the parenthesized object.
+  if (ts.isParenthesizedExpression(body) && ts.isObjectLiteralExpression(body.expression)) {
+    return body.expression;
+  }
+  // Arrow with object body directly (rare; tsc usually wraps in parens but be safe):
+  if (ts.isObjectLiteralExpression(body)) return body;
+  // Block body: look for a single top-level `return { ... };`
+  if (ts.isBlock(body)) {
+    for (const stmt of body.statements) {
+      if (
+        ts.isReturnStatement(stmt) &&
+        stmt.expression &&
+        ts.isObjectLiteralExpression(stmt.expression)
+      ) {
+        return stmt.expression;
       }
     }
   }
-
-  return violations;
+  return null;
 }
 
 /**
@@ -112,8 +141,9 @@ export function listScanFiles({ root }: { root: string }): string[] {
 function walk({ abs, rel, out }: { abs: string; rel: string; out: string[] }): void {
   for (const entry of readdirSync(abs)) {
     if (IGNORE_DIRS.has(entry)) continue;
-    // Skip sibling CLI scanners — they contain example violation patterns
-    // in their own source / doc comments that would self-trigger.
+    // Skip sibling CLI scanners — they may contain example violation patterns
+    // in source / doc comments. AST-based scanning won't trip on comments,
+    // but the sibling scanners themselves shouldn't be in the audit scope.
     if (entry.startsWith('check-')) continue;
     const childAbs = join(abs, entry);
     const childRel = `${rel}/${entry}`;
@@ -134,7 +164,7 @@ function walk({ abs, rel, out }: { abs: string; rel: string; out: string[] }): v
  * Read each file in `paths` and aggregate every `.mapErr` violation across
  * the corpus. Caller is responsible for producing `paths` (typically via
  * `listScanFiles`); this keeps the I/O surface separate from the pure
- * scanning logic in `scanFileLines`.
+ * scanning logic in `scanSource`.
  *
  * @returns aggregated violations across all scanned files.
  */
@@ -147,9 +177,8 @@ export function scanFiles({
 }): Violation[] {
   const out: Violation[] = [];
   for (const file of paths) {
-    const content = readFileSync(join(root, file), 'utf8');
-    const lines = content.split('\n');
-    out.push(...scanFileLines({ relPath: file, lines }));
+    const source = readFileSync(join(root, file), 'utf8');
+    out.push(...scanSource({ relPath: file, source }));
   }
   return out;
 }

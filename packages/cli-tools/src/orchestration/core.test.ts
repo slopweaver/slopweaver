@@ -11,6 +11,8 @@ import {
   isSuccessfulReview,
   type ParsedChain,
   parseOrchestrationChain,
+  parseStepHeading,
+  parseVariableLine,
   resolveChainRelativePath,
   resolveProfileId,
   resolveRunSlug,
@@ -31,6 +33,87 @@ function readChainFixture({ relativePath }: { relativePath: string }): ParsedCha
   }
   return result.value;
 }
+
+describe('parseStepHeading', () => {
+  it('parses a level-2 heading without a role suffix', () => {
+    expect(parseStepHeading('## Step 1: Plan the change')).toEqual({
+      headingLevel: 2,
+      index: 1,
+      title: 'Plan the change',
+      role: null,
+    });
+  });
+
+  it('parses a level-2 heading with a codex-review role suffix', () => {
+    expect(parseStepHeading('## Step 2: Review (codex-review)')).toEqual({
+      headingLevel: 2,
+      index: 2,
+      title: 'Review',
+      role: 'codex-review',
+    });
+  });
+
+  it('parses level-3 and level-4 headings', () => {
+    expect(parseStepHeading('### Step 3: Implement')?.headingLevel).toBe(3);
+    expect(parseStepHeading('#### Step 4: Wrap up')?.headingLevel).toBe(4);
+  });
+
+  it('rejects a level-1 heading (must be 2-4)', () => {
+    expect(parseStepHeading('# Step 1: Title')).toBeNull();
+  });
+
+  it('rejects a level-5 heading (must be 2-4)', () => {
+    expect(parseStepHeading('##### Step 1: Title')).toBeNull();
+  });
+
+  it('rejects a heading without Step <digits>:', () => {
+    expect(parseStepHeading('## Overview')).toBeNull();
+    expect(parseStepHeading('## Step: missing index')).toBeNull();
+    expect(parseStepHeading('## Step 1 no colon')).toBeNull();
+  });
+
+  it('rejects a heading with an unknown role suffix', () => {
+    // Unknown role doesn't match — falls through to title-including-suffix.
+    expect(parseStepHeading('## Step 1: Foo (unknown-role)')).toEqual({
+      headingLevel: 2,
+      index: 1,
+      title: 'Foo (unknown-role)',
+      role: null,
+    });
+  });
+});
+
+describe('parseVariableLine', () => {
+  it('parses a plain variable line', () => {
+    expect(parseVariableLine('- `{worktree}`: my-feature')).toEqual({
+      key: 'worktree',
+      rawValue: 'my-feature',
+    });
+  });
+
+  it('parses a variable line with an inline-code value', () => {
+    expect(parseVariableLine('- `{worktree}`:   `foo`')).toEqual({
+      key: 'worktree',
+      rawValue: '`foo`',
+    });
+  });
+
+  it('rejects an unrelated bullet', () => {
+    expect(parseVariableLine('- some prose')).toBeNull();
+  });
+
+  it('rejects a malformed line (missing delimiter)', () => {
+    expect(parseVariableLine('- `{worktree}` my-feature')).toBeNull();
+  });
+
+  it('rejects an empty key', () => {
+    expect(parseVariableLine('- `{}`: value')).toBeNull();
+  });
+
+  it('rejects an empty value', () => {
+    expect(parseVariableLine('- `{worktree}`:   ')).toBeNull();
+  });
+});
 
 describe('orchestration core', () => {
   it('parses the public refactor example chain', () => {

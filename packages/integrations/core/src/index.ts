@@ -14,3 +14,4 @@ export {
   upsertEvidence,
   type UpsertEvidenceArgs,
 } from './upsert.ts';
+export { rejectBoundaryError, type BoundaryError } from './boundary.ts';

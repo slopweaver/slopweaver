@@ -25,10 +25,15 @@ export interface SqliteErrorShape {
 }
 
 const SQLITE_ERROR_CODE_PATTERN = /^SQLITE_[A-Z_]+$/;
-// Bounded input: regex runs only over libsqlite-generated error messages
-// (schema-controlled), so the ReDoS warning below is a false positive.
-const CONSTRAINT_FAILED_PATTERN =
-  /^(?:UNIQUE|FOREIGN KEY|CHECK|NOT NULL|PRIMARY KEY) constraint failed:\s*(?<rest>.+)$/u; // eslint-disable-line regexp/no-super-linear-backtracking
+
+const SQLITE_CONSTRAINT_PREFIXES = [
+  'UNIQUE',
+  'FOREIGN KEY',
+  'CHECK',
+  'NOT NULL',
+  'PRIMARY KEY',
+] as const;
+const CONSTRAINT_FAILED_SUFFIX = ' constraint failed:';
 
 interface SqliteErrorLike {
   message?: unknown;
@@ -51,12 +56,24 @@ const isSqliteCode = (code: string | undefined): code is string =>
  *
  * Returns an empty object if the message doesn't match the expected
  * SQLite constraint-failed format.
+ *
+ * String parsing (prefix `startsWith` + slice) intentionally avoids regex
+ * — the original ReDoS-flagged pattern `\s*(?<rest>.+)$` had `\s` and `.`
+ * overlapping in a way that linear-backtracking-detection rules dislike.
+ * Prefix matching is also slightly faster on long messages.
  */
 function parseConstraintMessage(message: string): { table?: string; constraint?: string } {
-  const match = CONSTRAINT_FAILED_PATTERN.exec(message);
-  const rest = match?.groups?.['rest']?.trim();
+  const prefix = SQLITE_CONSTRAINT_PREFIXES.find((p) =>
+    message.startsWith(`${p}${CONSTRAINT_FAILED_SUFFIX}`),
+  );
+  if (!prefix) return {};
+
+  const rest = message.slice(`${prefix}${CONSTRAINT_FAILED_SUFFIX}`.length).trim();
   if (!rest) return {};
 
+  // Sqlite reports the first violating identifier as `<table>.<column>` and
+  // may follow it with `, <table>.<column>` for composite violations. The
+  // first token wins — same semantics as the previous regex.
   const [tableAndColumn] = rest.split(/[\s,]/);
   if (!tableAndColumn) return {};
 

@@ -69,18 +69,14 @@ cli
 cli
   .command('doctor', 'Check your local environment is ready for SlopWeaver dev')
   .example('  pnpm cli doctor')
-  .action(() => {
-    runDoctor()
-      // oxlint-disable-next-line promise/always-return -- process.exit returns never on failure; void on success is intentional
-      .then((result) => {
-        if (!result.ok) {
-          process.exit(result.exitCode);
-        }
-      })
-      .catch((err: unknown) => {
-        console.error(err instanceof Error ? err.message : err);
-        process.exit(1);
-      });
+  .action(async () => {
+    try {
+      const result = await runDoctor();
+      if (!result.ok) process.exit(result.exitCode);
+    } catch (err: unknown) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
   });
 
 cli

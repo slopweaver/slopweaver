@@ -60,7 +60,7 @@ function mapApiCallError({
   let extracted: Partial<ApiCallError> = {};
   if (extractError) {
     try {
-      extracted = extractError({ error }) ?? {};
+      extracted = extractError({ error });
     } catch {
       extracted = {};
     }

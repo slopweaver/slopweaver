@@ -68,13 +68,13 @@ export default [
     },
     rules: {
       'boundaries/no-unknown': 'error',
-      'boundaries/element-types': [
+      'boundaries/dependencies': [
         'error',
         {
           default: 'disallow',
           rules: [
-            { from: 'app', allow: ['package'] },
-            { from: 'package', allow: ['package'] },
+            { from: { type: 'app' }, allow: [{ to: { type: 'package' } }] },
+            { from: { type: 'package' }, allow: [{ to: { type: 'package' } }] },
           ],
         },
       ],

@@ -317,14 +317,14 @@ cli
   .command('connect <integration>', 'Save a token for an integration (github | slack)')
   .example('  slopweaver connect github')
   .example('  slopweaver connect slack')
-  .action((integration: string) => {
-    runConnect({ integration })
-      // oxlint-disable-next-line promise/always-return -- exit() returns never
-      .then((code) => exit(code))
-      .catch((error: unknown) => {
-        stderr.write(`slopweaver: ${asMessage({ error })}\n`);
-        exit(1);
-      });
+  .action(async (integration: string) => {
+    try {
+      const code = await runConnect({ integration });
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
   });
 
 cli

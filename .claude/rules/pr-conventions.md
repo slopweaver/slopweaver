@@ -59,7 +59,7 @@ For PRs that come from `/fix-issue`, the issue link is automatic.
 
 Before requesting review:
 
-- `pnpm validate` ✅ — chains all eight local gates: `format:check`, `lint` (biome + oxlint + eslint), `compile`, `check-service-boundaries`, `check-error-code-preservation`, `check-cassette-quality`, `test`, `knip`. (`compile` runs before the CLI scanners because they import `@slopweaver/errors` from the workspace's built `dist/`.)
+- `pnpm validate` ✅ — chains all eight local gates: `format:check`, `lint` (biome + oxlint + eslint, all in **zero-warning mode**), `compile`, `check-service-boundaries`, `check-error-code-preservation`, `check-cassette-quality`, `test`, `knip`. (`compile` runs before the CLI scanners because they import `@slopweaver/errors` from the workspace's built `dist/`.) The three linters run with `--error-on-warnings`, `--deny-warnings`, and `--max-warnings 0` respectively — a warning fails the gate.
 
 CI runs `pnpm validate` as a single step plus `gitleaks detect` as a ninth gate over the full tree. A PR with red CI is not ready for review.
 

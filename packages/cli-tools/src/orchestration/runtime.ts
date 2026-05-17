@@ -1428,7 +1428,7 @@ function runProcess({
     env,
     stdio: captureOutput ? 'pipe' : 'inherit',
   });
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  const output = `${result.stdout}${result.stderr}`;
   return {
     exitCode: result.status ?? 1,
     output,

@@ -105,9 +105,7 @@ function loadDotEnvFromMonorepoRoot(): void {
         .slice(eqIdx + 1)
         .trim()
         .replace(/^['"]|['"]$/g, '');
-      if (process.env[key] === undefined) {
-        process.env[key] = value;
-      }
+      process.env[key] ??= value;
     }
   } catch {
     // .env doesn't exist — fine for replay mode.
