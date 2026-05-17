@@ -18,10 +18,16 @@
  */
 
 import type { DatabaseError } from '@slopweaver/errors';
-import { okAsync, type ResultAsync } from '@slopweaver/errors';
+import { errAsync, okAsync, type ResultAsync } from '@slopweaver/errors';
 import { eq } from 'drizzle-orm';
 import type { SlopweaverDatabase } from './index.ts';
-import { type KeychainAdapter, type KeychainError, loadKeychainToken, saveKeychainToken } from './keychain.ts';
+import {
+  deleteKeychainToken,
+  type KeychainAdapter,
+  type KeychainError,
+  loadKeychainToken,
+  saveKeychainToken,
+} from './keychain.ts';
 import { safeQuery } from './safe-query.ts';
 import { integrationTokens } from './schema/integration-tokens.ts';
 
@@ -99,9 +105,13 @@ export type SaveIntegrationTokenArgs = {
 
 /**
  * Persists a connect-flow token. The secret is written to the keychain
- * first; only on success is the SQLite presence row upserted. This
- * ordering means a keychain failure leaves the world unchanged — the
- * SQLite row never points at a missing keychain entry.
+ * first; only on success is the SQLite presence row upserted. If the
+ * upsert then fails (disk full, file lock, corruption), a best-effort
+ * `deleteKeychainToken` cleans up the orphan so `loadIntegrationToken`
+ * doesn't end up in a split-brain "no row, but secret in keychain"
+ * state. Either branch of the cleanup re-surfaces the original DB
+ * error — a cleanup-side failure must not mask the actual problem the
+ * caller needs to see.
  *
  * On re-connect the existing `created_at_ms` is preserved (kept out of
  * the conflict-update set) while `account_label` and `updated_at_ms`
@@ -116,10 +126,10 @@ export function saveIntegrationToken({
   now = () => Date.now(),
   keychainAdapter,
 }: SaveIntegrationTokenArgs): ResultAsync<void, DatabaseError | KeychainError> {
+  const keychainArgs = { integration, ...(keychainAdapter ? { adapter: keychainAdapter } : {}) };
   return saveKeychainToken({
-    integration,
+    ...keychainArgs,
     token,
-    ...(keychainAdapter ? { adapter: keychainAdapter } : {}),
   }).andThen<void, DatabaseError | KeychainError>(() =>
     safeQuery({
       execute: () => {
@@ -140,6 +150,9 @@ export function saveIntegrationToken({
           })
           .run();
       },
+    }).orElse((dbError) => {
+      const surface = (): ResultAsync<void, DatabaseError | KeychainError> => errAsync(dbError);
+      return deleteKeychainToken(keychainArgs).andThen(surface).orElse(surface);
     }),
   );
 }

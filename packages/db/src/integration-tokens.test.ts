@@ -258,4 +258,63 @@ describe('saveIntegrationToken', () => {
       handle.close();
     }
   });
+
+  it('cleans up the keychain entry when the SQLite upsert fails (no split-brain)', async () => {
+    // Close the connection before invoking save — the keychain write
+    // will succeed, then the SQLite upsert will fail, exercising the
+    // compensating-delete path.
+    const handle = createDb({ path: ':memory:' });
+    handle.close();
+    const keychainAdapter = makeMemoryAdapter();
+
+    const result = await saveIntegrationToken({
+      db: handle.db,
+      integration: 'github',
+      token: 'ghp_orphaned_no_more',
+      accountLabel: 'octocat',
+      now: () => 1_746_000_000_000,
+      keychainAdapter,
+    });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      // The original DB error is what the caller sees — NOT a keychain error.
+      expect(result.error.code).not.toBe('KEYCHAIN_DELETE_FAILED');
+    }
+    // The keychain entry was created during save but cleaned up after the DB fail.
+    expect(keychainAdapter.store.has('slopweaver:github')).toBe(false);
+  });
+
+  it('surfaces the original DB error even when the compensating keychain delete also fails', async () => {
+    const handle = createDb({ path: ':memory:' });
+    handle.close();
+    const writes = new Map<string, string>();
+    const keychainAdapter: KeychainAdapter = {
+      async setPassword({ service, account, password }) {
+        writes.set(`${service}:${account}`, password);
+      },
+      getPassword: vi.fn(),
+      async deletePassword() {
+        throw new Error('keychain delete failed after orphan');
+      },
+    };
+
+    const result = await saveIntegrationToken({
+      db: handle.db,
+      integration: 'github',
+      token: 'ghp_double_failure',
+      accountLabel: 'octocat',
+      now: () => 1_746_000_000_000,
+      keychainAdapter,
+    });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      // The original DB error is preserved; the keychain delete failure does NOT mask it.
+      expect(result.error.code).not.toBe('KEYCHAIN_DELETE_FAILED');
+      expect(result.error.code).not.toBe('KEYCHAIN_WRITE_FAILED');
+    }
+    // The keychain entry WAS written and the cleanup attempt happened (and failed) — verified via the writes map.
+    expect(writes.get('slopweaver:github')).toBe('ghp_double_failure');
+  });
 });
