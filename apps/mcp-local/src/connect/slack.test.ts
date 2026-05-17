@@ -2,7 +2,8 @@
  * Unit tests for runConnectSlack. Mirrors github.test.ts.
  */
 
-import { createDb, loadIntegrationToken } from '@slopweaver/db';
+import { createDb, type KeychainAdapter, loadIntegrationToken } from '@slopweaver/db';
+import { createInMemoryKeychainAdapter } from '@slopweaver/db/test';
 import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runConnectSlack } from './slack.ts';
@@ -23,11 +24,15 @@ describe('runConnectSlack', () => {
   let handle: ReturnType<typeof createDb>;
   let stdout: Buf;
   let stderr: Buf;
+  let keychainAdapter: KeychainAdapter;
 
   beforeEach(() => {
     handle = createDb({ path: ':memory:' });
     stdout = makeBuf();
     stderr = makeBuf();
+    // Per-test in-memory keychain so writes don't leak between tests
+    // (or into the developer's real OS keychain).
+    keychainAdapter = createInMemoryKeychainAdapter();
   });
 
   afterEach(() => {
@@ -45,12 +50,17 @@ describe('runConnectSlack', () => {
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
+      keychainAdapter,
     });
 
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Connected to Slack workspace "AcmeCorp"');
     expect(stderr.text()).toBe('');
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'slack',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toEqual({ token: 'xoxp-test', accountLabel: 'AcmeCorp' });
@@ -65,11 +75,16 @@ describe('runConnectSlack', () => {
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
+      keychainAdapter,
     });
 
     expect(code).toBe(0);
     expect(stdout.text()).toContain('Connected to Slack.');
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'slack',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toEqual({ token: 'xoxp-test', accountLabel: null });
@@ -88,6 +103,7 @@ describe('runConnectSlack', () => {
       },
       stdout,
       stderr,
+      keychainAdapter,
     });
 
     expect(code).toBe(1);
@@ -95,7 +111,11 @@ describe('runConnectSlack', () => {
     expect(stderr.text()).toContain('user token (xoxp-) is required');
     expect(stderr.text()).toContain('search.messages');
     expect(stdout.text()).toBe('');
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'slack',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toBeNull();
@@ -109,11 +129,16 @@ describe('runConnectSlack', () => {
       validateToken: () => okAsync({ team: 'AcmeCorp' }),
       stdout,
       stderr,
+      keychainAdapter,
     });
 
     expect(code).toBe(1);
     expect(stderr.text()).toContain('user token (xoxp-) is required');
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'slack',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toBeNull();
@@ -131,13 +156,18 @@ describe('runConnectSlack', () => {
         }),
       stdout,
       stderr,
+      keychainAdapter,
     });
 
     expect(code).toBe(1);
     expect(stderr.text()).toContain('Slack token rejected');
     expect(stderr.text()).toContain('invalid_auth');
     expect(stdout.text()).toBe('');
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'slack',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toBeNull();
@@ -152,6 +182,7 @@ describe('runConnectSlack', () => {
       stdout,
       stderr,
       now: () => 1_746_000_000_000,
+      keychainAdapter,
     });
 
     await runConnectSlack({
@@ -161,9 +192,14 @@ describe('runConnectSlack', () => {
       stdout,
       stderr,
       now: () => 1_746_000_000_500,
+      keychainAdapter,
     });
 
-    const loaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
+    const loaded = await loadIntegrationToken({
+      db: handle.db,
+      integration: 'slack',
+      keychainAdapter,
+    });
     expect(loaded.isOk()).toBe(true);
     if (loaded.isOk()) {
       expect(loaded.value).toEqual({ token: 'xoxp-second', accountLabel: 'AcmeCorp-Renamed' });

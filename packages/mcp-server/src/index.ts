@@ -18,6 +18,12 @@ export type {
 } from './tools/registry.ts';
 export { createPingTool } from './tools/builtin/ping.ts';
 export type { CreatePingToolArgs } from './tools/builtin/ping.ts';
+export { createCatchMeUpTool } from './tools/builtin/catch-me-up.ts';
+export type { CreateCatchMeUpToolArgs } from './tools/builtin/catch-me-up.ts';
+export { createGetFreshnessTool } from './tools/builtin/get-freshness.ts';
+export type { CreateGetFreshnessToolArgs } from './tools/builtin/get-freshness.ts';
+export { createSearchWorkContextTool } from './tools/builtin/search-work-context.ts';
+export type { CreateSearchWorkContextToolArgs } from './tools/builtin/search-work-context.ts';
 export { createStartSessionTool } from './tools/composite/start-session.ts';
 export type {
   CreateStartSessionToolArgs,

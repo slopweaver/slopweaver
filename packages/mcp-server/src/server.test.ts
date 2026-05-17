@@ -15,7 +15,10 @@ import { ok } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createMcpServer } from './server.ts';
+import { createCatchMeUpTool } from './tools/builtin/catch-me-up.ts';
+import { createGetFreshnessTool } from './tools/builtin/get-freshness.ts';
 import { createPingTool } from './tools/builtin/ping.ts';
+import { createSearchWorkContextTool } from './tools/builtin/search-work-context.ts';
 import { createStartSessionTool } from './tools/composite/start-session.ts';
 import { defineTool, type Tool } from './tools/registry.ts';
 
@@ -193,6 +196,34 @@ describe('createMcpServer + ping', () => {
         expect(parsed.data.freshness).toEqual([]);
         expect(parsed.data.generated_at).toBe(new Date(fixedNow).toISOString());
       }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('advertises every v1 read tool via tools/list', async () => {
+    const server = createMcpServer({
+      db: dbHandle.db,
+      version: '0.1.0',
+      tools: [
+        createPingTool({ version: '0.1.0', startedAtMs: Date.now() }),
+        createStartSessionTool(),
+        createGetFreshnessTool(),
+        createCatchMeUpTool(),
+        createSearchWorkContextTool(),
+      ],
+    });
+
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const list = await client.listTools();
+      const names = list.tools.map((t) => t.name).sort();
+      expect(names).toEqual(['catch_me_up', 'get_freshness', 'ping', 'search_work_context', 'start_session']);
     } finally {
       await client.close();
       await server.close();

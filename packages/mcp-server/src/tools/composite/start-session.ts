@@ -27,18 +27,13 @@
  * never aborts the whole tool call.
  */
 
-import {
-  EvidenceLogEntry,
-  type Freshness,
-  type Reference,
-  StartSessionArgs,
-  StartSessionResult,
-} from '@slopweaver/contracts';
+import { type EvidenceLogEntry, type Freshness, StartSessionArgs, StartSessionResult } from '@slopweaver/contracts';
 import { evidenceLog, integrationState, type SlopweaverDatabase } from '@slopweaver/db';
 import { ok } from '@slopweaver/errors';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { defineTool, type Tool } from '../registry.ts';
+import { shapeEvidenceRow } from '../shape-evidence.ts';
 
 /** Default: poll if the most recent successful poll completed more than 10 minutes ago. */
 const DEFAULT_STALE_THRESHOLD_MS = 10 * 60 * 1000;
@@ -49,8 +44,6 @@ const KIND_BOOST_VALUE = 0.5;
 const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
-
-const UrlSchema = z.url();
 
 /**
  * Per-integration refresh hook. The host wires one of these up per connected
@@ -248,10 +241,12 @@ function compareRanked(a: { row: EvidenceRow; score: number }, b: { row: Evidenc
 
 /**
  * Defensively convert a DB row to the wire shape. Returns `null` if the row
- * cannot produce a contract-valid item (e.g. both `title` and `kind` are
- * empty). Recoverable issues are downgraded inline:
- *   - malformed `citation_url` → ref becomes canonical, `citation_url` null
- *   - unparseable `payload_json` → `payload_json` becomes null
+ * cannot produce a contract-valid item — either because both `title` and
+ * `kind` are empty (so the ranking item has no title) or because the shared
+ * `shapeEvidenceRow` helper rejected the row (empty `integration`/`kind`).
+ * The title fallback stays here because it's specific to start_session's
+ * ranking item; the EvidenceLogEntry shape itself comes from the shared
+ * helper so the same defensive rules apply across every read tool.
  */
 function shapeRow(row: EvidenceRow, nowMs: number): ShapedEntry | null {
   // Both `row.title` and `row.kind` can be empty strings; we want either an
@@ -262,47 +257,18 @@ function shapeRow(row: EvidenceRow, nowMs: number): ShapedEntry | null {
   const title = candidate.length > 0 ? candidate : null;
   if (title === null) return null;
 
-  const ref = buildRef(row);
-  const citationUrl = ref.kind === 'url' ? ref.url : null;
-  const payload = tryParseJson(row.payloadJson);
-
-  const evidence: EvidenceLogEntry = {
-    id: String(row.id),
-    integration: row.integration,
-    kind: row.kind,
-    ref,
-    occurred_at: new Date(row.occurredAtMs).toISOString(),
-    payload_json: payload,
-    citation_url: citationUrl,
-  };
+  const evidence = shapeEvidenceRow(row);
+  if (evidence == null) return null;
 
   return {
     item: {
-      ref,
+      ref: evidence.ref,
       title,
       why: `${row.integration} ${row.kind} from ${humanAge(nowMs - row.occurredAtMs)}`,
       evidence_ids: [String(row.id)],
     },
     evidence,
   };
-}
-
-function buildRef(row: EvidenceRow): Reference {
-  if (row.citationUrl != null && row.citationUrl.length > 0) {
-    const parsed = UrlSchema.safeParse(row.citationUrl);
-    if (parsed.success) {
-      return { kind: 'url', url: parsed.data };
-    }
-  }
-  return { kind: 'canonical', integration: row.integration, id: row.externalId };
-}
-
-function tryParseJson(json: string): z.infer<typeof EvidenceLogEntry>['payload_json'] {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
 }
 
 /**

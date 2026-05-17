@@ -14,7 +14,7 @@
  * github.ts.
  */
 
-import { type SlopweaverDatabase, saveIntegrationToken } from '@slopweaver/db';
+import { type KeychainAdapter, saveIntegrationToken, type SlopweaverDatabase } from '@slopweaver/db';
 import type { BaseError, ResultAsync } from '@slopweaver/errors';
 
 const INTEGRATION = 'slack';
@@ -27,6 +27,8 @@ export type RunConnectSlackDeps = {
   stdout: { write: (s: string) => void };
   stderr: { write: (s: string) => void };
   now?: () => number;
+  /** Inject in tests so token writes hit an in-memory store, not the OS keychain. Defaults to the real adapter inside `saveIntegrationToken`. */
+  keychainAdapter?: KeychainAdapter;
 };
 
 export async function runConnectSlack({
@@ -36,6 +38,7 @@ export async function runConnectSlack({
   stdout,
   stderr,
   now,
+  keychainAdapter,
 }: RunConnectSlackDeps): Promise<number> {
   const token = await promptForToken({
     message: 'Slack user token (xoxp-, input hidden):',
@@ -61,6 +64,7 @@ export async function runConnectSlack({
     token,
     accountLabel: team,
     ...(now ? { now } : {}),
+    ...(keychainAdapter ? { keychainAdapter } : {}),
   });
   if (saveResult.isErr()) {
     stderr.write(`slopweaver: failed to save Slack token: ${saveResult.error.message}\n`);

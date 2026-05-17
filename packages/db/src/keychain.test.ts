@@ -6,24 +6,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { type KeychainAdapter, deleteKeychainToken, loadKeychainToken, saveKeychainToken } from './keychain.ts';
-
-function makeMemoryAdapter(): KeychainAdapter & { store: Map<string, string> } {
-  const store = new Map<string, string>();
-  const key = ({ service, account }: { service: string; account: string }) => `${service}:${account}`;
-  return {
-    store,
-    async setPassword({ service, account, password }) {
-      store.set(key({ service, account }), password);
-    },
-    async getPassword({ service, account }) {
-      return store.get(key({ service, account })) ?? null;
-    },
-    async deletePassword({ service, account }) {
-      return store.delete(key({ service, account }));
-    },
-  };
-}
+import { deleteKeychainToken, type KeychainAdapter, loadKeychainToken, saveKeychainToken } from './keychain.ts';
+import { createInMemoryKeychainAdapter as makeMemoryAdapter } from './test/index.ts';
 
 describe('saveKeychainToken / loadKeychainToken', () => {
   it('round-trips a token via the same service/account', async () => {
