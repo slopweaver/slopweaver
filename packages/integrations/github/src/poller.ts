@@ -2,26 +2,30 @@
  * Adapter that wraps the github polling functions in the `StartSessionPoller`
  * contract that `createStartSessionTool` (in `@slopweaver/mcp-server`) expects.
  *
- * Factory captures the auth token + the pre-resolved username. The returned
- * closure reads the current cursor from `integration_state` and calls
- * `pollPullRequests` → `pollIssues` → `pollMentions` sequentially with that
- * cursor as `since`. Sub-polls run sequentially (not `Promise.all`) so they
- * share the same GitHub search rate-limit budget without bursting; freshness
- * order (PRs, then issues, then mentions) reflects v1 ranking weight.
+ * Internally the adapter stays inside the neverthrow `Result` world: every
+ * step (`readCursor` → `pollPullRequests` → `readCursor` → `pollIssues` →
+ * `readCursor` → `pollMentions`) is a `ResultAsync<…, GithubError>` chained
+ * with `.andThen`. The cursor is re-read before each sub-poll so an empty
+ * tail-call preserves the prior watermark via polling.ts's
+ * `items[0]?.updated_at ?? since?.toISOString() ?? null` fallback.
  *
- * The `StartSessionPoller` contract is `Promise<void>` with no error channel,
- * so this is the boundary where Result becomes promise rejection — done via
- * neverthrow's `_unsafeUnwrap()` (it throws on `Err`, which the wrapping
- * `async` function turns into a rejected promise). `_unsafeUnwrap` is a
- * neverthrow API, not a literal `throw`, so the
- * `pnpm cli check-service-boundaries` scanner ignores it.
+ * The `StartSessionPoller` contract is `Promise<void>` with no error channel
+ * (a separate decision-record issue tracks the eventual refactor to
+ * `ResultAsync`), so the chain terminates in a single `.match` that bridges
+ * to a Promise rejection. No `_unsafeUnwrap`, no literal `throw` — the
+ * `Promise.reject(error)` path mirrors the carve-out in
+ * `.claude/rules/error-handling.md` for boundaries whose consumers can't
+ * accept `Result` (the UI data-fetcher carve-out is the same shape).
  *
  * `fetchIdentity` is the caller's responsibility — the username is passed in
  * so the factory itself is network-free.
  */
 
-import type { StartSessionPoller } from '@slopweaver/mcp-server';
+import type { SlopweaverDatabase } from '@slopweaver/db';
+import type { ResultAsync } from '@slopweaver/errors';
 import { readCursor } from '@slopweaver/integrations-core';
+import type { StartSessionPoller } from '@slopweaver/mcp-server';
+import { fromDatabaseError, type GithubError } from './errors.ts';
 import { pollIssues, pollMentions, pollPullRequests } from './polling.ts';
 
 const INTEGRATION = 'github';
@@ -35,8 +39,10 @@ export type CreateGithubPollerArgs = {
 
 /**
  * Build a `StartSessionPoller` that refreshes github evidence by chaining
- * `pollPullRequests` → `pollIssues` → `pollMentions`. On `Err` from any
- * sub-poll the returned promise rejects.
+ * `pollPullRequests` → `pollIssues` → `pollMentions`. The cursor is read
+ * fresh before each sub-poll. The single `.match` at the end is the only
+ * boundary between the typed `Result` world and the contract's
+ * `Promise<void>`.
  */
 export function createGithubPoller({
   token,
@@ -44,24 +50,34 @@ export function createGithubPoller({
 }: CreateGithubPollerArgs): StartSessionPoller {
   return async ({ db, now }) => {
     const nowFn = (): number => now;
+    const since = ({ cursor }: { cursor: string | null }): Date | null =>
+      cursor ? new Date(cursor) : null;
 
-    // Read the cursor *before each* sub-poll. The three sub-polls share the
-    // `integration_state.cursor` row, so each call's `markPollCompleted`
-    // overwrites it. Threading the latest cursor into the next sub-poll's
-    // `since` means an empty result (e.g. zero new mentions today) preserves
-    // the prior watermark via polling.ts's `items[0]?.updated_at ??
-    // since?.toISOString() ?? null` fallback — without re-reading, an empty
-    // tail-call clobbers the cursor written by earlier sub-polls.
-    const sinceFor = async (): Promise<Date | null> => {
-      const result = await readCursor({ db, integration: INTEGRATION });
-      const cursor = result._unsafeUnwrap();
-      return cursor ? new Date(cursor) : null;
-    };
+    const result = await readGithubCursor({ db })
+      .andThen((cursor) => pollPullRequests({ db, token, since: since({ cursor }), now: nowFn }))
+      .andThen(() => readGithubCursor({ db }))
+      .andThen((cursor) => pollIssues({ db, token, since: since({ cursor }), now: nowFn }))
+      .andThen(() => readGithubCursor({ db }))
+      .andThen((cursor) =>
+        pollMentions({ db, token, since: since({ cursor }), username, now: nowFn }),
+      );
 
-    (await pollPullRequests({ db, token, since: await sinceFor(), now: nowFn }))._unsafeUnwrap();
-    (await pollIssues({ db, token, since: await sinceFor(), now: nowFn }))._unsafeUnwrap();
-    (
-      await pollMentions({ db, token, since: await sinceFor(), username, now: nowFn })
-    )._unsafeUnwrap();
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
   };
+}
+
+/**
+ * Fresh `ResultAsync` reading the github cursor row from `integration_state`.
+ * The `readCursor` helper returns the raw `DatabaseError` union; `mapErr`
+ * lifts it into `GithubDatabaseError` so the chain's error type stays
+ * `GithubError` throughout.
+ */
+function readGithubCursor({
+  db,
+}: {
+  db: SlopweaverDatabase;
+}): ResultAsync<string | null, GithubError> {
+  return readCursor({ db, integration: INTEGRATION }).mapErr(fromDatabaseError);
 }

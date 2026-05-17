@@ -2,26 +2,29 @@
  * Adapter that wraps the slack polling functions in the `StartSessionPoller`
  * contract that `createStartSessionTool` (in `@slopweaver/mcp-server`) expects.
  *
- * Factory captures the auth token. The returned closure reads the current
- * cursor from `integration_state` and calls `pollMentions` → `pollDMs`
- * sequentially with that cursor as `since`. Sequential ordering (not
- * `Promise.all`) keeps the two pollers off Slack's tier-limited rate budget
- * concurrently, and mirrors v1 ranking weight (mentions outrank DMs).
+ * Internally the adapter stays inside the neverthrow `Result` world: every
+ * step (`readCursor` → `pollMentions` → `readCursor` → `pollDMs`) is a
+ * `ResultAsync<…, SlackError>` chained with `.andThen`. The cursor is re-read
+ * before each sub-poll so an empty tail-call preserves the prior watermark
+ * via the pollers' `newestTs ?? since?.toISOString() ?? null` fallback.
  *
- * The `StartSessionPoller` contract is `Promise<void>` with no error channel,
- * so this is the boundary where Result becomes promise rejection — done via
- * neverthrow's `_unsafeUnwrap()` (it throws on `Err`, which the wrapping
- * `async` function turns into a rejected promise). `_unsafeUnwrap` is a
- * neverthrow API, not a literal `throw`, so the
- * `pnpm cli check-service-boundaries` scanner ignores it.
+ * The `StartSessionPoller` contract is `Promise<void>` with no error channel
+ * (a separate decision-record issue tracks the eventual refactor to
+ * `ResultAsync`), so the chain terminates in a single bridge that
+ * `Promise.reject(error)`s on `Err`. No `_unsafeUnwrap`, no literal `throw` —
+ * mirrors the carve-out in `.claude/rules/error-handling.md` for boundaries
+ * whose consumers can't accept `Result`.
  *
  * No pre-fetched identity argument — Slack's pollers call `auth.test()`
  * internally to resolve the auth'd `user_id`, so the factory is network-free.
  */
 
-import type { StartSessionPoller } from '@slopweaver/mcp-server';
+import type { SlopweaverDatabase } from '@slopweaver/db';
+import type { ResultAsync } from '@slopweaver/errors';
 import { readCursor } from '@slopweaver/integrations-core';
+import type { StartSessionPoller } from '@slopweaver/mcp-server';
 import { pollDMs } from './dms.ts';
+import { fromDatabaseError, type SlackError } from './errors.ts';
 import { pollMentions } from './mentions.ts';
 
 const INTEGRATION = 'slack';
@@ -33,27 +36,44 @@ export type CreateSlackPollerArgs = {
 
 /**
  * Build a `StartSessionPoller` that refreshes slack evidence by chaining
- * `pollMentions` → `pollDMs`. On `Err` from either sub-poll the returned
- * promise rejects.
+ * `pollMentions` → `pollDMs`. The cursor is read fresh before each sub-poll.
+ * The single `Promise.reject` at the end is the only boundary between the
+ * typed `Result` world and the contract's `Promise<void>`.
  */
 export function createSlackPoller({ token }: CreateSlackPollerArgs): StartSessionPoller {
   return async ({ db, now }) => {
     const nowFn = (): number => now;
+    // `pollMentions` / `pollDMs` declare `since?: Date` with
+    // `exactOptionalPropertyTypes`, so passing `since: undefined` is a
+    // compile error. Spread `{ since }` only when there's a cursor; an empty
+    // object otherwise.
+    const sinceArg = ({
+      cursor,
+    }: {
+      cursor: string | null;
+    }): { since: Date } | Record<string, never> => (cursor ? { since: new Date(cursor) } : {});
 
-    // Read the cursor *before each* sub-poll. The two sub-polls share the
-    // `integration_state.cursor` row, so each call's `markPollCompleted`
-    // overwrites it. Threading the latest cursor into the next sub-poll's
-    // `since` means an empty result preserves the prior watermark via the
-    // pollers' `newestTs ?? since?.toISOString() ?? null` fallback — without
-    // re-reading, an empty tail-call clobbers the cursor written by earlier
-    // sub-polls.
-    const sinceFor = async (): Promise<{ since: Date } | Record<string, never>> => {
-      const result = await readCursor({ db, integration: INTEGRATION });
-      const cursor = result._unsafeUnwrap();
-      return cursor ? { since: new Date(cursor) } : {};
-    };
+    const result = await readSlackCursor({ db })
+      .andThen((cursor) => pollMentions({ db, token, ...sinceArg({ cursor }), now: nowFn }))
+      .andThen(() => readSlackCursor({ db }))
+      .andThen((cursor) => pollDMs({ db, token, ...sinceArg({ cursor }), now: nowFn }));
 
-    (await pollMentions({ db, token, ...(await sinceFor()), now: nowFn }))._unsafeUnwrap();
-    (await pollDMs({ db, token, ...(await sinceFor()), now: nowFn }))._unsafeUnwrap();
+    if (result.isErr()) {
+      return Promise.reject(result.error);
+    }
   };
+}
+
+/**
+ * Fresh `ResultAsync` reading the slack cursor row from `integration_state`.
+ * The `readCursor` helper returns the raw `DatabaseError` union; `mapErr`
+ * lifts it into `SlackDatabaseError` so the chain's error type stays
+ * `SlackError` throughout.
+ */
+function readSlackCursor({
+  db,
+}: {
+  db: SlopweaverDatabase;
+}): ResultAsync<string | null, SlackError> {
+  return readCursor({ db, integration: INTEGRATION }).mapErr(fromDatabaseError);
 }
