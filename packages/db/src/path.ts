@@ -37,11 +37,8 @@ type ResolvePathOptions = {
  * fail fast at startup instead of silently writing SQLite under the caller's
  * cwd.
  */
-export function resolveDataDir({
-  home,
-  xdgDataHome,
-}: ResolvePathOptions = {}): Result<string, DataPathInvalidError> {
-  const resolvedXdgDataHome = xdgDataHome ?? process.env.XDG_DATA_HOME;
+export function resolveDataDir({ home, xdgDataHome }: ResolvePathOptions = {}): Result<string, DataPathInvalidError> {
+  const resolvedXdgDataHome = xdgDataHome ?? process.env['XDG_DATA_HOME'];
 
   if (resolvedXdgDataHome) {
     if (!isAbsolute(resolvedXdgDataHome)) {
@@ -57,8 +54,6 @@ export function resolveDataDir({
  * Resolve the absolute path to the SlopWeaver SQLite database file.
  * Equivalent to {@link resolveDataDir} joined with `slopweaver.db`.
  */
-export function resolveDbPath(
-  options: ResolvePathOptions = {},
-): Result<string, DataPathInvalidError> {
+export function resolveDbPath(options: ResolvePathOptions = {}): Result<string, DataPathInvalidError> {
   return resolveDataDir(options).map((dir) => join(dir, 'slopweaver.db'));
 }

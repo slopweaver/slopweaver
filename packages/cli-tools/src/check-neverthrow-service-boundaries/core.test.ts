@@ -23,12 +23,7 @@ describe('isCommentOnlyLine', () => {
 
 describe('findThrowSites', () => {
   it('returns findings for top-level throws', () => {
-    const content = [
-      'export function f() {',
-      '  if (bad) throw new Error("boom");',
-      '  return 1;',
-      '}',
-    ].join('\n');
+    const content = ['export function f() {', '  if (bad) throw new Error("boom");', '  return 1;', '}'].join('\n');
 
     const findings = findThrowSites({ content, file: 'a.ts' });
 
@@ -82,10 +77,7 @@ describe('listBoundaryFiles + scanFiles', () => {
   it('walks the configured directory and reports throws while skipping test files', () => {
     const dir = 'packages/integrations/slack/src';
     mkdirSync(join(root, dir), { recursive: true });
-    writeFileSync(
-      join(root, dir, 'has-throw.ts'),
-      'export function go() {\n  throw new Error("nope");\n}\n',
-    );
+    writeFileSync(join(root, dir, 'has-throw.ts'), 'export function go() {\n  throw new Error("nope");\n}\n');
     writeFileSync(
       join(root, dir, 'has-throw.test.ts'),
       'import { go } from "./has-throw.ts";\nexpect(() => go()).toThrow();\n',

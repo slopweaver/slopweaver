@@ -63,4 +63,23 @@ describe('extractSqliteErrorShape', () => {
 
     expect(shape).toEqual({ message: 'plain error, no code' });
   });
+
+  it('keeps the first violating identifier when SQLite reports a composite constraint', () => {
+    // SQLite reports composite UNIQUE violations as a comma-separated list:
+    // `UNIQUE constraint failed: users.email, users.name`. The parser pins
+    // the first token as `table.constraint`; downstream callers that need
+    // the full set should read `.message` directly.
+    const error = Object.assign(new Error('UNIQUE constraint failed: users.email, users.name'), {
+      code: 'SQLITE_CONSTRAINT_UNIQUE',
+    });
+
+    const shape = extractSqliteErrorShape({ error });
+
+    expect(shape).toEqual({
+      code: 'SQLITE_CONSTRAINT_UNIQUE',
+      message: 'UNIQUE constraint failed: users.email, users.name',
+      table: 'users',
+      constraint: 'email',
+    });
+  });
 });

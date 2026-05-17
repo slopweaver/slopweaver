@@ -58,10 +58,10 @@ NEVER `git rebase origin/main` — it rewrites history that's already pushed and
 Before declaring work done (or before opening a PR for review), run the same checks CI runs:
 
 ```bash
-pnpm validate   # cli check-service-boundaries, format:check, lint, compile, test, knip
+pnpm validate   # format:check → lint (biome+oxlint+eslint) → compile → check-service-boundaries → check-error-code-preservation → check-cassette-quality → test → knip
 ```
 
-All six gates must pass. The first gate — `pnpm cli check-service-boundaries` — scans configured service-boundary files for `throw` statements (see `.claude/rules/error-handling.md`); it's the cheapest gate and runs first so regressions surface before the slower passes. CI also runs `gitleaks detect` as a seventh gate; the pre-commit hook covers staged content locally. CI will reject on red.
+All eight gates must pass. Formatting and the three linters (Biome + Oxlint + ESLint, run sequentially with explicit no-overlap ownership and **zero-warning mode** — `--error-on-warnings`, `--deny-warnings`, `--max-warnings 0`; see @.claude/rules/code-quality.md) run first because they're the cheapest. Then `tsc` (`compile`), which is also what produces the workspace `dist/` that the next three CLI scanners (`check-service-boundaries`, `check-error-code-preservation`, `check-cassette-quality`) need at runtime — they `import` from `@slopweaver/errors`, so they require its built `dist/` to resolve. Tests and dead-code detection (`knip`) run last. CI runs `pnpm validate` as a single step plus `gitleaks detect` as the ninth gate; the pre-commit hook covers staged content locally.
 
 If you change formatting, run `pnpm format` (no `:check`) to auto-fix, then re-run `validate` to verify.
 
@@ -94,14 +94,14 @@ This repo is public. Never commit:
 
 - API keys, OAuth secrets, MCP tokens, bearer tokens
 - Real customer / employer / coworker names
-- HAR files, Polly cassettes, or any HTTP recording with real auth headers
+- HAR files / Polly cassettes that still contain real auth headers, real PII, or any token shape. **Scrubbed cassettes under `packages/integrations/{github,slack}/**/__recordings__/` are explicitly allowlisted** (see @.claude/rules/testing.md "Cassette safety" + the gitignore allow-list); the redactors in `packages/integrations/core/src/test-setup/polly.ts` are the chokepoint. If a cassette ends up with an unredacted secret, **fix the redactor and re-record** — don't just delete the cassette.
 - Personal email addresses (other than `admin@slopweaver.ai` which is the project address)
 
-The `.gitignore` excludes common offenders (`.env*`, `*.har`) but verify any test fixture you add doesn't include real data.
+The `.gitignore` excludes `.env`, `.env.local`, and `.env.*.local`, and blocks `*.har` everywhere except the integration `__recordings__/` allow-list. **Note**: other env-like files (`.env.test`, `.env.example`, etc.) are **not** ignored — keep secrets out of any committed `.env*` file. Verify any test fixture you add doesn't include real data; `pnpm cli check-cassette-quality` catches the most common regression (re-recording against an expired token), and gitleaks is the per-commit and CI backstop for everything else.
 
 ## Secret scanning is enforced
 
-A lefthook pre-commit hook runs `gitleaks v8.30.1` against staged content. Contributors and AI agents must install gitleaks locally before committing — see [CONTRIBUTING.md](../../CONTRIBUTING.md) for install instructions. CI runs the same scan over the full tree as a seventh gate, so bypassing the hook with `git commit --no-verify` does not avoid the check; it must be disclosed in the PR description.
+A lefthook pre-commit hook runs `gitleaks v8.30.1` against staged content. Contributors and AI agents must install gitleaks locally before committing — see [CONTRIBUTING.md](../../CONTRIBUTING.md) for install instructions. CI runs the same scan over the full tree as a separate post-validate step (the ninth gate overall), so bypassing the hook with `git commit --no-verify` does not avoid the check; it must be disclosed in the PR description.
 
 ## Slash commands
 

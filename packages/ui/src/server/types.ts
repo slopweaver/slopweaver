@@ -45,8 +45,14 @@ export type DiagnosticsResponse = {
   mcpClients: {
     count: number;
     transport: 'stdio';
-    /** False until `@slopweaver/mcp-server` exposes connection lifecycle hooks. */
-    tracked: false;
+    /**
+     * Whether `count` reflects a real-time tally. Server always emits `false`
+     * today because `@slopweaver/mcp-server` doesn't yet expose connection
+     * lifecycle hooks. Typed as `boolean` (not literal `false`) so the
+     * consumer can branch on `tracked === true` without ESLint flagging the
+     * conditional as always-falsy.
+     */
+    tracked: boolean;
   };
 };
 

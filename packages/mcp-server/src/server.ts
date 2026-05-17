@@ -46,11 +46,7 @@ export function createMcpServer({ db, tools, version }: CreateMcpServerArgs): Mc
           // `message` cross the MCP boundary; `cause` (which may carry
           // HTTP response bodies, stack traces, or internal paths via
           // safeApiCall's wrap) stays server-side.
-          const error = McpErrors.unexpected(
-            tool.name,
-            cause,
-            cause instanceof Error ? cause.message : undefined,
-          );
+          const error = McpErrors.unexpected(tool.name, cause, cause instanceof Error ? cause.message : undefined);
           const clientError = { code: error.code, message: error.message };
           return {
             isError: true,

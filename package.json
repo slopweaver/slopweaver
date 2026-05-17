@@ -22,21 +22,28 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "knip": "knip",
-    "lint": "biome lint . && eslint .",
+    "lint": "pnpm lint:biome && pnpm lint:oxlint && pnpm lint:eslint",
+    "lint:biome": "biome lint --error-on-warnings .",
+    "lint:eslint": "eslint --max-warnings 0 .",
+    "lint:oxlint": "oxlint --deny-warnings -c .oxlintrc.jsonc",
     "prepare": "lefthook install || echo 'lefthook install skipped (not a git repository)'",
     "test": "turbo run test",
-    "validate": "pnpm cli check-service-boundaries && pnpm format:check && pnpm lint && pnpm compile && pnpm test && pnpm knip"
+    "validate": "pnpm format:check && pnpm lint && pnpm compile && pnpm cli check-service-boundaries && pnpm cli check-error-code-preservation && pnpm cli check-cassette-quality && pnpm test && pnpm knip"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
     "@types/node": "22.19.17",
     "eslint": "10.3.0",
     "eslint-plugin-boundaries": "6.0.2",
+    "eslint-plugin-regexp": "^3.1.0",
+    "eslint-plugin-sonarjs": "^4.0.3",
     "knip": "6.7.0",
     "lefthook": "2.1.6",
+    "oxlint": "^1.65.0",
     "tsx": "4.21.0",
     "turbo": "2.9.7",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.59.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

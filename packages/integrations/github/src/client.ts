@@ -36,10 +36,7 @@ export type CreateGithubClientArgs = {
  */
 export type GithubClient = Octokit;
 
-export function createGithubClient({
-  token,
-  userAgent = DEFAULT_USER_AGENT,
-}: CreateGithubClientArgs): GithubClient {
+export function createGithubClient({ token, userAgent = DEFAULT_USER_AGENT }: CreateGithubClientArgs): GithubClient {
   const ThrottledOctokit = Octokit.plugin(throttling);
   return new ThrottledOctokit({
     auth: token,

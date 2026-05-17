@@ -23,7 +23,7 @@
 
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import type { ResultAsync } from '@slopweaver/errors';
-import { readCursor } from '@slopweaver/integrations-core';
+import { readCursor, rejectBoundaryError } from '@slopweaver/integrations-core';
 import type { StartSessionPoller } from '@slopweaver/mcp-server';
 import { fromDatabaseError, type GithubError } from './errors.ts';
 import { pollIssues, pollMentions, pollPullRequests } from './polling.ts';
@@ -44,26 +44,20 @@ export type CreateGithubPollerArgs = {
  * boundary between the typed `Result` world and the contract's
  * `Promise<void>`.
  */
-export function createGithubPoller({
-  token,
-  username,
-}: CreateGithubPollerArgs): StartSessionPoller {
+export function createGithubPoller({ token, username }: CreateGithubPollerArgs): StartSessionPoller {
   return async ({ db, now }) => {
     const nowFn = (): number => now;
-    const since = ({ cursor }: { cursor: string | null }): Date | null =>
-      cursor ? new Date(cursor) : null;
+    const since = ({ cursor }: { cursor: string | null }): Date | null => (cursor ? new Date(cursor) : null);
 
     const result = await readGithubCursor({ db })
       .andThen((cursor) => pollPullRequests({ db, token, since: since({ cursor }), now: nowFn }))
       .andThen(() => readGithubCursor({ db }))
       .andThen((cursor) => pollIssues({ db, token, since: since({ cursor }), now: nowFn }))
       .andThen(() => readGithubCursor({ db }))
-      .andThen((cursor) =>
-        pollMentions({ db, token, since: since({ cursor }), username, now: nowFn }),
-      );
+      .andThen((cursor) => pollMentions({ db, token, since: since({ cursor }), username, now: nowFn }));
 
     if (result.isErr()) {
-      return Promise.reject(result.error);
+      return rejectBoundaryError({ error: result.error });
     }
   };
 }
@@ -74,10 +68,6 @@ export function createGithubPoller({
  * lifts it into `GithubDatabaseError` so the chain's error type stays
  * `GithubError` throughout.
  */
-function readGithubCursor({
-  db,
-}: {
-  db: SlopweaverDatabase;
-}): ResultAsync<string | null, GithubError> {
+function readGithubCursor({ db }: { db: SlopweaverDatabase }): ResultAsync<string | null, GithubError> {
   return readCursor({ db, integration: INTEGRATION }).mapErr(fromDatabaseError);
 }

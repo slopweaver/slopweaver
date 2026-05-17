@@ -27,7 +27,7 @@
 
 import type { WebClient } from '@slack/web-api';
 import type { SlopweaverDatabase } from '@slopweaver/db';
-import { err, errAsync, ok, type Result, ResultAsync } from '@slopweaver/errors';
+import { err, ok, type Result, ResultAsync } from '@slopweaver/errors';
 import { markPollCompleted, markPollStarted } from '@slopweaver/integrations-core';
 import { createSlackClient } from './client.ts';
 import {
@@ -68,9 +68,7 @@ async function pollMentionsInner({
   client,
   now = Date.now,
 }: PollMentionsArgs): Promise<Result<PollResult, SlackError>> {
-  const slackResult: Result<WebClient, SlackTokenInvalidError> = client
-    ? ok(client)
-    : createSlackClient({ token });
+  const slackResult: Result<WebClient, SlackTokenInvalidError> = client ? ok(client) : createSlackClient({ token });
   if (slackResult.isErr()) return err(slackResult.error);
   const slack = slackResult.value;
 
@@ -84,9 +82,9 @@ async function pollMentionsInner({
   });
   if (authResult.isErr()) return err(authResult.error);
   const auth = authResult.value;
-  // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees user_id on ok:true
+  // non-null: SDK contract guarantees user_id on ok:true
   const userId = auth.user_id!;
-  // biome-ignore lint/style/noNonNullAssertion: SDK contract guarantees team_id on ok:true
+  // non-null: SDK contract guarantees team_id on ok:true
   const teamId = auth.team_id!;
   const workspaceUrl = auth.url ?? null;
 

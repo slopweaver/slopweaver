@@ -15,9 +15,7 @@ describe('findMonorepoRoot', () => {
 
 describe('resolveWorktreesRoot', () => {
   it('returns the sibling worktrees directory next to the repo', () => {
-    expect(resolveWorktreesRoot({ repoRoot: '/Users/me/dev/slopweaver' })).toBe(
-      '/Users/me/dev/worktrees',
-    );
+    expect(resolveWorktreesRoot({ repoRoot: '/Users/me/dev/slopweaver' })).toBe('/Users/me/dev/worktrees');
   });
 
   it('handles short paths', () => {

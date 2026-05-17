@@ -42,11 +42,7 @@ function isNodeSupported(version: string): boolean {
   return minorOf(version) >= REQUIRED_NODE_MINOR;
 }
 
-export function checkNodeVersion({
-  nodeVersion = process.versions.node,
-}: {
-  nodeVersion?: string;
-} = {}): EnvCheck {
+export function checkNodeVersion({ nodeVersion = process.versions.node }: { nodeVersion?: string } = {}): EnvCheck {
   const required = `${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}`;
   if (isNodeSupported(nodeVersion)) {
     return {

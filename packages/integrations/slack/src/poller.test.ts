@@ -49,25 +49,18 @@ describe('createSlackPoller (cassette)', () => {
     // integration_state is the strong signal: the adapter chained
     // markPollStarted/Completed through both sub-pollers, so the row exists
     // with both timestamps and (if anything was fetched) an ISO cursor.
-    const state = dbHandle.db
-      .select()
-      .from(integrationState)
-      .where(eq(integrationState.integration, 'slack'))
-      .get();
-    expect(state).toBeDefined();
-    expect(state?.lastPollStartedAtMs).toBeTypeOf('number');
-    expect(state?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
-    expect(state!.lastPollStartedAtMs).toBeLessThanOrEqual(state!.lastPollCompletedAtMs!);
+    const state = dbHandle.db.select().from(integrationState).where(eq(integrationState.integration, 'slack')).get();
+    if (!state) throw new Error('integration_state row should exist after poll');
+    const { lastPollStartedAtMs: startedAt, lastPollCompletedAtMs: completedAt } = state;
+    if (startedAt === null || completedAt === null) {
+      throw new Error('poll watermarks should be set after a completed poll');
+    }
+    expect(startedAt).toBeLessThanOrEqual(completedAt);
 
     // evidence_log rows depend on the recording account's activity. When any
     // landed, they must be kind in {mention, message} with the expected
     // ts:channel external_id shape.
-    const rows = dbHandle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.integration, 'slack'))
-      .all();
+    const rows = dbHandle.db.select().from(evidenceLog).where(eq(evidenceLog.integration, 'slack')).all();
     for (const row of rows) {
       expect(['mention', 'message']).toContain(row.kind);
       const expectedPrefix = row.kind === 'mention' ? 'mention_' : 'message_';
@@ -90,7 +83,7 @@ describe('createSlackPoller (cassette)', () => {
       .get();
     expect(stateAfterFirst).toBeDefined();
     expect(stateAfterFirst?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
+    // non-null: presence asserted above
     const firstCompleted = stateAfterFirst!.lastPollCompletedAtMs!;
 
     await poller({ db: dbHandle.db, now: 1_762_500_001_000 });
@@ -102,12 +95,12 @@ describe('createSlackPoller (cassette)', () => {
       .get();
     // The second poll must have re-bracketed the integration_state row —
     // proving the closure ran end-to-end again with the cursor it just read.
-    expect(stateAfterSecond).toBeDefined();
-    expect(stateAfterSecond?.lastPollStartedAtMs).toBeTypeOf('number');
-    expect(stateAfterSecond?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
-    expect(stateAfterSecond!.lastPollStartedAtMs!).toBeGreaterThan(firstCompleted);
-    // biome-ignore lint/style/noNonNullAssertion: presence asserted above
-    expect(stateAfterSecond!.lastPollCompletedAtMs!).toBeGreaterThanOrEqual(firstCompleted);
+    if (!stateAfterSecond) throw new Error('integration_state row should exist after second poll');
+    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } = stateAfterSecond;
+    if (startedAt2 === null || completedAt2 === null) {
+      throw new Error('poll watermarks should be set after a completed poll');
+    }
+    expect(startedAt2).toBeGreaterThan(firstCompleted);
+    expect(completedAt2).toBeGreaterThanOrEqual(firstCompleted);
   });
 });

@@ -25,11 +25,7 @@ describe('pollPullRequests', () => {
       })
     )._unsafeUnwrap();
 
-    const rows = handle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.kind, 'pull_request'))
-      .all();
+    const rows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'pull_request')).all();
     expect(rows.length).toBe(value.fetched);
     expect(value.fetched).toBeGreaterThan(0);
     for (const row of rows) {
@@ -38,11 +34,7 @@ describe('pollPullRequests', () => {
       expect(row.payloadJson).toBeTruthy();
     }
 
-    const state = handle.db
-      .select()
-      .from(integrationState)
-      .where(eq(integrationState.integration, 'github'))
-      .get();
+    const state = handle.db.select().from(integrationState).where(eq(integrationState.integration, 'github')).get();
     expect(state?.lastPollCompletedAtMs).toBeTypeOf('number');
     expect(state?.cursor).toBe(value.newCursor);
   });
@@ -62,11 +54,7 @@ describe('pollPullRequests', () => {
     });
     expect(first.isOk()).toBe(true);
 
-    const beforeRows = handle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.kind, 'pull_request'))
-      .all();
+    const beforeRows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'pull_request')).all();
     const beforeCount = beforeRows.length;
     expect(beforeCount).toBeGreaterThan(0);
     // Track a specific row by externalId so the after-poll assertion compares
@@ -83,11 +71,7 @@ describe('pollPullRequests', () => {
     });
     expect(second.isOk()).toBe(true);
 
-    const afterRows = handle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.kind, 'pull_request'))
-      .all();
+    const afterRows = handle.db.select().from(evidenceLog).where(eq(evidenceLog.kind, 'pull_request')).all();
     const afterTracked = afterRows.find((r) => r.externalId === trackedExternalId);
 
     expect(afterRows.length).toBe(beforeCount);

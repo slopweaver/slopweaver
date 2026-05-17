@@ -105,29 +105,19 @@ function loadDotEnvFromMonorepoRoot(): void {
         .slice(eqIdx + 1)
         .trim()
         .replace(/^['"]|['"]$/g, '');
-      if (process.env[key] === undefined) {
-        process.env[key] = value;
-      }
+      process.env[key] ??= value;
     }
   } catch {
     // .env doesn't exist — fine for replay mode.
   }
 }
 
-function redactHeaders({
-  headers,
-}: {
-  headers?: RedactableHeader[] | undefined;
-}): RedactableHeader[] {
+function redactHeaders({ headers }: { headers?: RedactableHeader[] | undefined }): RedactableHeader[] {
   if (!headers) return [];
   return headers.filter((h) => !DEFAULT_REDACT_HEADER_NAMES.has(h.name.toLowerCase()));
 }
 
-function redactCookies({
-  cookies,
-}: {
-  cookies?: RedactableCookie[] | undefined;
-}): RedactableCookie[] {
+function redactCookies({ cookies }: { cookies?: RedactableCookie[] | undefined }): RedactableCookie[] {
   if (!cookies) return [];
   return cookies.map((c) => ({ ...c, value: '[REDACTED]' }));
 }
@@ -186,7 +176,7 @@ function decompressBase64Body({ content }: { content: RecordingContent }): Buffe
     try {
       const parts: unknown = JSON.parse(trimmed);
       if (Array.isArray(parts) && parts.every((p) => typeof p === 'string')) {
-        return Buffer.concat(parts.map((p) => Buffer.from(p as string, 'base64')));
+        return Buffer.concat(parts.map((p) => Buffer.from(p, 'base64')));
       }
     } catch {
       // fall through to plain base64 decode
@@ -203,9 +193,7 @@ function decompressIfNeeded({ response }: { response: PollyRecording['response']
   if (!response?.content || !Array.isArray(response.headers)) return;
   const buffer = decompressBase64Body({ content: response.content });
   if (!buffer) return;
-  const encodingIdx = response.headers.findIndex(
-    (h) => h.name.toLowerCase() === 'content-encoding',
-  );
+  const encodingIdx = response.headers.findIndex((h) => h.name.toLowerCase() === 'content-encoding');
   if (encodingIdx < 0) {
     // No content-encoding header. The body is base64 binary that may or may
     // not be plain UTF-8 — try to decode and only commit if it round-trips.
@@ -251,10 +239,7 @@ function isMissingReplayRecording({ error }: { error: unknown }): boolean {
  * Call this exactly once from a package's vitest `setupFiles` entry. Calling
  * it twice will register the hooks twice and cause double-stop errors.
  */
-export function definePollySetup({
-  extraRedactors = [],
-  extraRequestRewriter,
-}: DefinePollySetupArgs = {}): void {
+export function definePollySetup({ extraRedactors = [], extraRequestRewriter }: DefinePollySetupArgs = {}): void {
   loadDotEnvFromMonorepoRoot();
 
   const nativeFetch = globalThis.fetch;
@@ -266,7 +251,7 @@ export function definePollySetup({
       const { default: nodeFetchFn } = (await import('node-fetch')) as unknown as {
         default: typeof fetch;
       };
-      globalThis.fetch = (async (
+      globalThis.fetch = async (
         input: Parameters<typeof fetch>[0],
         init?: Parameters<typeof fetch>[1],
       ): Promise<Response> => {
@@ -274,14 +259,13 @@ export function definePollySetup({
         headers.set('accept-encoding', 'identity');
         let resolvedInput = input;
         if (POLLY_MODE === 'record' && extraRequestRewriter) {
-          const urlString =
-            typeof input === 'string' ? input : input instanceof URL ? input.toString() : null;
+          const urlString = typeof input === 'string' ? input : input instanceof URL ? input.toString() : null;
           if (urlString) {
             resolvedInput = extraRequestRewriter(urlString);
           }
         }
-        return (await nodeFetchFn(resolvedInput, { ...init, headers })) as Response;
-      }) as typeof fetch;
+        return nodeFetchFn(resolvedInput, { ...init, headers });
+      };
     })();
   }
 
@@ -289,9 +273,7 @@ export function definePollySetup({
     nock.enableNetConnect();
   } else {
     nock.disableNetConnect();
-    nock.enableNetConnect(
-      (host) => host.includes('localhost') || host.includes('127.0.0.1') || host.includes('[::1]'),
-    );
+    nock.enableNetConnect((host) => host.includes('localhost') || host.includes('127.0.0.1') || host.includes('[::1]'));
   }
 
   // Polly's `register` typing is overly strict against default-exported CJS

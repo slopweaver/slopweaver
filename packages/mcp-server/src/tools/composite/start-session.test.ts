@@ -66,10 +66,7 @@ describe('createStartSessionTool', () => {
       .run();
   }
 
-  async function callHandler(
-    tool: ReturnType<typeof createStartSessionTool>,
-    rawInput: unknown,
-  ): Promise<unknown> {
+  async function callHandler(tool: ReturnType<typeof createStartSessionTool>, rawInput: unknown): Promise<unknown> {
     // Mirror the SDK's pre-handler validation step so handler input is typed.
     const input = StartSessionArgs.parse(rawInput);
     const result = await tool.handler({ input, ctx: { db: dbHandle.db } });
@@ -110,9 +107,7 @@ describe('createStartSessionTool', () => {
     expect(parsed.items[1]?.title).toBe('Add widget');
 
     expect(parsed.evidence).toHaveLength(2);
-    expect(parsed.evidence.map((e) => e.integration)).toEqual(
-      expect.arrayContaining(['github', 'slack']),
-    );
+    expect(parsed.evidence.map((e) => e.integration)).toEqual(expect.arrayContaining(['github', 'slack']));
 
     expect(parsed.freshness).toHaveLength(2);
     for (const f of parsed.freshness) {
@@ -169,7 +164,7 @@ describe('createStartSessionTool', () => {
 
     // Schema enforces max(25). 30 must be rejected at the SDK boundary —
     // mirror that here by parsing the raw input.
-    expect(() => StartSessionArgs.parse({ max_items: 30 })).toThrow();
+    expect(() => StartSessionArgs.parse({ max_items: 30 })).toThrow(/max_items/);
   });
 
   it('force_refresh invokes the registered poller exactly once per integration', async () => {
@@ -236,9 +231,7 @@ describe('createStartSessionTool', () => {
     const raw = await callHandler(tool, { integrations: ['github'] });
     const parsed = StartSessionResult.parse(raw);
 
-    expect(parsed.freshness).toEqual([
-      { integration: 'github', last_polled_at: null, stale: true },
-    ]);
+    expect(parsed.freshness).toEqual([{ integration: 'github', last_polled_at: null, stale: true }]);
   });
 
   it('builds Reference as kind:url when citation_url is present, else kind:canonical', async () => {
@@ -312,9 +305,7 @@ describe('createStartSessionTool', () => {
     const parsed = StartSessionResult.parse(raw);
 
     expect(githubPoller).toHaveBeenCalledTimes(1);
-    expect(parsed.freshness).toEqual([
-      { integration: 'github', last_polled_at: null, stale: true },
-    ]);
+    expect(parsed.freshness).toEqual([{ integration: 'github', last_polled_at: null, stale: true }]);
   });
 
   it('isolates a throwing poller — successful integrations still produce items and stale-true signals through Freshness', async () => {
@@ -385,7 +376,7 @@ describe('createStartSessionTool', () => {
       message: 'auth.test failed: invalid_auth',
     };
     const adapterStylePoller: StartSessionPoller = vi.fn(async () => {
-      return Promise.reject(baseErrorShape);
+      throw baseErrorShape;
     });
 
     const tool = createStartSessionTool({
@@ -399,9 +390,7 @@ describe('createStartSessionTool', () => {
     expect(parsed.items).toEqual([]);
     expect(parsed.freshness).toEqual([{ integration: 'slack', last_polled_at: null, stale: true }]);
 
-    expect(stderrSpy).toHaveBeenCalledWith(
-      'slopweaver: slack poller failed: auth.test failed: invalid_auth\n',
-    );
+    expect(stderrSpy).toHaveBeenCalledWith('slopweaver: slack poller failed: auth.test failed: invalid_auth\n');
 
     stderrSpy.mockRestore();
   });
@@ -439,15 +428,11 @@ describe('createStartSessionTool', () => {
 
     expect(parsed.items.map((i) => i.title)).toEqual(['Has bad URL', 'Has bad JSON']);
 
-    const downgraded = parsed.evidence.find(
-      (e) => e.ref.kind === 'canonical' && e.ref.id === 'bad-url',
-    );
+    const downgraded = parsed.evidence.find((e) => e.ref.kind === 'canonical' && e.ref.id === 'bad-url');
     expect(downgraded).toBeDefined();
     expect(downgraded?.citation_url).toBeNull();
 
-    const badJson = parsed.evidence.find(
-      (e) => e.ref.kind === 'canonical' && e.ref.id === 'bad-json',
-    );
+    const badJson = parsed.evidence.find((e) => e.ref.kind === 'canonical' && e.ref.id === 'bad-json');
     expect(badJson).toBeDefined();
     expect(badJson?.payload_json).toBeNull();
   });

@@ -73,13 +73,25 @@ to add fields later.
 
 ## Error definition location
 
-Every error interface extends `BaseError` and lives in one of two
-places:
+There are two categories of error shape in this repo:
+
+- **Domain errors** — every domain error interface extends `BaseError` and
+  carries a discriminant `code` field. These live in a per-package
+  `errors.ts` (see (2) below).
+- **Raw boundary-wrapper shapes** — `ApiCallError` and `DatabaseError` are
+  the unmodified output of `safeApiCall` / `safeQuery`. They have an
+  *optional* `code` field (because the upstream SDK may or may not give us
+  one) and intentionally do **not** extend `BaseError`. Service layers
+  typically `.mapErr()` these into a domain-coded error before returning to
+  callers.
+
+Where they live:
 
 1. **Generic / shared errors → `@slopweaver/errors`:**
-   - `BaseError` (the interface every error extends)
-   - `ApiCallError` (raw output of `safeApiCall`)
-   - `DatabaseError` (raw output of `safeQuery`)
+   - `BaseError` (the interface every domain error extends)
+   - `ApiCallError` (raw output of `safeApiCall` — distinct shape, not a
+     subtype of `BaseError`)
+   - `DatabaseError` (raw output of `safeQuery` — same)
    - Constructors and helpers re-exported from neverthrow: `ok`, `err`,
      `okAsync`, `errAsync`, `Result`, `ResultAsync`, `fromThrowable`
 
@@ -149,12 +161,18 @@ The "no throws at service boundaries" rule is **not** "no `try/catch`
 anywhere." Catches that locally downgrade or recover from a fault are
 legitimate and stay. Examples currently in the tree:
 
-- `packages/mcp-server/src/tools/composite/start-session.ts:275` —
-  per-platform poll failures get logged and the overall session
-  proceeds.
-- `packages/ui/src/server/start.ts:152` — static-asset request handler
-  catches per-request errors so one bad request doesn't kill the
-  server.
+- `packages/mcp-server/src/tools/composite/start-session.ts` — two:
+  - The `await poller(...)` loop wraps each integration's poll in
+    `try/catch` so a single revoked token / rate limit / transient 5xx
+    doesn't abort the whole `start_session` call. Successful integrations
+    still produce items; the failing one keeps `Freshness.stale: true`
+    (because `markPollCompleted` was never called) — that's the contract.
+  - `tryParseJson` (the `payload_json` parser) catches `JSON.parse` and
+    falls back to `null`, so one corrupted evidence row can't crash the
+    whole tool.
+- `packages/ui/src/server/start.ts` — the request handler catches `new URL`
+  parse failures so a malformed request URL returns a 400 instead of killing
+  the server.
 
 The scanner doesn't flag these because it only inspects `throw`
 statements, not catches — a `try/catch` that swallows or maps an error
@@ -206,6 +224,28 @@ boundary helper inside the dispatcher to convert `Err` into an
 output schema to a success/error union — the dispatcher does the
 translation in one place.
 
+**Throw-API callback consumers** (the integration pollers wired into
+`StartSessionPoller`, which is typed `(args) => Promise<void>` with no
+error channel) bridge through one shared helper:
+
+```ts
+import { rejectBoundaryError } from '@slopweaver/integrations-core';
+
+// inside an `async` poller callback:
+if (result.isErr()) {
+  return rejectBoundaryError({ error: result.error });
+}
+```
+
+`rejectBoundaryError` lives in `packages/integrations/core/src/boundary.ts`
+and is the SOLE sanctioned `Promise.reject(new Error(..., { cause }))`
+in the codebase. The `.cause` chain preserves the typed Result error
+for diagnostics; the wrapping `Error` gives the catching cron loop a
+proper stack. Per-poller-file disables of
+`unicorn/no-useless-promise-resolve-reject` aren't needed because the
+disable is scoped to that one helper file in `.oxlintrc.jsonc`. Future
+poller adapters: use the helper, don't reinvent.
+
 ## External calls
 
 For any SDK / HTTP call, use `safeApiCall` from `@slopweaver/errors`:
@@ -235,6 +275,33 @@ return safeApiCall({ execute, provider: 'slack' }).mapErr((apiErr) =>
     : SlackErrors.upstreamFailure(apiErr.message),
 );
 ```
+
+## `.mapErr` must preserve `code`
+
+The `code` field is the discriminant that lets callers branch on the
+typed union. `.mapErr` transformations must thread it through —
+otherwise auth errors get misclassified as generic 500s and the whole
+"single source of error truth" pattern collapses.
+
+```ts
+// ❌ bad — drops the code; downstream loses the discriminant
+.mapErr((e) => ({ message: e.message }))
+
+// ✅ good — go through a factory (canonical) so the code is set centrally
+.mapErr((e) => SlackErrors.upstreamFailure(e.message))
+
+// ✅ also good — preserve `code` explicitly when constructing inline
+.mapErr((e) => ({ code: e.code, message: e.message }))
+```
+
+This is enforced by `pnpm cli check-error-code-preservation` (chained
+into `pnpm validate`). The scanner is a regex-level check; it doesn't
+understand factory functions, so `.mapErr((e) => SlackErrors.x(e.message))`
+is accepted because it doesn't contain a literal `{ message: ..., }`.
+
+Type-assertion escape hatches (`as any`, `<any>`, `as unknown as`) and
+Zod escape hatches (`z.any()`, `z.coerce.boolean()`) are banned at the
+ESLint level via `no-restricted-syntax`. See @.claude/rules/code-quality.md.
 
 ## Test discipline
 
@@ -275,11 +342,15 @@ file a `decision-record` issue rather than working around it.
 The "no throws at service boundaries" rule has three intentional
 exemptions. Code in any of these places may throw without being a bug:
 
-- **Browser-side data fetchers** (`packages/ui/src/client/api/**`) — React
-  consumers catch via `<ErrorBoundary>`, React Query's `onError`, or
-  SWR's `error` field; all three expect throw-based async. Threading
-  `Result` into the JSX layer would buy nothing and force every render
-  site to `.match()`. The scanner does not cover `packages/ui/src`.
+- **Browser-side data fetchers** (`packages/ui/src/client/api/**`) — the
+  fetcher (e.g. `fetchDiagnostics`) throws on non-2xx; the component's
+  `useEffect` wraps the call in a local `try/catch` and renders an error
+  banner. This is the throw-based async shape React hooks expect, and
+  threading `Result` into the JSX layer would force every render site to
+  `.match()` for no real safety win. (When the UI grows to use
+  `<ErrorBoundary>`, React Query's `onError`, or SWR's `error` field, those
+  are the same shape.) The service-boundary scanner does not cover
+  `packages/ui/src`.
 
 - **CLI entry points** (`apps/*/src/cli.ts`, `packages/cli-tools/src/cli.ts`)
   — these are the boundary where Result is unwrapped via `.match()` and

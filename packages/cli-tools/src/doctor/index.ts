@@ -45,8 +45,7 @@ function formatRow(result: CheckResult): string {
   return `${ICON[result.status]} ${pc.bold(result.name)}  ${pc.dim(result.detail)}`;
 }
 
-const defaultPrompt = async (message: string): Promise<boolean> =>
-  confirm({ message, default: true });
+const defaultPrompt = async (message: string): Promise<boolean> => confirm({ message, default: true });
 
 const defaultMkdir = (path: string): void => {
   mkdirSync(path, { recursive: true });

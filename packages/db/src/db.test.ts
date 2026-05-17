@@ -135,16 +135,10 @@ describe('createDb', () => {
     try {
       const now = 1_746_234_567_890;
 
-      handle.db
-        .insert(workspaces)
-        .values({ id: 1, name: 'default', createdAtMs: now, updatedAtMs: now })
-        .run();
+      handle.db.insert(workspaces).values({ id: 1, name: 'default', createdAtMs: now, updatedAtMs: now }).run();
 
       expect(() => {
-        handle.db
-          .insert(workspaces)
-          .values({ id: 2, name: 'other', createdAtMs: now, updatedAtMs: now })
-          .run();
+        handle.db.insert(workspaces).values({ id: 2, name: 'other', createdAtMs: now, updatedAtMs: now }).run();
       }).toThrowError(/CHECK constraint failed/);
 
       expect(handle.db.select().from(workspaces).all()).toHaveLength(1);

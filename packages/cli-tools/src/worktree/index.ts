@@ -29,10 +29,7 @@ export type ExecFn = (cmd: string, args: string[], opts: { cwd: string }) => Exe
 
 export type RunWorktreeNewSuccess = { worktreePath: string };
 
-export type ResolveRootsResult = Result<
-  { repoRoot: string; worktreesRoot: string },
-  MonorepoRootNotFoundError
->;
+export type ResolveRootsResult = Result<{ repoRoot: string; worktreesRoot: string }, MonorepoRootNotFoundError>;
 
 export type RunWorktreeNewDeps = {
   exec?: ExecFn;
@@ -82,11 +79,9 @@ export function runWorktreeNew({
     return err(WorktreeErrors.gitFetchFailed(fetchResult.status));
   }
 
-  const addResult = exec(
-    'git',
-    ['worktree', 'add', '-b', plan.branchName, plan.worktreePath, plan.baseRef],
-    { cwd: repoRoot },
-  );
+  const addResult = exec('git', ['worktree', 'add', '-b', plan.branchName, plan.worktreePath, plan.baseRef], {
+    cwd: repoRoot,
+  });
   if (addResult.status !== 0) {
     return err(WorktreeErrors.gitAddFailed(addResult.status));
   }
