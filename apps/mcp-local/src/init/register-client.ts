@@ -115,7 +115,7 @@ export function registerClient({
 }: RegisterClientArgs): ResultAsync<void, InitError> {
   if (kind === 'claude-code') {
     return tryClaudeMcpAdd({ exec }).andThen((outcome) =>
-      outcome === 'registered' ? okAsync(undefined as void) : writeJsonConfig({ configPath, fs }),
+      outcome === 'registered' ? okAsync(undefined) : writeJsonConfig({ configPath, fs }),
     );
   }
   return writeJsonConfig({ configPath, fs });
