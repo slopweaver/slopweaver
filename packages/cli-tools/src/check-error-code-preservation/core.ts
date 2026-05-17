@@ -36,16 +36,31 @@ const SCAN_ROOTS: ReadonlyArray<string> = ['packages', 'apps'];
  * (`code`) must be threaded through every transformation; an inline object
  * literal that lists `message` but not `code` is the canonical violation.
  *
- * Spread elements (`...e`) count as "code is present" because they forward
- * every field from the source error.
+ * Spread elements are only treated as "code preserved" when the spread
+ * target is one of the callback parameter names — `...e` where `e` is the
+ * error binding. Arbitrary spreads like `...someHelper(e)` or `...{}` are
+ * NOT a free pass (the helper might return `{ message }` and silently drop
+ * `code`); pass the explicit `callbackParameterNames` set to enable this
+ * check, or omit it and any spread is treated conservatively (i.e. does
+ * NOT establish `code`).
  */
-export function objectDropsCode({ node }: { node: ts.ObjectLiteralExpression }): boolean {
+export function objectDropsCode({
+  node,
+  callbackParameterNames = new Set(),
+}: {
+  node: ts.ObjectLiteralExpression;
+  callbackParameterNames?: ReadonlySet<string>;
+}): boolean {
   let hasMessage = false;
   let hasCode = false;
   for (const prop of node.properties) {
     if (ts.isSpreadAssignment(prop)) {
-      // `...e` — forwards everything including code.
-      hasCode = true;
+      // Only `...<identifier>` where the identifier is the callback's error
+      // parameter counts as forwarding `code`. Spread of anything else
+      // (factory call, indexed access, sub-object literal) is opaque.
+      if (ts.isIdentifier(prop.expression) && callbackParameterNames.has(prop.expression.text)) {
+        hasCode = true;
+      }
       continue;
     }
     if (!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) continue;
@@ -55,6 +70,20 @@ export function objectDropsCode({ node }: { node: ts.ObjectLiteralExpression }):
     if (name.text === 'code') hasCode = true;
   }
   return hasMessage && !hasCode;
+}
+
+/**
+ * Collect the parameter binding names from an arrow / function callback so
+ * `objectDropsCode` can recognise `...<param>` as a code-forwarding spread.
+ * Only top-level Identifier bindings are returned; destructured patterns
+ * (`({ code, message }) => ...`) aren't relevant for the spread check.
+ */
+function getCallbackParameterNames({ callback }: { callback: ts.ArrowFunction | ts.FunctionExpression }): Set<string> {
+  const out = new Set<string>();
+  for (const param of callback.parameters) {
+    if (ts.isIdentifier(param.name)) out.add(param.name.text);
+  }
+  return out;
 }
 
 /**
@@ -80,7 +109,13 @@ export function scanSource({ relPath, source }: { relPath: string; source: strin
       const arg = node.arguments[0];
       if (arg && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg))) {
         const objectLiteral = extractReturnedObjectLiteral({ callback: arg });
-        if (objectLiteral && objectDropsCode({ node: objectLiteral })) {
+        if (
+          objectLiteral &&
+          objectDropsCode({
+            node: objectLiteral,
+            callbackParameterNames: getCallbackParameterNames({ callback: arg }),
+          })
+        ) {
           const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
           violations.push({
             file: relPath,

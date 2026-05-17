@@ -35,9 +35,24 @@ describe('objectDropsCode', () => {
     expect(objectDropsCode({ node: obj })).toBe(false);
   });
 
-  it('treats a spread (`...e`) as forwarding code through', () => {
+  it('recognises `...e` as forwarding code when `e` is in callbackParameterNames', () => {
     const obj = firstObjectLiteral('const x = ({ ...e, message: "x" });');
-    expect(objectDropsCode({ node: obj })).toBe(false);
+    expect(objectDropsCode({ node: obj, callbackParameterNames: new Set(['e']) })).toBe(false);
+  });
+
+  it('does NOT treat `...someHelper(e)` as forwarding code (opaque spread is conservative)', () => {
+    const obj = firstObjectLiteral('const x = ({ ...someHelper(e), message: "x" });');
+    expect(objectDropsCode({ node: obj, callbackParameterNames: new Set(['e']) })).toBe(true);
+  });
+
+  it('does NOT treat `...x` as forwarding code when `x` is not a callback parameter', () => {
+    const obj = firstObjectLiteral('const o = ({ ...x, message: "y" });');
+    expect(objectDropsCode({ node: obj, callbackParameterNames: new Set(['e']) })).toBe(true);
+  });
+
+  it('with no callbackParameterNames, every spread is opaque (conservative default)', () => {
+    const obj = firstObjectLiteral('const o = ({ ...e, message: "x" });');
+    expect(objectDropsCode({ node: obj })).toBe(true);
   });
 
   it('recognises shorthand property assignment (`{ message }`)', () => {
@@ -117,6 +132,23 @@ describe('scanSource', () => {
 
   it('handles non-Identifier callee chains (e.g. `(getResult()).mapErr(...)`)', () => {
     const source = '(getResult()).mapErr((e) => ({ message: e.message }));';
+    const violations = scanSource({ relPath: 'a.ts', source });
+    expect(violations).toHaveLength(1);
+  });
+
+  it('accepts `...e` spread of the callback parameter as code-forwarding', () => {
+    const source = 'result.mapErr((e) => ({ ...e, message: "x" }));';
+    expect(scanSource({ relPath: 'a.ts', source })).toEqual([]);
+  });
+
+  it('FLAGS `...someHelper(e)` spread — the helper may drop code silently', () => {
+    const source = 'result.mapErr((e) => ({ ...someHelper(e), message: "x" }));';
+    const violations = scanSource({ relPath: 'a.ts', source });
+    expect(violations).toHaveLength(1);
+  });
+
+  it('FLAGS `...{}` spread — empty spread forwards nothing', () => {
+    const source = 'result.mapErr((e) => ({ ...{}, message: "x" }));';
     const violations = scanSource({ relPath: 'a.ts', source });
     expect(violations).toHaveLength(1);
   });
