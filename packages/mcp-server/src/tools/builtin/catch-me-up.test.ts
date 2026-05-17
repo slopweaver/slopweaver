@@ -134,6 +134,45 @@ describe('createCatchMeUpTool', () => {
     expect(last && last.ref.kind === 'canonical' ? last.ref.id : null).toBe('pr-25');
   });
 
+  it('skips rows whose `integration` or `kind` is an empty string (contract-invalid)', async () => {
+    // A poller bug or hand-edited DB could leave an evidence_log row with an
+    // empty integration/kind string. The DB columns are NOT NULL but `text`,
+    // so the constraint allows it. The wire contract does not — shapeEvidenceRow
+    // returns null and the handler must filter it out before returning.
+    seedEvidence({ externalId: 'good', integration: 'github', kind: 'pull_request' });
+    seedEvidence({ externalId: 'empty-integration', integration: '', kind: 'pull_request' });
+    seedEvidence({ externalId: 'empty-kind', integration: 'github', kind: '' });
+
+    const tool = createCatchMeUpTool({ now: () => FIXED_NOW });
+    const raw = await callHandler(tool, {
+      since: new Date(FIXED_NOW - 10 * ONE_MIN).toISOString(),
+    });
+    const parsed = CatchMeUpResult.parse(raw);
+
+    expect(parsed.evidence).toHaveLength(1);
+    expect(parsed.evidence[0]?.ref).toEqual({
+      kind: 'canonical',
+      integration: 'github',
+      id: 'good',
+    });
+  });
+
+  it('returns Err(MCP_TOOL_UNEXPECTED) when `since` is not Date.parse-able', async () => {
+    // Bypass Zod (`z.iso.datetime` rejects this) to exercise the defensive
+    // guard. Better-sqlite3 would otherwise bind NaN as NULL and silently
+    // return zero matches.
+    const tool = createCatchMeUpTool({ now: () => FIXED_NOW });
+    const result = await tool.handler({
+      input: { since: 'not-a-real-datetime' } as never,
+      ctx: { db: dbHandle.db },
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('MCP_TOOL_UNEXPECTED');
+      expect(result.error.message).toMatch(/could not parse `since`/);
+    }
+  });
+
   it('shapes citation_url into a url-kind ref when valid', async () => {
     seedEvidence({
       externalId: 'pr-with-url',

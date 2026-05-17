@@ -239,16 +239,19 @@ function compareRanked(
 
 /**
  * Defensively convert a DB row to the wire shape. Returns `null` if the row
- * cannot produce a contract-valid item (e.g. both `title` and `kind` are
- * empty). EvidenceLogEntry shaping is delegated to the shared
- * `shapeEvidenceRow` helper; the title fallback + null check stays here
- * because it's specific to start_session's ranking item.
+ * cannot produce a contract-valid item — either because both `title` and
+ * `kind` are empty (so the ranking item has no title) or because the shared
+ * `shapeEvidenceRow` helper rejected the row (empty `integration`/`kind`).
+ * The title fallback stays here because it's specific to start_session's
+ * ranking item; the EvidenceLogEntry shape itself comes from the shared
+ * helper so the same defensive rules apply across every read tool.
  */
 function shapeRow(row: EvidenceRow, nowMs: number): ShapedEntry | null {
   const title = (row.title && row.title.length > 0 ? row.title : row.kind) || null;
   if (title == null) return null;
 
   const evidence = shapeEvidenceRow(row);
+  if (evidence == null) return null;
 
   return {
     item: {

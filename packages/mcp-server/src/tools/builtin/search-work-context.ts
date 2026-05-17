@@ -91,7 +91,9 @@ export function createSearchWorkContextTool(args: CreateSearchWorkContextToolArg
 
       const rawRows = db.all<RawEvidenceRow>(stmt);
       const rows: EvidenceRow[] = rawRows.map(rawRowToEvidenceRow);
-      const evidence: EvidenceLogEntry[] = rows.map(shapeEvidenceRow);
+      const evidence: EvidenceLogEntry[] = rows
+        .map(shapeEvidenceRow)
+        .filter((entry): entry is EvidenceLogEntry => entry !== null);
 
       return ok({
         evidence,

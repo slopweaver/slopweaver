@@ -1,5 +1,6 @@
 import { SearchWorkContextArgs, SearchWorkContextResult } from '@slopweaver/contracts';
 import { createDb, evidenceLog } from '@slopweaver/db';
+import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSearchWorkContextTool } from './search-work-context.ts';
 
@@ -253,5 +254,30 @@ describe('createSearchWorkContextTool', () => {
     if (result.isOk()) {
       expect(result.value.evidence).toEqual([]);
     }
+  });
+
+  it('the rebuild incantation in migration 0002 repopulates FTS from existing rows', async () => {
+    // Pin the post-migration FTS to be valid for a seeded row, then forcibly
+    // wipe the index (simulating the state of an upgraded user DB where the
+    // rows existed before the FTS table did). Run the same `rebuild` command
+    // the migration uses; assert the row becomes searchable again.
+    seedEvidence({ externalId: 'pr-rebuild-me', title: 'unique-rebuild-token' });
+
+    const tool = createSearchWorkContextTool({ now: () => FIXED_NOW });
+
+    // Sanity: trigger already populated the FTS, so the row is searchable.
+    const before = await callHandler(tool, { query: 'unique-rebuild-token' });
+    expect(SearchWorkContextResult.parse(before).evidence).toHaveLength(1);
+
+    // Drop the FTS index entries (this mirrors what a pre-0002 user DB looks
+    // like immediately after the migration creates the empty virtual table).
+    dbHandle.db.run(sql`DELETE FROM evidence_log_fts`);
+    const mid = await callHandler(tool, { query: 'unique-rebuild-token' });
+    expect(SearchWorkContextResult.parse(mid).evidence).toEqual([]);
+
+    // Run the exact rebuild command the migration ships.
+    dbHandle.db.run(sql`INSERT INTO evidence_log_fts(evidence_log_fts) VALUES ('rebuild')`);
+    const after = await callHandler(tool, { query: 'unique-rebuild-token' });
+    expect(SearchWorkContextResult.parse(after).evidence).toHaveLength(1);
   });
 });
