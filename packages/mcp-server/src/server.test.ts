@@ -77,9 +77,7 @@ describe('createMcpServer + ping', () => {
       name: 'echo',
       description: 'Returns the message and a length.',
       inputSchema: z.object({ message: z.string().min(1) }).strict(),
-      outputSchema: z
-        .object({ message: z.string(), length: z.number().int().nonnegative() })
-        .strict(),
+      outputSchema: z.object({ message: z.string(), length: z.number().int().nonnegative() }).strict(),
       handler: async ({ input }) => ok({ message: input.message, length: input.message.length }),
     });
 
@@ -104,9 +102,7 @@ describe('createMcpServer + ping', () => {
       expect(echo?.inputSchema.required).toContain('message');
 
       expect(echo?.outputSchema?.type).toBe('object');
-      expect(Object.keys(echo?.outputSchema?.properties ?? {})).toEqual(
-        expect.arrayContaining(['message', 'length']),
-      );
+      expect(Object.keys(echo?.outputSchema?.properties ?? {})).toEqual(expect.arrayContaining(['message', 'length']));
     } finally {
       await client.close();
       await server.close();

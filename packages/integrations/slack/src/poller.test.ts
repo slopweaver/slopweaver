@@ -49,11 +49,7 @@ describe('createSlackPoller (cassette)', () => {
     // integration_state is the strong signal: the adapter chained
     // markPollStarted/Completed through both sub-pollers, so the row exists
     // with both timestamps and (if anything was fetched) an ISO cursor.
-    const state = dbHandle.db
-      .select()
-      .from(integrationState)
-      .where(eq(integrationState.integration, 'slack'))
-      .get();
+    const state = dbHandle.db.select().from(integrationState).where(eq(integrationState.integration, 'slack')).get();
     if (!state) throw new Error('integration_state row should exist after poll');
     const { lastPollStartedAtMs: startedAt, lastPollCompletedAtMs: completedAt } = state;
     if (startedAt === null || completedAt === null) {
@@ -64,11 +60,7 @@ describe('createSlackPoller (cassette)', () => {
     // evidence_log rows depend on the recording account's activity. When any
     // landed, they must be kind in {mention, message} with the expected
     // ts:channel external_id shape.
-    const rows = dbHandle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.integration, 'slack'))
-      .all();
+    const rows = dbHandle.db.select().from(evidenceLog).where(eq(evidenceLog.integration, 'slack')).all();
     for (const row of rows) {
       expect(['mention', 'message']).toContain(row.kind);
       const expectedPrefix = row.kind === 'mention' ? 'mention_' : 'message_';
@@ -104,8 +96,7 @@ describe('createSlackPoller (cassette)', () => {
     // The second poll must have re-bracketed the integration_state row —
     // proving the closure ran end-to-end again with the cursor it just read.
     if (!stateAfterSecond) throw new Error('integration_state row should exist after second poll');
-    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } =
-      stateAfterSecond;
+    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } = stateAfterSecond;
     if (startedAt2 === null || completedAt2 === null) {
       throw new Error('poll watermarks should be set after a completed poll');
     }

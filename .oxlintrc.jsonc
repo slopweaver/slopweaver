@@ -27,17 +27,7 @@
     "**/out/**"
   ],
 
-  "plugins": [
-    "eslint",
-    "import",
-    "node",
-    "oxc",
-    "promise",
-    "react",
-    "typescript",
-    "unicorn",
-    "vitest"
-  ],
+  "plugins": ["eslint", "import", "node", "oxc", "promise", "react", "typescript", "unicorn", "vitest"],
 
   "rules": {
     // CHERRY-PICKED from pedantic/restriction. Bug prevention, not style.

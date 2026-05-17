@@ -46,11 +46,7 @@ function formatHostForUrl({ host }: { host: string }): string {
  * the browser bar are not 403'd. Anything else (different host or port) is
  * cross-origin and rejected — baseline DNS-rebinding protection.
  */
-function getAllowedOrigins({
-  bindAddress,
-}: {
-  bindAddress: { host: string; port: number };
-}): Set<string> {
+function getAllowedOrigins({ bindAddress }: { bindAddress: { host: string; port: number } }): Set<string> {
   const origins = new Set<string>();
   origins.add(`http://${formatHostForUrl({ host: bindAddress.host })}:${bindAddress.port}`);
   origins.add(`http://localhost:${bindAddress.port}`);
@@ -93,9 +89,7 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   // when callers pass `port: 0` (tests).
   const bindAddress = { host: requestedHost, port: requestedPort };
 
-  const server = createServer(
-    createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress }),
-  );
+  const server = createServer(createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress }));
 
   await listen({ server, port: requestedPort, host: requestedHost });
 
@@ -118,15 +112,7 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   };
 }
 
-async function listen({
-  server,
-  port,
-  host,
-}: {
-  server: Server;
-  port: number;
-  host: string;
-}): Promise<void> {
+async function listen({ server, port, host }: { server: Server; port: number; host: string }): Promise<void> {
   return new Promise((resolveListen, rejectListen) => {
     const onError = (err: unknown): void => {
       server.removeListener('listening', onListening);
@@ -301,15 +287,7 @@ function fileExists({ path }: { path: string }): boolean {
   }
 }
 
-function writeText({
-  res,
-  status,
-  body,
-}: {
-  res: ServerResponse;
-  status: number;
-  body: string;
-}): void {
+function writeText({ res, status, body }: { res: ServerResponse; status: number; body: string }): void {
   res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
   res.end(body);
 }

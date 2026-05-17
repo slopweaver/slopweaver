@@ -27,10 +27,7 @@ export interface Violation {
   readonly text: string;
 }
 
-const CASSETTE_ROOTS: ReadonlyArray<string> = [
-  'packages/integrations/github',
-  'packages/integrations/slack',
-];
+const CASSETTE_ROOTS: ReadonlyArray<string> = ['packages/integrations/github', 'packages/integrations/slack'];
 
 const POLLY_SUSPICIOUS_DIAGNOSTIC_PATTERNS: ReadonlyArray<string> = [
   'unauthorized',
@@ -179,9 +176,7 @@ export function scanRecordingHar({
   const violations: Violation[] = [];
 
   const log = (content['log'] as Record<string, unknown> | undefined) ?? {};
-  const entries = Array.isArray(log['entries'])
-    ? (log['entries'] as Array<Record<string, unknown>>)
-    : [];
+  const entries = Array.isArray(log['entries']) ? (log['entries'] as Array<Record<string, unknown>>) : [];
   if (entries.length === 0) return violations;
 
   const allowAuthFailures = isAllowedRecordingPath({ relPath });
@@ -199,8 +194,7 @@ export function scanRecordingHar({
       POLLY_RAW_TEXT_PATTERNS.some((pattern) => loweredBody.includes(pattern)) ||
       POLLY_SUSPICIOUS_DIAGNOSTIC_PATTERNS.some(
         (pattern) =>
-          diagnosticText.includes(pattern) ||
-          (looksLikeShortPlainErrorBody && loweredBody.includes(pattern)),
+          diagnosticText.includes(pattern) || (looksLikeShortPlainErrorBody && loweredBody.includes(pattern)),
       );
     const isSuspiciousStatus = status === 401 || status === 403;
 
@@ -253,13 +247,7 @@ function walk({ abs, rel, out }: { abs: string; rel: string; out: string[] }): v
  * violation — a HAR that's been corrupted is just as bad as one full of
  * 401s.
  */
-export function scanFiles({
-  root,
-  paths,
-}: {
-  root: string;
-  paths: ReadonlyArray<string>;
-}): Violation[] {
+export function scanFiles({ root, paths }: { root: string; paths: ReadonlyArray<string> }): Violation[] {
   const out: Violation[] = [];
   for (const file of paths) {
     const raw = readFileSync(join(root, file), 'utf8');

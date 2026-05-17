@@ -21,10 +21,7 @@ import { runWorktreeNew } from './worktree/index.ts';
 const cli = cac('slopweaver-cli');
 
 cli
-  .command(
-    'worktree-new <name>',
-    'Create a fresh git worktree from origin/main, on branch worktree/<name>',
-  )
+  .command('worktree-new <name>', 'Create a fresh git worktree from origin/main, on branch worktree/<name>')
   .option('--no-install', 'Skip `pnpm install` in the new worktree')
   .example('  pnpm cli worktree-new fix-issue-42')
   .action((name: string, options: { install: boolean }) => {
@@ -37,30 +34,21 @@ cli
   });
 
 cli
-  .command(
-    'check-service-boundaries',
-    'Fail if `throw` statements appear in service-boundary files (see #41)',
-  )
+  .command('check-service-boundaries', 'Fail if `throw` statements appear in service-boundary files (see #41)')
   .example('  pnpm cli check-service-boundaries')
   .action(() => {
     runCheckServiceBoundaries();
   });
 
 cli
-  .command(
-    'check-error-code-preservation',
-    'Fail if `.mapErr()` drops the `code` field from a typed error union',
-  )
+  .command('check-error-code-preservation', 'Fail if `.mapErr()` drops the `code` field from a typed error union')
   .example('  pnpm cli check-error-code-preservation')
   .action(() => {
     runCheckErrorCodePreservation();
   });
 
 cli
-  .command(
-    'check-cassette-quality',
-    'Fail if Polly HAR cassettes contain auth-failure signals outside allowlist paths',
-  )
+  .command('check-cassette-quality', 'Fail if Polly HAR cassettes contain auth-failure signals outside allowlist paths')
   .example('  pnpm cli check-cassette-quality')
   .action(() => {
     runCheckCassetteQuality();
@@ -80,22 +68,15 @@ cli
   });
 
 cli
-  .command(
-    'orchestration <subcommand> <chainPath>',
-    'Run an orchestration chain. Subcommands: prepare | run',
-  )
-  .option(
-    '--executor <mode>',
-    'Launcher mode: hybrid or codex-only (prepare only; run is always codex-only)',
-    { default: 'hybrid' },
-  )
+  .command('orchestration <subcommand> <chainPath>', 'Run an orchestration chain. Subcommands: prepare | run')
+  .option('--executor <mode>', 'Launcher mode: hybrid or codex-only (prepare only; run is always codex-only)', {
+    default: 'hybrid',
+  })
   .option('--dry-run', 'Print the resolved phase order and exit (run only)')
   .option('--restart', 'Discard saved runner state before starting')
   .option('--notify', 'Send cmux notifications at the manual stop point (run only)')
   .example('  pnpm cli orchestration prepare @docs/orchestration/examples/refactor-example.md')
-  .example(
-    '  pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md --dry-run',
-  )
+  .example('  pnpm cli orchestration run @docs/orchestration/examples/refactor-example.md --dry-run')
   .action(
     async (
       subcommand: string,

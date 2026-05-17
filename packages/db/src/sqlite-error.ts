@@ -26,13 +26,7 @@ export interface SqliteErrorShape {
 
 const SQLITE_ERROR_CODE_PATTERN = /^SQLITE_[A-Z_]+$/;
 
-const SQLITE_CONSTRAINT_PREFIXES = [
-  'UNIQUE',
-  'FOREIGN KEY',
-  'CHECK',
-  'NOT NULL',
-  'PRIMARY KEY',
-] as const;
+const SQLITE_CONSTRAINT_PREFIXES = ['UNIQUE', 'FOREIGN KEY', 'CHECK', 'NOT NULL', 'PRIMARY KEY'] as const;
 const CONSTRAINT_FAILED_SUFFIX = ' constraint failed:';
 
 interface SqliteErrorLike {
@@ -63,9 +57,7 @@ const isSqliteCode = (code: string | undefined): code is string =>
  * Prefix matching is also slightly faster on long messages.
  */
 function parseConstraintMessage(message: string): { table?: string; constraint?: string } {
-  const prefix = SQLITE_CONSTRAINT_PREFIXES.find((p) =>
-    message.startsWith(`${p}${CONSTRAINT_FAILED_SUFFIX}`),
-  );
+  const prefix = SQLITE_CONSTRAINT_PREFIXES.find((p) => message.startsWith(`${p}${CONSTRAINT_FAILED_SUFFIX}`));
   if (!prefix) return {};
 
   const rest = message.slice(`${prefix}${CONSTRAINT_FAILED_SUFFIX}`.length).trim();
@@ -118,11 +110,7 @@ export function extractSqliteErrorShape({ error }: { error: unknown }): SqliteEr
 
   const code = asOptionalString(selected.code);
   const rootMessage =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : 'Database operation failed';
+    error instanceof Error ? error.message : typeof error === 'string' ? error : 'Database operation failed';
   const message = asOptionalString(selected.message) ?? rootMessage;
   const { table, constraint } = parseConstraintMessage(message);
 

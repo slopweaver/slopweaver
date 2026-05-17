@@ -123,9 +123,7 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
             try {
               await poller({ db, now: nowMs });
             } catch (error) {
-              process.stderr.write(
-                `slopweaver: ${integration} poller failed: ${describeError(error)}\n`,
-              );
+              process.stderr.write(`slopweaver: ${integration} poller failed: ${describeError(error)}\n`);
             }
           }
         }
@@ -242,10 +240,7 @@ function scoreOf(row: EvidenceRow, nowMs: number): number {
   return recencyScore + boost;
 }
 
-function compareRanked(
-  a: { row: EvidenceRow; score: number },
-  b: { row: EvidenceRow; score: number },
-): number {
+function compareRanked(a: { row: EvidenceRow; score: number }, b: { row: EvidenceRow; score: number }): number {
   if (b.score !== a.score) return b.score - a.score;
   if (b.row.occurredAtMs !== a.row.occurredAtMs) return b.row.occurredAtMs - a.row.occurredAtMs;
   return a.row.id - b.row.id;

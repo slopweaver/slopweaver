@@ -39,9 +39,7 @@ function printReport({
   err('');
   err(`ERROR: ${result.violations.length} suspicious response(s) in committed cassettes.`);
   err('Likely cause: re-recorded with `POLLY_MODE=record` against an expired token.');
-  err(
-    'Fix: refresh the token, re-record, and verify the diff has no 401/403/invalid_grant signals.',
-  );
+  err('Fix: refresh the token, re-record, and verify the diff has no 401/403/invalid_grant signals.');
   err('Exempt paths must contain one of: auth, refresh, error, expired, invalid, oauth, etc.');
   err('See .claude/rules/testing.md.');
   err('');

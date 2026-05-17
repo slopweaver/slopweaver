@@ -68,9 +68,7 @@ async function pollMentionsInner({
   client,
   now = Date.now,
 }: PollMentionsArgs): Promise<Result<PollResult, SlackError>> {
-  const slackResult: Result<WebClient, SlackTokenInvalidError> = client
-    ? ok(client)
-    : createSlackClient({ token });
+  const slackResult: Result<WebClient, SlackTokenInvalidError> = client ? ok(client) : createSlackClient({ token });
   if (slackResult.isErr()) return err(slackResult.error);
   const slack = slackResult.value;
 

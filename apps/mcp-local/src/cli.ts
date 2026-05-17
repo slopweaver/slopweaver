@@ -32,11 +32,7 @@ import {
   safeGithubCall,
 } from '@slopweaver/integrations-github';
 import { errAsync } from '@slopweaver/errors';
-import {
-  createSlackClient,
-  createSlackPoller,
-  safeSlackCall,
-} from '@slopweaver/integrations-slack';
+import { createSlackClient, createSlackPoller, safeSlackCall } from '@slopweaver/integrations-slack';
 import {
   createMcpServer,
   createPingTool,
@@ -44,11 +40,7 @@ import {
   type StartSessionPoller,
   startStdio,
 } from '@slopweaver/mcp-server';
-import {
-  DEFAULT_PORT as UI_DEFAULT_PORT,
-  startUiServer,
-  type UiServerHandle,
-} from '@slopweaver/ui';
+import { DEFAULT_PORT as UI_DEFAULT_PORT, startUiServer, type UiServerHandle } from '@slopweaver/ui';
 import { runConnectGithub } from './connect/github.ts';
 import { runConnectSlack } from './connect/slack.ts';
 
@@ -59,12 +51,7 @@ import { runConnectSlack } from './connect/slack.ts';
 function readVersion(): string {
   const packageJsonUrl = new URL('../package.json', import.meta.url);
   const raw: unknown = JSON.parse(readFileSync(packageJsonUrl, 'utf-8'));
-  if (
-    typeof raw !== 'object' ||
-    raw === null ||
-    !('version' in raw) ||
-    typeof raw.version !== 'string'
-  ) {
+  if (typeof raw !== 'object' || raw === null || !('version' in raw) || typeof raw.version !== 'string') {
     throw new Error('package.json must define a string `version`');
   }
   return (raw as { version: string }).version;
@@ -73,7 +60,7 @@ function readVersion(): string {
 const VERSION = readVersion();
 
 function resolveWebUiPort(): number {
-  const raw = env.SLOPWEAVER_WEB_UI_PORT;
+  const raw = env['SLOPWEAVER_WEB_UI_PORT'];
   if (raw === undefined || raw === '') return UI_DEFAULT_PORT;
   // Strict-digit gate: `Number.parseInt` would silently accept `"60701junk"`
   // → 60701. Reject any non-digit characters so misconfigured envs fail loudly.
@@ -144,7 +131,7 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
         `slopweaver: failed to resolve GitHub identity, skipping live polling: ${identityResult.error.message}\n`,
       );
     } else {
-      pollers.github = createGithubPoller({
+      pollers['github'] = createGithubPoller({
         token: githubToken.token,
         username: identityResult.value.username,
       });
@@ -157,7 +144,7 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
     // `auth.test()` internally on first invocation. No pre-validation needed
     // here because there's no analogous pre-resolved field to capture
     // (mentions/DMs both work from the token alone).
-    pollers.slack = createSlackPoller({ token: slackToken.token });
+    pollers['slack'] = createSlackPoller({ token: slackToken.token });
   }
 
   const server = createMcpServer({
@@ -184,9 +171,7 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'EADDRINUSE') {
-        stderr.write(
-          `slopweaver: port ${uiPort} in use; web UI disabled (pass --no-web-ui to silence)\n`,
-        );
+        stderr.write(`slopweaver: port ${uiPort} in use; web UI disabled (pass --no-web-ui to silence)\n`);
       } else {
         throw error;
       }

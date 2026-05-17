@@ -58,9 +58,7 @@ export function Diagnostics(): ReactElement {
     <main className="diagnostics">
       <header>
         <h1>SlopWeaver Diagnostics</h1>
-        <p className="hint">
-          {data ? `Updated ${new Date(data.generatedAtMs).toLocaleTimeString()}` : 'No data yet'}
-        </p>
+        <p className="hint">{data ? `Updated ${new Date(data.generatedAtMs).toLocaleTimeString()}` : 'No data yet'}</p>
       </header>
       {error !== null && (
         <div role="alert" className="banner banner--error">
@@ -132,8 +130,7 @@ function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }): ReactElemen
       </thead>
       <tbody>
         {rows.map((r) => {
-          const status =
-            r.lastPollCompletedAtMs === null ? 'never run' : r.stale ? 'stale' : 'fresh';
+          const status = r.lastPollCompletedAtMs === null ? 'never run' : r.stale ? 'stale' : 'fresh';
           const badge = status === 'fresh' ? 'ok' : status === 'never run' ? 'warn' : 'fail';
           return (
             <tr key={r.integration}>

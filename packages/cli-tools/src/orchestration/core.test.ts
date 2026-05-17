@@ -162,12 +162,8 @@ describe('orchestration core', () => {
   it('does not collapse path-separator markers and so distinct chains never alias', () => {
     const repoRoot = '/repo/slopweaver';
     // foo/bar-baz vs foo-bar/baz must produce distinct slugs.
-    expect(resolveRunSlug({ chainPath: '/repo/slopweaver/foo/bar-baz.md', repoRoot })).toBe(
-      'foo--bar-baz',
-    );
-    expect(resolveRunSlug({ chainPath: '/repo/slopweaver/foo-bar/baz.md', repoRoot })).toBe(
-      'foo-bar--baz',
-    );
+    expect(resolveRunSlug({ chainPath: '/repo/slopweaver/foo/bar-baz.md', repoRoot })).toBe('foo--bar-baz');
+    expect(resolveRunSlug({ chainPath: '/repo/slopweaver/foo-bar/baz.md', repoRoot })).toBe('foo-bar--baz');
   });
 
   it('ignores structural headings that appear inside a fenced prompt block', () => {

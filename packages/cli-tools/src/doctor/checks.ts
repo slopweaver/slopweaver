@@ -33,11 +33,7 @@ function isNodeSupported(version: string): boolean {
   return minorOf(version) >= REQUIRED_NODE_MINOR;
 }
 
-export function checkNodeVersion({
-  nodeVersion = process.versions.node,
-}: {
-  nodeVersion?: string;
-} = {}): CheckResult {
+export function checkNodeVersion({ nodeVersion = process.versions.node }: { nodeVersion?: string } = {}): CheckResult {
   const required = `${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}`;
   if (isNodeSupported(nodeVersion)) {
     return {
@@ -87,8 +83,7 @@ export function checkPnpmVersion({
       return {
         name: 'pnpm version',
         status: 'fail',
-        detail:
-          'pnpm not on PATH (install: corepack enable && corepack prepare pnpm@latest --activate)',
+        detail: 'pnpm not on PATH (install: corepack enable && corepack prepare pnpm@latest --activate)',
       };
     }
     if (result.reason === 'timeout') {

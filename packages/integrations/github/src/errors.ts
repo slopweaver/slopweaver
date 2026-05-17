@@ -25,10 +25,7 @@ export interface GithubDatabaseError extends BaseError {
 export type GithubError = GithubApiError | GithubDatabaseError;
 
 export const GithubErrors = {
-  apiError: (
-    endpoint: string,
-    opts: { status?: number; cause?: unknown; message?: string } = {},
-  ): GithubApiError => ({
+  apiError: (endpoint: string, opts: { status?: number; cause?: unknown; message?: string } = {}): GithubApiError => ({
     code: 'GITHUB_API_ERROR',
     message: opts.message ?? `GitHub API call failed: ${endpoint}`,
     endpoint,

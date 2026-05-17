@@ -74,11 +74,7 @@ describe('fetchIdentity', () => {
       });
     }
 
-    const rows = dbHandle.db
-      .select()
-      .from(identityGraph)
-      .where(eq(identityGraph.externalId, 'U0SLOPBOT'))
-      .all();
+    const rows = dbHandle.db.select().from(identityGraph).where(eq(identityGraph.externalId, 'U0SLOPBOT')).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       canonicalId: 'slack:T0WORKSPACE:U0SLOPBOT',

@@ -41,9 +41,7 @@ export type ToolHandlerArgs<TInput> = {
  * sees a typed failure envelope. See `.claude/rules/error-handling.md` and
  * #41.
  */
-export type ToolHandler<TInput, TOutput> = (
-  args: ToolHandlerArgs<TInput>,
-) => Promise<Result<TOutput, McpToolError>>;
+export type ToolHandler<TInput, TOutput> = (args: ToolHandlerArgs<TInput>) => Promise<Result<TOutput, McpToolError>>;
 
 /** Author-facing tool spec; `defineTool` converts this into a {@link Tool}. */
 export type ToolDefinition<TInputSchema extends z.ZodObject, TOutputSchema extends z.ZodObject> = {

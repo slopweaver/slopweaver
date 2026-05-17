@@ -126,9 +126,7 @@ function scrubSlackTree(value: unknown): unknown {
         const inner = v as Record<string, unknown>;
         out[key] = {
           ...inner,
-          ...(typeof inner['value'] === 'string' && inner['value'].length > 0
-            ? { value: REDACTED }
-            : {}),
+          ...(typeof inner['value'] === 'string' && inner['value'].length > 0 ? { value: REDACTED } : {}),
         };
         continue;
       }

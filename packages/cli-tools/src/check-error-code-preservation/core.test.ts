@@ -53,11 +53,9 @@ describe('objectDropsCode', () => {
 
 describe('scanSource', () => {
   it('flags inline-return arrow that drops code', () => {
-    const source = [
-      'export function foo() {',
-      '  return result.mapErr((e) => ({ message: e.message }));',
-      '}',
-    ].join('\n');
+    const source = ['export function foo() {', '  return result.mapErr((e) => ({ message: e.message }));', '}'].join(
+      '\n',
+    );
     const violations = scanSource({ relPath: 'packages/x/src/foo.ts', source });
     expect(violations).toHaveLength(1);
     expect(violations[0]?.line).toBe(2);
@@ -102,10 +100,9 @@ describe('scanSource', () => {
   });
 
   it('flags multiple violations in the same file', () => {
-    const source = [
-      'a.mapErr((e) => ({ message: e.message }));',
-      'b.mapErr((e) => ({ message: e.message }));',
-    ].join('\n');
+    const source = ['a.mapErr((e) => ({ message: e.message }));', 'b.mapErr((e) => ({ message: e.message }));'].join(
+      '\n',
+    );
     const violations = scanSource({ relPath: 'a.ts', source });
     expect(violations).toHaveLength(2);
     expect(violations.map((v) => v.line)).toEqual([1, 2]);

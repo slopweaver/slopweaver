@@ -26,8 +26,7 @@ import { fromDatabaseError, type GithubError, safeGithubCall } from './errors.ts
 const INTEGRATION = 'github';
 const PER_PAGE = 50;
 
-type SearchItem =
-  RestEndpointMethodTypes['search']['issuesAndPullRequests']['response']['data']['items'][number];
+type SearchItem = RestEndpointMethodTypes['search']['issuesAndPullRequests']['response']['data']['items'][number];
 
 export type PollArgs = {
   db: SlopweaverDatabase;
@@ -69,9 +68,7 @@ export function pollMentions(args: PollMentionsArgs): ResultAsync<PollResult, Gi
   });
 }
 
-function runSearch(
-  args: PollArgs & { kind: string; qualifier: string },
-): ResultAsync<PollResult, GithubError> {
+function runSearch(args: PollArgs & { kind: string; qualifier: string }): ResultAsync<PollResult, GithubError> {
   return ResultAsync.fromSafePromise(runSearchInner(args)).andThen((r) => r);
 }
 

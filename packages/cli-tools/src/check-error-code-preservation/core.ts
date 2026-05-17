@@ -112,11 +112,7 @@ function extractReturnedObjectLiteral({
   // Block body: look for a single top-level `return { ... };`
   if (ts.isBlock(body)) {
     for (const stmt of body.statements) {
-      if (
-        ts.isReturnStatement(stmt) &&
-        stmt.expression &&
-        ts.isObjectLiteralExpression(stmt.expression)
-      ) {
+      if (ts.isReturnStatement(stmt) && stmt.expression && ts.isObjectLiteralExpression(stmt.expression)) {
         return stmt.expression;
       }
     }
@@ -168,13 +164,7 @@ function walk({ abs, rel, out }: { abs: string; rel: string; out: string[] }): v
  *
  * @returns aggregated violations across all scanned files.
  */
-export function scanFiles({
-  root,
-  paths,
-}: {
-  root: string;
-  paths: ReadonlyArray<string>;
-}): Violation[] {
+export function scanFiles({ root, paths }: { root: string; paths: ReadonlyArray<string> }): Violation[] {
   const out: Violation[] = [];
   for (const file of paths) {
     const source = readFileSync(join(root, file), 'utf8');

@@ -58,21 +58,13 @@ describe('createGithubPoller (cassette)', () => {
     // adapter reads the cursor before each invocation; the last sub-poll
     // (`pollMentions`) is what overwrites it last, so cursor is whatever
     // mentions saw.
-    const state = dbHandle.db
-      .select()
-      .from(integrationState)
-      .where(eq(integrationState.integration, 'github'))
-      .get();
+    const state = dbHandle.db.select().from(integrationState).where(eq(integrationState.integration, 'github')).get();
     expect(state?.lastPollStartedAtMs).toBeTypeOf('number');
     expect(state?.lastPollCompletedAtMs).toBeTypeOf('number');
     expect(state?.cursor).toBeTypeOf('string');
 
     // evidence_log has rows across all three kinds the adapter polls.
-    const rows = dbHandle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.integration, 'github'))
-      .all();
+    const rows = dbHandle.db.select().from(evidenceLog).where(eq(evidenceLog.integration, 'github')).all();
     expect(rows.length).toBeGreaterThan(0);
 
     const kinds = new Set(rows.map((r) => r.kind));
@@ -88,8 +80,7 @@ describe('createGithubPoller (cassette)', () => {
 
     // Every row that DID land must be kind-prefixed correctly.
     for (const row of rows) {
-      const prefix =
-        row.kind === 'pull_request' ? 'pr_' : row.kind === 'issue' ? 'issue_' : 'mention_';
+      const prefix = row.kind === 'pull_request' ? 'pr_' : row.kind === 'issue' ? 'issue_' : 'mention_';
       expect(row.externalId.startsWith(prefix)).toBe(true);
       expect(row.payloadJson).toBeTypeOf('string');
     }
@@ -105,11 +96,7 @@ describe('createGithubPoller (cassette)', () => {
 
     await poller({ db: dbHandle.db, now: 1_762_500_000_000 });
 
-    const beforeRows = dbHandle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.integration, 'github'))
-      .all();
+    const beforeRows = dbHandle.db.select().from(evidenceLog).where(eq(evidenceLog.integration, 'github')).all();
     expect(beforeRows.length).toBeGreaterThan(0);
     const beforeExternalIds = beforeRows.map((r) => r.externalId).sort();
 
@@ -141,11 +128,7 @@ describe('createGithubPoller (cassette)', () => {
     //      keeps that fixed.
     //   3. integration_state was re-bracketed (markPollStarted/Completed
     //      ran again, proving the closure executed end-to-end).
-    const afterRows = dbHandle.db
-      .select()
-      .from(evidenceLog)
-      .where(eq(evidenceLog.integration, 'github'))
-      .all();
+    const afterRows = dbHandle.db.select().from(evidenceLog).where(eq(evidenceLog.integration, 'github')).all();
     const afterExternalIds = afterRows.map((r) => r.externalId).sort();
     expect(afterExternalIds).toEqual(beforeExternalIds);
 
@@ -156,8 +139,7 @@ describe('createGithubPoller (cassette)', () => {
       .get();
     if (!stateAfterSecond) throw new Error('integration_state row should exist after second poll');
     expect(stateAfterSecond.cursor).toBe(cursorAfterFirst);
-    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } =
-      stateAfterSecond;
+    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } = stateAfterSecond;
     if (startedAt2 === null || completedAt2 === null) {
       throw new Error('poll watermarks should be set after a completed poll');
     }

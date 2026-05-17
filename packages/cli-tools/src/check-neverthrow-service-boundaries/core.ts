@@ -138,13 +138,7 @@ const THROW_KEYWORD_PATTERN = /(?:^|[\s;{])throw\b(?=\s|\()/;
  * Find lines in `content` that contain a `throw` keyword and aren't
  * comment-only.
  */
-export function findThrowSites({
-  content,
-  file,
-}: {
-  content: string;
-  file: string;
-}): ThrowFinding[] {
+export function findThrowSites({ content, file }: { content: string; file: string }): ThrowFinding[] {
   const findings: ThrowFinding[] = [];
   const lines = content.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
@@ -157,13 +151,7 @@ export function findThrowSites({
   return findings;
 }
 
-export function scanFiles({
-  root,
-  paths,
-}: {
-  root: string;
-  paths: ReadonlyArray<string>;
-}): ThrowFinding[] {
+export function scanFiles({ root, paths }: { root: string; paths: ReadonlyArray<string> }): ThrowFinding[] {
   const out: ThrowFinding[] = [];
   for (const file of paths) {
     const content = readFileSync(join(root, file), 'utf8');

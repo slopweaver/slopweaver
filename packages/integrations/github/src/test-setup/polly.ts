@@ -14,10 +14,7 @@
  *    is persisted.
  */
 
-import {
-  definePollySetup,
-  type PollyRecording,
-} from '@slopweaver/integrations-core/test-setup/polly';
+import { definePollySetup, type PollyRecording } from '@slopweaver/integrations-core/test-setup/polly';
 
 const RECORD_REPO_SCOPE = process.env['RECORD_REPO_SCOPE'] ?? 'slopweaver/slopweaver';
 
@@ -68,8 +65,7 @@ const USER_PLACEHOLDERS: Record<string, unknown> = {
 
 function redactGithubUserResponse(recording: PollyRecording): void {
   const requestUrl = recording.request?.url ?? '';
-  const isUserEndpoint =
-    requestUrl.includes('api.github.com/user') && !requestUrl.includes('api.github.com/users/');
+  const isUserEndpoint = requestUrl.includes('api.github.com/user') && !requestUrl.includes('api.github.com/users/');
   if (!isUserEndpoint) return;
   const text = recording.response?.content?.text;
   if (typeof text !== 'string') return;

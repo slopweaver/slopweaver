@@ -31,7 +31,8 @@
     "actions": {
       "recommended": true,
       "source": {
-        "organizeImports": "on"
+        "organizeImports": "on",
+        "useSortedKeys": "on"
       }
     }
   },
@@ -39,8 +40,13 @@
     "enabled": true,
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 100,
+    "lineWidth": 120,
     "lineEnding": "lf"
+  },
+  "json": {
+    "parser": {
+      "allowComments": true
+    }
   },
   "linter": {
     "enabled": true,
@@ -49,6 +55,7 @@
       "correctness": {
         "noConstAssign": "error",
         "noUnusedImports": "error",
+        "noVoidTypeReturn": "warn",
         "useExhaustiveDependencies": "error",
         "useHookAtTopLevel": "error",
         "useIsNan": "error"

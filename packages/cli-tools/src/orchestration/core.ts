@@ -7,12 +7,7 @@ import {
   type OrchestrationMissingTitleError,
 } from './errors.ts';
 
-export const ORCHESTRATION_ROLES = [
-  'codex-plan',
-  'codex-send',
-  'claude-implement',
-  'codex-review',
-] as const;
+export const ORCHESTRATION_ROLES = ['codex-plan', 'codex-send', 'claude-implement', 'codex-review'] as const;
 
 export type OrchestrationRole = (typeof ORCHESTRATION_ROLES)[number];
 export type ExecutorMode = 'codex-only' | 'hybrid';
@@ -109,9 +104,7 @@ export function parseStepHeading(
   const titleAndMaybeRole = afterHashes.slice(titleStart).trimEnd();
   let title = titleAndMaybeRole;
   let role: OrchestrationRole | null = null;
-  const roleSuffix = titleAndMaybeRole.match(
-    /[ \t]+\((codex-plan|codex-send|claude-implement|codex-review)\)$/,
-  );
+  const roleSuffix = titleAndMaybeRole.match(/[ \t]+\((codex-plan|codex-send|claude-implement|codex-review)\)$/);
   if (roleSuffix?.[1]) {
     role = roleSuffix[1] as OrchestrationRole;
     title = titleAndMaybeRole.slice(0, -roleSuffix[0].length).trimEnd();
@@ -159,8 +152,7 @@ const PROFILE_REGISTRY: Record<ProfileId, ChainProfile> = {
     implementationSlices: [
       {
         commitMessage: 'feat: implement orchestration chain',
-        focus:
-          'Implement the full chain in one pass while preserving the chain instructions exactly.',
+        focus: 'Implement the full chain in one pass while preserving the chain instructions exactly.',
         id: 'worker-main',
         label: 'Worker',
       },
@@ -168,8 +160,7 @@ const PROFILE_REGISTRY: Record<ProfileId, ChainProfile> = {
     label: 'Shared Orchestration',
     planners: [
       {
-        focus:
-          'Produce the full plan required by the chain. Cover all requested files, risks, and tests.',
+        focus: 'Produce the full plan required by the chain. Cover all requested files, risks, and tests.',
         id: 'planner-main',
         label: 'Planner',
       },
@@ -177,13 +168,7 @@ const PROFILE_REGISTRY: Record<ProfileId, ChainProfile> = {
   },
 };
 
-export function resolveChainPath({
-  inputPath,
-  repoRoot,
-}: {
-  inputPath: string;
-  repoRoot: string;
-}): string {
+export function resolveChainPath({ inputPath, repoRoot }: { inputPath: string; repoRoot: string }): string {
   const withoutAt = inputPath.startsWith('@') ? inputPath.slice(1) : inputPath;
   if (path.isAbsolute(withoutAt)) {
     return path.normalize(withoutAt);
@@ -221,23 +206,14 @@ function sanitizeSlug({
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9-_]+/g, '-');
-  const collapsed = preserveDoubleHyphen
-    ? trimmed.replace(/---+/g, '--')
-    : trimmed.replace(/--+/g, '-');
+  const collapsed = preserveDoubleHyphen ? trimmed.replace(/---+/g, '--') : trimmed.replace(/--+/g, '-');
   return collapsed.replace(/(^-+|-+$)/g, '');
 }
 
-export function resolveRunSlug({
-  chainPath,
-  repoRoot,
-}: {
-  chainPath: string;
-  repoRoot: string;
-}): string {
+export function resolveRunSlug({ chainPath, repoRoot }: { chainPath: string; repoRoot: string }): string {
   const relativePath = resolveChainRelativePath({ chainPath, repoRoot }) ?? chainPath;
   const extension = path.extname(relativePath);
-  const withoutExtension =
-    extension.length > 0 ? relativePath.slice(0, -extension.length) : relativePath;
+  const withoutExtension = extension.length > 0 ? relativePath.slice(0, -extension.length) : relativePath;
   const slugSource = withoutExtension.replace(/[\\/]+/g, '--');
   return sanitizeSlug({ value: slugSource, preserveDoubleHyphen: true });
 }
@@ -512,13 +488,7 @@ export function buildReviewFixPrompt({
       ].join('\n');
 }
 
-export function buildCiDiagnosisPrompt({
-  prNumber,
-  runId,
-}: {
-  prNumber: number | null;
-  runId: string;
-}): string {
+export function buildCiDiagnosisPrompt({ prNumber, runId }: { prNumber: number | null; runId: string }): string {
   const prSegment = prNumber === null ? 'the current PR' : `PR #${prNumber}`;
   return `CI failed on ${prSegment}. Run 'gh run view ${runId} --log-failed' to get the failure details. Investigate the failure against the codebase. Produce a file-by-file fix plan with exact changes.`;
 }
@@ -557,11 +527,7 @@ export function buildCiFixPrompt({
       ].join('\n');
 }
 
-export function parseCodexJobId({
-  output,
-}: {
-  output: string;
-}): Result<string, OrchestrationInvalidJobIdOutputError> {
+export function parseCodexJobId({ output }: { output: string }): Result<string, OrchestrationInvalidJobIdOutputError> {
   // Defensive: widen the character class beyond plain hex so this still works
   // if codex-orchestrator ever returns UUID-style ids (with `-`) or
   // underscored ids. Today's wrapper emits 8-char lowercase hex.
@@ -593,10 +559,7 @@ export function parsePullRequestNumber({ prUrl }: { prUrl: string }): number | n
 }
 
 export function isSuccessfulReview({ reviewOutput }: { reviewOutput: string }): boolean {
-  return (
-    reviewOutput.includes('LGTM - ready for local testing.') ||
-    reviewOutput.includes('REVIEW_STATUS: PASS')
-  );
+  return reviewOutput.includes('LGTM - ready for local testing.') || reviewOutput.includes('REVIEW_STATUS: PASS');
 }
 
 export function looksLikeTransientModelFailure({ output }: { output: string }): boolean {

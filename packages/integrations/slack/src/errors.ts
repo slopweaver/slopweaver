@@ -116,11 +116,7 @@ export function safeSlackCall<T>({
       const e = error as { code?: unknown; data?: { error?: unknown }; status?: unknown };
       const status = typeof e.status === 'number' ? e.status : undefined;
       const slackCode =
-        typeof e.data?.error === 'string'
-          ? e.data.error
-          : typeof e.code === 'string'
-            ? e.code
-            : undefined;
+        typeof e.data?.error === 'string' ? e.data.error : typeof e.code === 'string' ? e.code : undefined;
       const out: Partial<ApiCallError> = {
         ...(status !== undefined && { status }),
         ...(slackCode !== undefined && { code: slackCode }),
