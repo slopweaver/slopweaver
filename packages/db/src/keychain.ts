@@ -11,15 +11,17 @@
  *
  * The `KeychainAdapter` indirection exists so tests can swap in a memory
  * fake without depending on libsecret / dbus availability in CI. The
- * `realKeychainAdapter` default wraps `@napi-rs/keyring`'s `AsyncEntry`,
- * which catches the underlying Rust `NoEntry` error and returns
- * `undefined` on a miss — we normalize that to `null` so callers see a
- * uniform `string | null`.
+ * `realKeychainAdapter` default wraps `@napi-rs/keyring`'s `AsyncEntry`.
+ * The macOS binding (verified at v1.3.0) resolves `getPassword()` to
+ * `undefined`/`null` on a missing entry; we normalize that to `null`.
+ * Other backends — and the lib's own TS doc — say `NoEntry` surfaces as
+ * a thrown error instead, so `loadKeychainToken` also classifies
+ * NoEntry-shaped throws into `Ok(null)` (see `looksLikeNoEntry`).
  */
 
 import { AsyncEntry } from '@napi-rs/keyring';
 import type { BaseError } from '@slopweaver/errors';
-import { ResultAsync } from '@slopweaver/errors';
+import { errAsync, okAsync, ResultAsync } from '@slopweaver/errors';
 
 const KEYCHAIN_SERVICE = 'slopweaver';
 
@@ -44,6 +46,32 @@ function describe(cause: unknown): string {
   if (cause instanceof Error) return cause.message;
   if (typeof cause === 'string') return cause;
   return 'unknown keychain failure';
+}
+
+/**
+ * Heuristic: does this error look like the Rust `keyring` crate's `NoEntry`
+ * variant (i.e. "credential does not exist") rather than a real failure?
+ *
+ * The `@napi-rs/keyring 1.3.0` binding on macOS resolves `AsyncEntry.getPassword()`
+ * to `undefined`/`null` on a missing entry — verified empirically before
+ * landing this code. Its TypeScript doc comment, however, says "Returns a
+ * NoEntry error if there isn't one", and Linux Secret Service / Windows
+ * Credential Manager backends or future binding versions may bubble the
+ * Rust error up instead. This classifier defends against that: any error
+ * whose message includes one of the canonical `NoEntry` phrases is mapped
+ * to `Ok(null)` so the stale-row contract in `loadIntegrationToken` still
+ * holds. Genuine keychain failures (locked, denied, ambiguous) carry
+ * different messages and continue to surface as `KEYCHAIN_READ_FAILED`.
+ */
+function looksLikeNoEntry(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : '';
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('no entry') ||
+    normalized.includes('no matching') ||
+    normalized.includes('not found') ||
+    normalized.includes('does not exist')
+  );
 }
 
 export const KeychainErrors = {
@@ -112,7 +140,11 @@ export function saveKeychainToken({
  * Returns `Ok(null)` when no entry exists — callers should treat that as
  * "not connected" (same convention as `loadIntegrationToken`'s
  * missing-row case). Returns Err only when the keychain call itself
- * fails (denied prompt, locked keychain, etc.).
+ * fails (denied prompt, locked keychain, ambiguous credential, etc.).
+ *
+ * The `.orElse` step classifies the lib's `NoEntry` shape and recovers
+ * to `Ok(null)` so callers don't have to special-case it — see
+ * `looksLikeNoEntry` above for the rationale.
  */
 export function loadKeychainToken({
   integration,
@@ -124,6 +156,8 @@ export function loadKeychainToken({
   return ResultAsync.fromPromise(
     adapter.getPassword({ service: KEYCHAIN_SERVICE, account: integration }),
     KeychainErrors.readFailed,
+  ).orElse((err) =>
+    looksLikeNoEntry(err.cause) ? okAsync<string | null, KeychainReadFailedError>(null) : errAsync(err),
   );
 }
 

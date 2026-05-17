@@ -114,6 +114,33 @@ describe('keychain error surfacing', () => {
     }
   });
 
+  it('load classifies NoEntry-shaped throws as Ok(null) rather than KEYCHAIN_READ_FAILED', async () => {
+    // The current macOS binding returns null on missing entry, but the
+    // lib's TS doc says "Returns a NoEntry error if there isn't one" —
+    // future versions or other platforms may throw. The .orElse layer in
+    // loadKeychainToken should recover to Ok(null) for any error whose
+    // message looks like the Rust NoEntry variant.
+    const noEntryMessages = [
+      'No matching entry found in secure storage',
+      'no entry in secure store matched the search',
+      'credential does not exist',
+      'not found',
+    ];
+    for (const msg of noEntryMessages) {
+      const adapter: KeychainAdapter = {
+        setPassword: vi.fn(),
+        getPassword: vi.fn().mockRejectedValue(new Error(msg)),
+        deletePassword: vi.fn(),
+      };
+
+      const result = await loadKeychainToken({ integration: 'github', adapter });
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toBeNull();
+      }
+    }
+  });
+
   it('delete surfaces KEYCHAIN_DELETE_FAILED when the adapter rejects', async () => {
     const adapter: KeychainAdapter = {
       setPassword: vi.fn(),
