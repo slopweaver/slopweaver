@@ -67,15 +67,28 @@ describe('withTimeout', () => {
   });
 
   it('clears the timer when the operation wins, so no handle leaks', async () => {
-    const clearSpy = vi.fn();
-    const setSpy = vi.fn((fn: () => void, ms: number) => globalThis.setTimeout(fn, ms));
+    // Both spies delegate to the real `globalThis.{set,clear}Timeout` so
+    // assertion failures here would also mean an actual leaked Node timer,
+    // not just a missed callback invocation. The previous shape used a
+    // no-op `vi.fn()` for clear, which only proved the injected function
+    // was called — not that the underlying handle was actually released.
+    const realTimers: Array<ReturnType<typeof globalThis.setTimeout>> = [];
+    const setSpy = vi.fn((fn: () => void, ms: number) => {
+      const timer = globalThis.setTimeout(fn, ms);
+      realTimers.push(timer);
+      return timer;
+    });
+    const clearSpy = vi.fn((timer: Parameters<typeof clearTimeout>[0]) => {
+      globalThis.clearTimeout(timer);
+    });
 
     const result = await withTimeout({
       operation: okAsync({ login: 'octocat' }),
       timeoutMs: 50,
-      // `setSpy`'s typing doesn't quite line up with `typeof setTimeout` so
-      // we cast it explicitly; `clearSpy` (a plain `vi.fn()`) is already
-      // assignable to `typeof clearTimeout` per TS, so no cast there.
+      // `setSpy`'s typing doesn't quite line up with `typeof setTimeout`
+      // because vi.fn widens overloads, so we cast it explicitly. `clearSpy`
+      // (a plain `vi.fn` over a single-arg call) is already assignable to
+      // `typeof clearTimeout`.
       setTimeoutImpl: setSpy as unknown as typeof setTimeout,
       clearTimeoutImpl: clearSpy,
     });
@@ -83,5 +96,10 @@ describe('withTimeout', () => {
     expect(result.isOk()).toBe(true);
     expect(setSpy).toHaveBeenCalledTimes(1);
     expect(clearSpy).toHaveBeenCalledTimes(1);
+    // The clear call must reference the same handle the timer spy returned —
+    // pin the linkage so a future refactor that "cleared a different timer"
+    // would fail this test instead of silently passing.
+    expect(realTimers).toHaveLength(1);
+    expect(clearSpy).toHaveBeenCalledWith(realTimers[0]);
   });
 });
