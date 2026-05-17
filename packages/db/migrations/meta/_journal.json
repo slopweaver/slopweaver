@@ -15,6 +15,13 @@
       "when": 1778074475311,
       "tag": "0001_solid_whirlwind",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779012112501,
+      "tag": "0002_vengeful_slayback",
+      "breakpoints": true
     }
   ]
 }
