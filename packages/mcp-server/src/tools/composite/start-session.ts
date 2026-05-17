@@ -102,7 +102,17 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
         if (shouldPoll(db, integration, nowMs, staleThresholdMs, input.force_refresh === true)) {
           const poller = pollers[integration];
           if (poller) {
-            await poller({ db, now: nowMs });
+            // Recovery catch (see .claude/rules/error-handling.md "Legitimate
+            // recovery catches"): a single integration's poller throwing
+            // (revoked token, rate limit, transient 5xx) must not abort the
+            // whole tool call. The failing integration's `Freshness.stale`
+            // remains true because `markPollCompleted` was never called —
+            // that's the contract.
+            try {
+              await poller({ db, now: nowMs });
+            } catch (error) {
+              process.stderr.write(`slopweaver: ${integration} poller failed: ${String(error)}\n`);
+            }
           }
         }
       }
