@@ -10,7 +10,7 @@ Three logical kinds of tests, distinguished by what they touch — not by where 
 
 - **Polly-replay tests.** Hit a real platform API once during recording, replay deterministically thereafter. Wired via the per-package `setupFiles` entry that calls `definePollySetup` from `@slopweaver/integrations-core/test-setup/polly`. Cassettes live at `src/__recordings__/<suite>/<test>/recording.har`. See @.claude/agents/polly-replay-test-reviewer.md.
 
-- **Smoke / spawned-process tests.** Intentionally slow: launch a real binary, hit a real port, etc. Opt in via the `*.smoke.test.ts` suffix when filtering matters. No package uses this suffix today; introduce when needed.
+- **Smoke / spawned-process tests.** Intentionally slow: launch a real binary, hit a real port, etc. Tag with the `*.smoke.test.ts` suffix so the file is searchable; `apps/mcp-local/src/cli.smoke.test.ts` is the canonical example today. The default `include: ['src/**/*.test.ts']` runs them alongside everything else — the suffix is for organization, not filtering (see the paragraph below).
 
 The default `vitest.config.ts` `include: ['src/**/*.test.ts']` already matches both `*.smoke.test.ts` and `*.cassette.test.ts` because they end in `.test.ts` — `apps/mcp-local/src/cli.smoke.test.ts` is the live example, and its package bumps `testTimeout` to 30s for the spawn cost. The suffix is purely a visibility tag today. To run smoke-only or exclude smoke (e.g. a "fast tests" subset in CI), pass a Vitest filter or update the package's `include`/`exclude` at the point you actually need the split. Don't introduce a new suffix without a concrete reason — extra metadata that nothing filters on is just noise.
 

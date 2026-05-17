@@ -101,6 +101,12 @@ const ALLOWED_RECORDING_PATH_KEYWORDS: ReadonlyArray<string> = [
   'unauthor',
 ];
 
+/**
+ * Cassettes whose path contains an error-path keyword (`auth`, `refresh`,
+ * `error`, `expired`, `invalid`, `oauth`, etc.) are deliberate failure-mode
+ * fixtures — auth-failure signals in their responses are expected. Returns
+ * `true` to opt the cassette out of `scanRecordingHar`'s suspicion checks.
+ */
 export function isAllowedRecordingPath({ relPath }: { relPath: string }): boolean {
   const lowered = relPath.toLowerCase();
   return ALLOWED_RECORDING_PATH_KEYWORDS.some((kw) => lowered.includes(kw));

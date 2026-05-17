@@ -4,6 +4,12 @@ import type { DiagnosticsResponse, EnvCheck, IntegrationStatus } from '../api/di
 
 const POLL_INTERVAL_MS = 30_000;
 
+/**
+ * The Diagnostics page: polls `/api/diagnostics` every 30s and renders the
+ * env-check banner, integration-status table, and a top-of-page error
+ * banner when the fetch itself fails. Skips overlapping polls so a slow
+ * response can't overwrite the newer state.
+ */
 export function Diagnostics(): ReactElement {
   const [data, setData] = useState<DiagnosticsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
