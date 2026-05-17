@@ -45,12 +45,23 @@ export function createGithubPoller({
   return async ({ db, now }) => {
     const nowFn = (): number => now;
 
-    const cursorResult = await readCursor({ db, integration: INTEGRATION });
-    const cursor = cursorResult._unsafeUnwrap();
-    const since = cursor ? new Date(cursor) : null;
+    // Read the cursor *before each* sub-poll. The three sub-polls share the
+    // `integration_state.cursor` row, so each call's `markPollCompleted`
+    // overwrites it. Threading the latest cursor into the next sub-poll's
+    // `since` means an empty result (e.g. zero new mentions today) preserves
+    // the prior watermark via polling.ts's `items[0]?.updated_at ??
+    // since?.toISOString() ?? null` fallback — without re-reading, an empty
+    // tail-call clobbers the cursor written by earlier sub-polls.
+    const sinceFor = async (): Promise<Date | null> => {
+      const result = await readCursor({ db, integration: INTEGRATION });
+      const cursor = result._unsafeUnwrap();
+      return cursor ? new Date(cursor) : null;
+    };
 
-    (await pollPullRequests({ db, token, since, now: nowFn }))._unsafeUnwrap();
-    (await pollIssues({ db, token, since, now: nowFn }))._unsafeUnwrap();
-    (await pollMentions({ db, token, since, username, now: nowFn }))._unsafeUnwrap();
+    (await pollPullRequests({ db, token, since: await sinceFor(), now: nowFn }))._unsafeUnwrap();
+    (await pollIssues({ db, token, since: await sinceFor(), now: nowFn }))._unsafeUnwrap();
+    (
+      await pollMentions({ db, token, since: await sinceFor(), username, now: nowFn })
+    )._unsafeUnwrap();
   };
 }

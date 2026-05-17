@@ -40,13 +40,20 @@ export function createSlackPoller({ token }: CreateSlackPollerArgs): StartSessio
   return async ({ db, now }) => {
     const nowFn = (): number => now;
 
-    const cursorResult = await readCursor({ db, integration: INTEGRATION });
-    const cursor = cursorResult._unsafeUnwrap();
-    const sinceArg: { since: Date } | Record<string, never> = cursor
-      ? { since: new Date(cursor) }
-      : {};
+    // Read the cursor *before each* sub-poll. The two sub-polls share the
+    // `integration_state.cursor` row, so each call's `markPollCompleted`
+    // overwrites it. Threading the latest cursor into the next sub-poll's
+    // `since` means an empty result preserves the prior watermark via the
+    // pollers' `newestTs ?? since?.toISOString() ?? null` fallback — without
+    // re-reading, an empty tail-call clobbers the cursor written by earlier
+    // sub-polls.
+    const sinceFor = async (): Promise<{ since: Date } | Record<string, never>> => {
+      const result = await readCursor({ db, integration: INTEGRATION });
+      const cursor = result._unsafeUnwrap();
+      return cursor ? { since: new Date(cursor) } : {};
+    };
 
-    (await pollMentions({ db, token, ...sinceArg, now: nowFn }))._unsafeUnwrap();
-    (await pollDMs({ db, token, ...sinceArg, now: nowFn }))._unsafeUnwrap();
+    (await pollMentions({ db, token, ...(await sinceFor()), now: nowFn }))._unsafeUnwrap();
+    (await pollDMs({ db, token, ...(await sinceFor()), now: nowFn }))._unsafeUnwrap();
   };
 }
