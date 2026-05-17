@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { type ReactElement, useEffect, useState } from 'react';
 import { fetchDiagnostics } from '../api/diagnostics.ts';
 import type { DiagnosticsResponse, EnvCheck, IntegrationStatus } from '../api/diagnostics.ts';
 
 const POLL_INTERVAL_MS = 30_000;
 
-export function Diagnostics() {
+export function Diagnostics(): ReactElement {
   const [data, setData] = useState<DiagnosticsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,7 +66,7 @@ export function Diagnostics() {
   );
 }
 
-function DiagnosticsBody({ data }: { data: DiagnosticsResponse }) {
+function DiagnosticsBody({ data }: { data: DiagnosticsResponse }): ReactElement {
   return (
     <>
       <section>
@@ -103,7 +103,7 @@ function DiagnosticsBody({ data }: { data: DiagnosticsResponse }) {
   );
 }
 
-function CheckRow({ check }: { check: EnvCheck }) {
+function CheckRow({ check }: { check: EnvCheck }): ReactElement {
   return (
     <p className={`check check--${check.status}`}>
       <span className="check__name">{check.name}</span>
@@ -113,7 +113,7 @@ function CheckRow({ check }: { check: EnvCheck }) {
   );
 }
 
-function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }) {
+function IntegrationsTable({ rows }: { rows: IntegrationStatus[] }): ReactElement {
   return (
     <table className="integrations">
       <thead>

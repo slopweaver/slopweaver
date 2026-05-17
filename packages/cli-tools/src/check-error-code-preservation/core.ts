@@ -131,7 +131,12 @@ function walk({ abs, rel, out }: { abs: string; rel: string; out: string[] }): v
 }
 
 /**
- * Scan every file under the configured scan roots and aggregate violations.
+ * Read each file in `paths` and aggregate every `.mapErr` violation across
+ * the corpus. Caller is responsible for producing `paths` (typically via
+ * `listScanFiles`); this keeps the I/O surface separate from the pure
+ * scanning logic in `scanFileLines`.
+ *
+ * @returns aggregated violations across all scanned files.
  */
 export function scanFiles({
   root,

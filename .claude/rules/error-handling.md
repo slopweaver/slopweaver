@@ -148,12 +148,14 @@ The "no throws at service boundaries" rule is **not** "no `try/catch`
 anywhere." Catches that locally downgrade or recover from a fault are
 legitimate and stay. Examples currently in the tree:
 
-- `packages/mcp-server/src/tools/composite/start-session.ts:275` —
-  per-platform poll failures get logged and the overall session
-  proceeds.
-- `packages/ui/src/server/start.ts:152` — static-asset request handler
-  catches per-request errors so one bad request doesn't kill the
-  server.
+- `packages/mcp-server/src/tools/composite/start-session.ts` — `tryParseJson`
+  (the `payload_json` parser) catches `JSON.parse` and falls back to `null`,
+  so one corrupted evidence row can't crash the whole tool. The same file's
+  `await poller(...)` (line ~105) is currently un-isolated; per-platform
+  isolation is tracked separately and isn't a service-boundary throw.
+- `packages/ui/src/server/start.ts` — the request handler catches `new URL`
+  parse failures so a malformed request URL returns a 400 instead of killing
+  the server.
 
 The scanner doesn't flag these because it only inspects `throw`
 statements, not catches — a `try/catch` that swallows or maps an error

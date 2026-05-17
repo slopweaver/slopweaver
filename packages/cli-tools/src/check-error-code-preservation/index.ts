@@ -15,12 +15,10 @@
 import { findMonorepoRoot } from '../lib/paths.ts';
 import { listScanFiles, scanFiles, type Violation } from './core.ts';
 
-interface CheckResult {
-  readonly ok: boolean;
-  readonly violations: ReadonlyArray<Violation>;
-}
-
-function runCheck({ root }: { root: string }): CheckResult {
+function runCheck({ root }: { root: string }): {
+  ok: boolean;
+  violations: ReadonlyArray<Violation>;
+} {
   const paths = listScanFiles({ root });
   const violations = scanFiles({ root, paths });
   return { ok: violations.length === 0, violations };
@@ -31,7 +29,7 @@ function printReport({
   out = console.log,
   err = console.error,
 }: {
-  result: CheckResult;
+  result: { ok: boolean; violations: ReadonlyArray<Violation> };
   out?: (line: string) => void;
   err?: (line: string) => void;
 }): void {
@@ -52,6 +50,12 @@ function printReport({
   err('');
 }
 
+/**
+ * CLI entry point. Resolves the monorepo root, walks `packages/` + `apps/`,
+ * prints a CodeRabbit-style report, and exits non-zero on any finding.
+ *
+ * @returns never — calls `process.exit` on both success and failure paths.
+ */
 export function runAndExit(): void {
   const rootResult = findMonorepoRoot();
   if (rootResult.isErr()) {

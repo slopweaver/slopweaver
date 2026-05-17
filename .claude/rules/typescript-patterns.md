@@ -20,6 +20,7 @@ function findRow({ id, userId }: { id: string; userId: string }): Row | null;
 - Callbacks / event handlers passed inline: `.map((item) => …)`, `onClick={(e) => …}`.
 - Type guards / assertion functions (TS1230 limitation — see below).
 - Library / DSL signatures: `eq(table.userId, userId)`, `describe("name", fn)`, `it("name", fn)`.
+- **Single-object pass-through wrappers**: a function whose sole param is an already-typed object that's forwarded as-is to another function may skip destructuring at the signature: `function pollPullRequests(args: PollArgs): ResultAsync<...>`. The named-object rule's purpose (one positional slot, fields named at the call site) is already satisfied. Destructure when you'd otherwise spread (`{ ...args, kind: 'X' }` → `runSearch({ db, token, since, kind: 'X' })`) only if it reads more clearly; both forms are acceptable.
 
 ## TS1230: type predicates must use positional params
 

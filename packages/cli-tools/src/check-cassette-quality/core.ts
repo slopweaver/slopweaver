@@ -241,6 +241,12 @@ function walk({ abs, rel, out }: { abs: string; rel: string; out: string[] }): v
   }
 }
 
+/**
+ * Read each cassette file, parse the JSON, and aggregate any
+ * auth/recording-failure violations. A non-parseable cassette is itself a
+ * violation — a HAR that's been corrupted is just as bad as one full of
+ * 401s.
+ */
 export function scanFiles({
   root,
   paths,

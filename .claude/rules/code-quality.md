@@ -20,8 +20,11 @@ public repo's scope.
   **AST-pattern rules** (`no-restricted-syntax`) for ad-hoc bans.
 
 Each tool's config is wired so that anything another tool owns is
-explicitly turned off — see comments in `biome.json`,
-`.oxlintrc.json`, and `eslint.config.js`.
+explicitly turned off — see inline rationale comments in `biome.json`,
+`.oxlintrc.jsonc`, and `eslint.config.js`. Every per-file override (test
+relaxations, CLI entry-point throw carve-outs, ReDoS false-positives, the
+slack searchability-placeholder `.skip`, etc.) carries a `--` rationale
+either at the override site or in the relevant rule doc.
 
 ## Division of labour
 
@@ -51,8 +54,8 @@ explicitly turned off — see comments in `biome.json`,
 | `array-callback-return` | Oxlint |
 | `no-fallthrough`, `no-self-compare`, `no-constructor-return` | Oxlint |
 | `react/button-has-type` | Oxlint |
-| `vitest/no-focused-tests` (`.only`) | Oxlint (error) |
-| `vitest/no-disabled-tests` (`.skip`) | Oxlint (error) |
+| `vitest/no-focused-tests` (`.only`) | Oxlint (`error`) |
+| `vitest/no-disabled-tests` (`.skip`) | Oxlint (`error`) |
 | Test-debt comments (`TODO/FIXME/SKIP:` in `**/*.test.ts`) | ESLint `no-warning-comments` |
 | `.mapErr` must preserve `code` field | **Custom**: `pnpm cli check-error-code-preservation` |
 | Service files must not `throw` | **Custom**: `pnpm cli check-service-boundaries` |
@@ -121,7 +124,7 @@ pnpm cli check-service-boundaries
 pnpm cli check-error-code-preservation
 pnpm cli check-cassette-quality
 pnpm format:check
-pnpm lint            # biome lint . && oxlint -c .oxlintrc.json && eslint .
+pnpm lint            # biome lint . && oxlint -c .oxlintrc.jsonc && eslint .
 pnpm lint:biome      # biome only
 pnpm lint:oxlint     # oxlint only
 pnpm lint:eslint     # eslint only
