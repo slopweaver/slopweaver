@@ -115,4 +115,4 @@ Some things require a server: real-time webhooks instead of polling, mobile push
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for vulnerability disclosure.
+Integration tokens (GitHub PAT, Slack user token) are stored in the macOS Keychain under the entry `slopweaver / <integration>` — the local SQLite database holds only presence metadata (slug, account label, timestamps). Audit a stored token with `security find-generic-password -a github -s slopweaver -w`. On first write the v1 binary is unsigned, so macOS shows a "Keychain Access wants to use the slopweaver entry" prompt; clicking "Always Allow" trusts the binary's path. macOS is the only OS that's QA'd for v1 — Linux Secret Service and Windows Credential Manager work under the hood but are best-effort untested. For vulnerability disclosure see [SECURITY.md](SECURITY.md).

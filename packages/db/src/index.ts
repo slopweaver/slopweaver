@@ -16,6 +16,7 @@ import * as schema from './schema/index.ts';
 
 export * from './errors.ts';
 export * from './integration-tokens.ts';
+export * from './keychain.ts';
 export * from './path.ts';
 export * from './safe-query.ts';
 export * from './schema/index.ts';
