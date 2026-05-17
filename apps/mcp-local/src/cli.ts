@@ -23,15 +23,25 @@ import { readFileSync } from 'node:fs';
 import { argv, env, exit, stderr, stdout } from 'node:process';
 import { password } from '@inquirer/prompts';
 import { cac } from 'cac';
-import { createDb, resolveDataDir, resolveDbPath } from '@slopweaver/db';
+import { createDb, loadIntegrationToken, resolveDataDir, resolveDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
-import { createGithubClient, safeGithubCall } from '@slopweaver/integrations-github';
+import {
+  createGithubClient,
+  createGithubPoller,
+  fetchIdentity as fetchGithubIdentity,
+  safeGithubCall,
+} from '@slopweaver/integrations-github';
 import { errAsync } from '@slopweaver/errors';
-import { createSlackClient, safeSlackCall } from '@slopweaver/integrations-slack';
+import {
+  createSlackClient,
+  createSlackPoller,
+  safeSlackCall,
+} from '@slopweaver/integrations-slack';
 import {
   createMcpServer,
   createPingTool,
   createStartSessionTool,
+  type StartSessionPoller,
   startStdio,
 } from '@slopweaver/mcp-server';
 import {
@@ -99,17 +109,61 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
   const dbHandle = createDb({ path: dbPathResult.value });
   const dataDir = dataDirResult.value;
 
+  // Load connected integration tokens from `integration_tokens` in parallel,
+  // then build a poller map keyed by integration slug to pass into the
+  // composite `start_session` tool. `null` means "not connected — skip";
+  // `Err` is a real DB failure and propagates via the same if-isErr-throw
+  // CLI-boundary pattern as the env/dbPath/dataDir results above.
+  const [githubTokenResult, slackTokenResult] = await Promise.all([
+    loadIntegrationToken({ db: dbHandle.db, integration: 'github' }),
+    loadIntegrationToken({ db: dbHandle.db, integration: 'slack' }),
+  ]);
+  if (githubTokenResult.isErr()) {
+    throw githubTokenResult.error;
+  }
+  if (slackTokenResult.isErr()) {
+    throw slackTokenResult.error;
+  }
+
+  const pollers: Record<string, StartSessionPoller> = {};
+
+  const githubToken = githubTokenResult.value;
+  if (githubToken !== null) {
+    // fetchIdentity validates the token against the live API and refreshes
+    // identity_graph. A revoked PAT, network blip, or rate-limit response
+    // must not abort startup: log and omit github from the pollers map so
+    // start_session keeps serving slack + cached evidence. The user can
+    // `slopweaver connect github` again later without a restart-relevant
+    // state change. Mirrors the EADDRINUSE fail-soft below.
+    const identityResult = await fetchGithubIdentity({
+      db: dbHandle.db,
+      token: githubToken.token,
+    });
+    if (identityResult.isErr()) {
+      stderr.write(
+        `slopweaver: failed to resolve GitHub identity, skipping live polling: ${identityResult.error.message}\n`,
+      );
+    } else {
+      pollers.github = createGithubPoller({
+        token: githubToken.token,
+        username: identityResult.value.username,
+      });
+    }
+  }
+
+  const slackToken = slackTokenResult.value;
+  if (slackToken !== null) {
+    // Slack's createSlackPoller is network-free; the poller calls
+    // `auth.test()` internally on first invocation. No pre-validation needed
+    // here because there's no analogous pre-resolved field to capture
+    // (mentions/DMs both work from the token alone).
+    pollers.slack = createSlackPoller({ token: slackToken.token });
+  }
+
   const server = createMcpServer({
     db: dbHandle.db,
     version: VERSION,
-    tools: [
-      createPingTool({ version: VERSION, startedAtMs }),
-      // Pollers are intentionally empty in v1: integration auth tokens are
-      // not yet wired through env, so `force_refresh` is a no-op until that
-      // lands. The tool still serves cached evidence and accurate freshness
-      // reports without them.
-      createStartSessionTool(),
-    ],
+    tools: [createPingTool({ version: VERSION, startedAtMs }), createStartSessionTool({ pollers })],
   });
 
   // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:

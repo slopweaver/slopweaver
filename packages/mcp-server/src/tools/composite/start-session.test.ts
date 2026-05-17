@@ -317,6 +317,95 @@ describe('createStartSessionTool', () => {
     ]);
   });
 
+  it('isolates a throwing poller — successful integrations still produce items and stale-true signals through Freshness', async () => {
+    // Mute the stderr write under test; assert on it instead.
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const throwingPoller: StartSessionPoller = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    const succeedingPoller: StartSessionPoller = vi.fn(async ({ db, now }) => {
+      db.insert(evidenceLog)
+        .values({
+          integration: 'slack',
+          externalId: 'msg-after-success',
+          kind: 'mention',
+          citationUrl: null,
+          title: 'Mention after a successful poll',
+          body: null,
+          payloadJson: '{}',
+          occurredAtMs: now - 1_000,
+          firstSeenAtMs: now,
+          lastSeenAtMs: now,
+          createdAtMs: now,
+          updatedAtMs: now,
+        })
+        .run();
+    });
+
+    // github has no integration_state row -> Freshness.stale = true (correct: poll didn't complete).
+    // slack is pre-seeded fresh -> Freshness.stale = false after the successful poll.
+    seedFreshIntegrationState('slack');
+
+    const tool = createStartSessionTool({
+      now: () => FIXED_NOW,
+      pollers: { github: throwingPoller, slack: succeedingPoller },
+    });
+    const raw = await callHandler(tool, { force_refresh: true });
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(throwingPoller).toHaveBeenCalledTimes(1);
+    expect(succeedingPoller).toHaveBeenCalledTimes(1);
+
+    // Successful integration's evidence appears in items[].
+    expect(parsed.items.map((i) => i.title)).toEqual(['Mention after a successful poll']);
+
+    // Freshness reflects per-integration outcome.
+    const githubFreshness = parsed.freshness.find((f) => f.integration === 'github');
+    const slackFreshness = parsed.freshness.find((f) => f.integration === 'slack');
+    expect(githubFreshness?.stale).toBe(true);
+    expect(slackFreshness?.stale).toBe(false);
+
+    // Stderr log format: human-readable, single line, includes slug + error message.
+    expect(stderrSpy).toHaveBeenCalledWith('slopweaver: github poller failed: boom\n');
+
+    stderrSpy.mockRestore();
+  });
+
+  it('isolates a poller that rejects with a BaseError-shaped plain object — log surfaces the typed .message, not [object Object]', async () => {
+    // Real integration adapters (e.g. `createSlackPoller`) bridge from the
+    // Result world to the StartSessionPoller's Promise contract via
+    // `Promise.reject(slackError)`, where `slackError` is a plain
+    // `{ code, message, ... }` object — not a native Error instance. Guard
+    // against `String(error) === '[object Object]'` for that case.
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const baseErrorShape = {
+      code: 'SLACK_API_ERROR',
+      message: 'auth.test failed: invalid_auth',
+    };
+    const adapterStylePoller: StartSessionPoller = vi.fn(async () => {
+      return Promise.reject(baseErrorShape);
+    });
+
+    const tool = createStartSessionTool({
+      now: () => FIXED_NOW,
+      pollers: { slack: adapterStylePoller },
+    });
+    const raw = await callHandler(tool, { force_refresh: true });
+    const parsed = StartSessionResult.parse(raw);
+
+    expect(adapterStylePoller).toHaveBeenCalledTimes(1);
+    expect(parsed.items).toEqual([]);
+    expect(parsed.freshness).toEqual([{ integration: 'slack', last_polled_at: null, stale: true }]);
+
+    expect(stderrSpy).toHaveBeenCalledWith(
+      'slopweaver: slack poller failed: auth.test failed: invalid_auth\n',
+    );
+
+    stderrSpy.mockRestore();
+  });
+
   it('skips rows with no usable title, downgrades malformed citation_url, tolerates bad payload_json', async () => {
     // Row 1: empty title and empty kind — must be skipped entirely.
     seedEvidence({
