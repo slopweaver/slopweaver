@@ -36,6 +36,7 @@ const SERVICE_BOUNDARY_DIRS: ReadonlyArray<ServiceBoundaryDir> = [
   { dir: 'packages/integrations/slack/src', extensions: ['.ts'] },
   { dir: 'packages/mcp-server/src/tools', extensions: ['.ts'] },
   { dir: 'apps/mcp-local/src/connect', extensions: ['.ts'] },
+  { dir: 'apps/mcp-local/src/init', extensions: ['.ts'] },
 ];
 
 const SERVICE_BOUNDARY_FILES: ReadonlyArray<string> = [

@@ -13,6 +13,16 @@ claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
 For Cursor, Cline, and Codex CLI configs, see the
 [root README](../../README.md).
 
+After installing, the recommended first run is the interactive wizard:
+
+```bash
+npx -y @slopweaver/mcp-local init
+```
+
+It detects which MCP clients you have installed, offers to register
+slopweaver in them, walks you through `connect github` and `connect slack`,
+and verifies each token with a 10-second-timeboxed identity fetch.
+
 ## What ships
 
 - `dist/cli.js` — single-file ESM entry compiled from `src/cli.ts` by `tsc`.
@@ -56,5 +66,6 @@ over stdio.
 ## Scope
 
 In: stdio MCP server, `ping` tool, `--version` / `--help` / `--no-web-ui`,
-the local Diagnostics web UI on `127.0.0.1:60701`. Out: `init`, `doctor`,
-`connect` subcommands, real integrations. Those land in follow-up issues.
+the local Diagnostics web UI on `127.0.0.1:60701`, the `init` first-run
+wizard, and the `connect <integration>` subcommands. Out: `doctor`. That
+ships in a follow-up issue.

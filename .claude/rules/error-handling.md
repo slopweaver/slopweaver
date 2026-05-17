@@ -130,6 +130,7 @@ directories (all `.ts` files except tests, recordings, and `src/test/`):
 - `packages/integrations/{core,github,slack}/src/**`
 - `packages/mcp-server/src/tools/**`
 - `apps/mcp-local/src/connect/**`
+- `apps/mcp-local/src/init/**`
 
 Plus these explicit single-file boundaries:
 
