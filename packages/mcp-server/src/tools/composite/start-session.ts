@@ -102,7 +102,19 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
         if (shouldPoll(db, integration, nowMs, staleThresholdMs, input.force_refresh === true)) {
           const poller = pollers[integration];
           if (poller) {
-            await poller({ db, now: nowMs });
+            // Recovery catch (see .claude/rules/error-handling.md "Legitimate
+            // recovery catches"): a single integration's poller throwing
+            // (revoked token, rate limit, transient 5xx) must not abort the
+            // whole tool call. The failing integration's `Freshness.stale`
+            // remains true because `markPollCompleted` was never called —
+            // that's the contract.
+            try {
+              await poller({ db, now: nowMs });
+            } catch (error) {
+              process.stderr.write(
+                `slopweaver: ${integration} poller failed: ${describeError(error)}\n`,
+              );
+            }
           }
         }
       }
@@ -279,6 +291,22 @@ function tryParseJson(json: string): z.infer<typeof EvidenceLogEntry>['payload_j
   } catch {
     return null;
   }
+}
+
+/**
+ * Stringify an unknown caught value for stderr logs. Native `Error` instances
+ * expose `.message`; `Result`-pattern errors (BaseError-shaped plain objects)
+ * also carry a string `message` — extract it explicitly so the recovery-catch
+ * log line prints `…: <message>` instead of `[object Object]`. Mirrors the
+ * `asMessage()` helper at the CLI boundary in `apps/mcp-local/src/cli.ts`.
+ */
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return String(error);
 }
 
 function humanAge(ageMs: number): string {
