@@ -95,9 +95,7 @@ describe('pollMentions', () => {
     });
 
     const engRow = rows.find((r) => r.externalId === 'mention_1762000000.000200:C0ENG');
-    expect(engRow?.citationUrl).toBe(
-      'https://slopweaver.slack.com/archives/C0ENG/p1762000000000200',
-    );
+    expect(engRow?.citationUrl).toBe('https://slopweaver.slack.com/archives/C0ENG/p1762000000000200');
     expect(engRow?.payloadJson).toContain('"_team_id":"T0WORKSPACE"');
   });
 
@@ -315,6 +313,7 @@ describe('pollMentions', () => {
     });
   });
 
+  // oxlint-disable-next-line vitest/no-disabled-tests -- searchability placeholder; real test lives in pollMentions cassette describe block
   it.skip('cassette: real workspace happy path — see pollMentions (cassette) describe block', () => {
     // Placeholder so this comment is searchable next to the other tests.
   });

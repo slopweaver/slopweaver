@@ -57,8 +57,7 @@ export function upsertSlackMessage({
   const title = text.length > 0 ? (text.split('\n', 1)[0]?.slice(0, 200) ?? null) : null;
   const permalinkFromMatch =
     'permalink' in message && typeof message.permalink === 'string' ? message.permalink : undefined;
-  const citationUrl =
-    permalinkFromMatch ?? buildPermalink({ workspaceUrl, channelId: resolvedChannelId, ts });
+  const citationUrl = permalinkFromMatch ?? buildPermalink({ workspaceUrl, channelId: resolvedChannelId, ts });
 
   return upsertEvidence({
     db,

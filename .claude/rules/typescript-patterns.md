@@ -20,6 +20,7 @@ function findRow({ id, userId }: { id: string; userId: string }): Row | null;
 - Callbacks / event handlers passed inline: `.map((item) => …)`, `onClick={(e) => …}`.
 - Type guards / assertion functions (TS1230 limitation — see below).
 - Library / DSL signatures: `eq(table.userId, userId)`, `describe("name", fn)`, `it("name", fn)`.
+- **Single-object pass-through wrappers**: a function whose sole param is an already-typed object that's forwarded as-is to another function may skip destructuring at the signature: `function pollPullRequests(args: PollArgs): ResultAsync<...>`. The named-object rule's purpose (one positional slot, fields named at the call site) is already satisfied. Destructure when you'd otherwise spread (`{ ...args, kind: 'X' }` → `runSearch({ db, token, since, kind: 'X' })`) only if it reads more clearly; both forms are acceptable.
 
 ## TS1230: type predicates must use positional params
 
@@ -35,11 +36,15 @@ function isUser(value: unknown): value is User { /* … */ }
 
 ## No `any` in production code
 
-Use `unknown` plus a type guard, or a discriminated union. ESLint enforces this; if you find yourself reaching for `any`, the type model probably needs work.
+Use `unknown` plus a type guard, or a discriminated union. Oxlint enforces `typescript/no-explicit-any`; ESLint `no-restricted-syntax` additionally bans `as any`, `<any>`, `as unknown as`, `z.any()`, and `z.coerce.boolean()`. If you find yourself reaching for any of those, the type model probably needs work. See @.claude/rules/code-quality.md for the full linter ownership table.
 
 ## Explicit return types on exported functions
 
 Exported functions declare their return type explicitly. Inferred return types are fine for internal helpers but become a maintenance hazard at module boundaries — a refactor inside the function silently changes the public type.
+
+## Exhaustive switch over discriminated unions
+
+`switch` over a discriminated union (e.g. a typed error union's `code` field) must cover every variant. Enforced by ESLint `@typescript-eslint/switch-exhaustiveness-check`. Adding a new variant becomes a compile-fail at every consuming switch, which is the desired pressure — handle the case explicitly or add a `default:` with a `satisfies never` assertion.
 
 ## `satisfies` over type assertions
 

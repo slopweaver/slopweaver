@@ -33,11 +33,7 @@ function isNodeSupported(version: string): boolean {
   return minorOf(version) >= REQUIRED_NODE_MINOR;
 }
 
-export function checkNodeVersion({
-  nodeVersion = process.versions.node,
-}: {
-  nodeVersion?: string;
-} = {}): CheckResult {
+export function checkNodeVersion({ nodeVersion = process.versions.node }: { nodeVersion?: string } = {}): CheckResult {
   const required = `${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}`;
   if (isNodeSupported(nodeVersion)) {
     return {
@@ -87,8 +83,7 @@ export function checkPnpmVersion({
       return {
         name: 'pnpm version',
         status: 'fail',
-        detail:
-          'pnpm not on PATH (install: corepack enable && corepack prepare pnpm@latest --activate)',
+        detail: 'pnpm not on PATH (install: corepack enable && corepack prepare pnpm@latest --activate)',
       };
     }
     if (result.reason === 'timeout') {
@@ -136,7 +131,9 @@ const defaultTryBind: TryBindFn = (port) =>
       settle({ ok: false, code });
     });
     server.listen(port, '127.0.0.1', () => {
-      server.close(() => settle({ ok: true }));
+      server.close(() => {
+        settle({ ok: true });
+      });
     });
   });
 
@@ -190,10 +187,10 @@ function defaultGetCodexHealth(): CodexHealthResult {
   }
   if (result.signal === 'SIGTERM') return { kind: 'timeout' };
   if (result.status !== 0) {
-    const detail = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+    const detail = `${result.stdout}${result.stderr}`.trim();
     return { kind: 'unhealthy', detail };
   }
-  const summary = (result.stdout ?? '')
+  const summary = result.stdout
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)

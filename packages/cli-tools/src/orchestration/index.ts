@@ -49,7 +49,7 @@ export async function prepare(
   chainPath: string,
   options: PrepareCliOptions,
 ): Promise<Result<void, OrchestrationError | MonorepoRootNotFoundError>> {
-  return await prepareOrchestration({
+  return prepareOrchestration({
     options: {
       chainInputPath: chainPath,
       executor: options.executor,
@@ -62,7 +62,7 @@ export async function run(
   chainPath: string,
   options: RunCliOptions,
 ): Promise<Result<void, OrchestrationError | MonorepoRootNotFoundError>> {
-  return await runOrchestration({
+  return runOrchestration({
     options: {
       chainInputPath: chainPath,
       dryRun: options.dryRun,

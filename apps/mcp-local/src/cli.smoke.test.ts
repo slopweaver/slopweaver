@@ -103,7 +103,7 @@ describe('slopweaver bin (compiled CLI)', () => {
   it('exits non-zero with a clean stderr message when env is invalid', () => {
     const result = spawnSync(process.execPath, [cliPath], {
       env: {
-        PATH: process.env.PATH ?? '',
+        PATH: process.env['PATH'] ?? '',
         XDG_DATA_HOME: dataHome,
         NODE_ENV: 'banana',
         LOG_LEVEL: 'shout',
@@ -127,7 +127,7 @@ describe('slopweaver bin (compiled CLI)', () => {
     // the stdio path rejects.
     const result = spawnSync(process.execPath, [cliPath, 'connect', 'github'], {
       env: {
-        PATH: process.env.PATH ?? '',
+        PATH: process.env['PATH'] ?? '',
         XDG_DATA_HOME: dataHome,
         NODE_ENV: 'banana',
         LOG_LEVEL: 'shout',
@@ -145,7 +145,7 @@ describe('slopweaver bin (compiled CLI)', () => {
   it('exits non-zero with a clean stderr message when XDG_DATA_HOME is relative', () => {
     const result = spawnSync(process.execPath, [cliPath], {
       env: {
-        PATH: process.env.PATH ?? '',
+        PATH: process.env['PATH'] ?? '',
         XDG_DATA_HOME: 'tmp/relative',
       },
       encoding: 'utf-8',
@@ -238,13 +238,7 @@ describe('slopweaver bin web UI', () => {
   });
 });
 
-async function waitForWebUiUrl({
-  stderrBuf,
-  timeoutMs,
-}: {
-  stderrBuf: string[];
-  timeoutMs: number;
-}): Promise<string> {
+async function waitForWebUiUrl({ stderrBuf, timeoutMs }: { stderrBuf: string[]; timeoutMs: number }): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const all = stderrBuf.join('');
@@ -252,9 +246,7 @@ async function waitForWebUiUrl({
     if (match?.[1] !== undefined) return match[1];
     await new Promise<void>((r) => setTimeout(r, 50));
   }
-  throw new Error(
-    `web UI did not advertise a URL within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`,
-  );
+  throw new Error(`web UI did not advertise a URL within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`);
 }
 
 async function waitForStderrMatch({
@@ -271,9 +263,7 @@ async function waitForStderrMatch({
     if (pattern.test(stderrBuf.join(''))) return;
     await new Promise<void>((r) => setTimeout(r, 50));
   }
-  throw new Error(
-    `stderr did not match ${pattern} within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`,
-  );
+  throw new Error(`stderr did not match ${pattern} within ${timeoutMs}ms; stderr=${stderrBuf.join('')}`);
 }
 
 const TERMINATE_TIMEOUT_MS = 5_000;
@@ -298,9 +288,7 @@ async function terminate({ child }: { child: ReturnType<typeof spawn> }): Promis
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           child.kill('SIGKILL');
-          reject(
-            new Error(`slopweaver child did not exit within ${TERMINATE_TIMEOUT_MS}ms of SIGTERM`),
-          );
+          reject(new Error(`slopweaver child did not exit within ${TERMINATE_TIMEOUT_MS}ms of SIGTERM`));
         }, TERMINATE_TIMEOUT_MS);
       }),
     ]);

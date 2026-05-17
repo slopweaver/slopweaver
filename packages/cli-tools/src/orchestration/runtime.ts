@@ -89,25 +89,15 @@ interface RunState {
 }
 
 export interface RunOrchestrationEnvironment {
-  awaitCodexTurn(args: {
-    cwd: string;
-    jobId: string;
-  }): Result<string, OrchestrationSubprocessFailedError>;
+  awaitCodexTurn(args: { cwd: string; jobId: string }): Result<string, OrchestrationSubprocessFailedError>;
   closeCodexJob(args: { cwd: string; jobId: string }): void;
   commitAll(args: {
     cwd: string;
     ignoredPaths: string[];
     message: string;
   }): Result<boolean, OrchestrationSubprocessFailedError>;
-  createOrReusePr(args: {
-    body: string;
-    cwd: string;
-    title: string;
-  }): Result<string, OrchestrationError>;
-  ensureWorktree(args: {
-    repoRoot: string;
-    worktreeName: string;
-  }): Result<string, OrchestrationSubprocessFailedError>;
+  createOrReusePr(args: { body: string; cwd: string; title: string }): Result<string, OrchestrationError>;
+  ensureWorktree(args: { repoRoot: string; worktreeName: string }): Result<string, OrchestrationSubprocessFailedError>;
   getBranchName(args: { cwd: string }): Result<string, OrchestrationSubprocessFailedError>;
   getLatestCiRunId(args: { branchName: string; cwd: string }): string | null;
   getWorktreeStatus(args: { cwd: string }): string[];
@@ -179,13 +169,7 @@ function getArtifactsDirectory({ runDirectory }: { runDirectory: string }): stri
   return path.join(runDirectory, 'artifacts');
 }
 
-function getArtifactPath({
-  filename,
-  runDirectory,
-}: {
-  filename: string;
-  runDirectory: string;
-}): string {
+function getArtifactPath({ filename, runDirectory }: { filename: string; runDirectory: string }): string {
   return path.join(getArtifactsDirectory({ runDirectory }), filename);
 }
 
@@ -282,13 +266,7 @@ function writeArtifact({
   return artifactPath;
 }
 
-function readArtifact({
-  filename,
-  runDirectory,
-}: {
-  filename: string;
-  runDirectory: string;
-}): string | null {
+function readArtifact({ filename, runDirectory }: { filename: string; runDirectory: string }): string | null {
   const artifactPath = getArtifactPath({ filename, runDirectory });
   if (!fs.existsSync(artifactPath)) {
     return null;
@@ -342,16 +320,8 @@ function parseStatusPath({ line }: { line: string }): string | null {
   return rawPath;
 }
 
-function getRelevantWorktreeStatus({
-  env,
-  state,
-}: {
-  env: RunOrchestrationEnvironment;
-  state: RunState;
-}): string[] {
-  const ignoredPaths = new Set(
-    state.ignoredWorktreeRelativePaths.map((ignoredPath) => path.normalize(ignoredPath)),
-  );
+function getRelevantWorktreeStatus({ env, state }: { env: RunOrchestrationEnvironment; state: RunState }): string[] {
+  const ignoredPaths = new Set(state.ignoredWorktreeRelativePaths.map((ignoredPath) => path.normalize(ignoredPath)));
   return env.getWorktreeStatus({ cwd: state.worktreePath }).filter((line) => {
     const parsedPath = parseStatusPath({ line });
     if (!parsedPath) {
@@ -435,8 +405,7 @@ function describeNextAction({ state }: { state: RunState }): string {
 }
 
 function buildStateSummary({ state }: { state: RunState }): string {
-  const completedSlices =
-    state.completedSlices.length > 0 ? state.completedSlices.join(', ') : 'none';
+  const completedSlices = state.completedSlices.length > 0 ? state.completedSlices.join(', ') : 'none';
   return [
     `Executor: ${state.executor}`,
     `Phase: ${state.phase}`,
@@ -533,9 +502,7 @@ function runOneModelAttempt({
 
     const jobIdResult = parseCodexJobId({ output: startResult.value });
     if (jobIdResult.isErr()) {
-      return err(
-        OrchestrationErrors.modelAttempt({ kind: 'fatal', lastError: jobIdResult.error.message }),
-      );
+      return err(OrchestrationErrors.modelAttempt({ kind: 'fatal', lastError: jobIdResult.error.message }));
     }
     jobId = jobIdResult.value;
 
@@ -641,9 +608,7 @@ function runPlanningConversationWithFallback({
     return err(OrchestrationErrors.missingPlanPrompt(chain.chainPath));
   }
 
-  const sendSteps = chain.steps.filter(
-    (step) => step.role === 'codex-send' && step.promptTemplate !== null,
-  );
+  const sendSteps = chain.steps.filter((step) => step.role === 'codex-send' && step.promptTemplate !== null);
   const initialPrompt = interpolateTemplate({
     template: planStep.promptTemplate,
     variables: chain.variables,
@@ -717,9 +682,7 @@ function runOnePlanningAttempt({
 
     const jobIdResult = parseCodexJobId({ output: startResult.value });
     if (jobIdResult.isErr()) {
-      return err(
-        OrchestrationErrors.modelAttempt({ kind: 'fatal', lastError: jobIdResult.error.message }),
-      );
+      return err(OrchestrationErrors.modelAttempt({ kind: 'fatal', lastError: jobIdResult.error.message }));
     }
     jobId = jobIdResult.value;
 
@@ -1131,9 +1094,7 @@ function buildLauncherManifest({
   state: RunState;
 }): LauncherManifest {
   const planStep = chain.steps.find((step) => step.role === 'codex-plan');
-  const sendSteps = chain.steps.filter(
-    (step) => step.role === 'codex-send' && step.promptTemplate !== null,
-  );
+  const sendSteps = chain.steps.filter((step) => step.role === 'codex-send' && step.promptTemplate !== null);
   const reviewStep = chain.steps.find((step) => step.role === 'codex-review');
 
   const planInitialPromptFile =
@@ -1182,13 +1143,7 @@ function buildLauncherManifest({
   };
 }
 
-function logResumeState({
-  hasExistingState,
-  state,
-}: {
-  hasExistingState: boolean;
-  state: RunState;
-}): void {
+function logResumeState({ hasExistingState, state }: { hasExistingState: boolean; state: RunState }): void {
   if (!hasExistingState || state.phase === 'initial') {
     return;
   }
@@ -1247,8 +1202,7 @@ export async function prepareOrchestration({
 }): Promise<Result<void, OrchestrationError | MonorepoRootNotFoundError>> {
   const contextResult = resolveChainContext({ chainInputPath: options.chainInputPath });
   if (contextResult.isErr()) return err(contextResult.error);
-  const { chain, runDirectory, stateFilePath, runSlug, worktreePath, worktreeName, repoRoot } =
-    contextResult.value;
+  const { chain, runDirectory, stateFilePath, runSlug, worktreePath, worktreeName, repoRoot } = contextResult.value;
 
   if (options.restart && fs.existsSync(runDirectory)) {
     fs.rmSync(runDirectory, { force: true, recursive: true });
@@ -1312,16 +1266,8 @@ export async function runOrchestration({
   const executor = options.executor;
   const contextResult = resolveChainContext({ chainInputPath: options.chainInputPath });
   if (contextResult.isErr()) return err(contextResult.error);
-  const {
-    chain,
-    profile,
-    repoRoot,
-    runDirectory,
-    stateFilePath,
-    runSlug,
-    worktreePath,
-    worktreeName,
-  } = contextResult.value;
+  const { chain, profile, repoRoot, runDirectory, stateFilePath, runSlug, worktreePath, worktreeName } =
+    contextResult.value;
 
   if (options.restart && fs.existsSync(runDirectory)) {
     fs.rmSync(runDirectory, { force: true, recursive: true });
@@ -1349,9 +1295,7 @@ export async function runOrchestration({
   logResumeState({ hasExistingState, state });
 
   if (state.phase === 'awaiting_manual_qa') {
-    console.log(
-      `${YELLOW}Run already paused at manual QA:${NC} ${GREEN}${state.prUrl ?? '(no PR URL)'}${NC}`,
-    );
+    console.log(`${YELLOW}Run already paused at manual QA:${NC} ${GREEN}${state.prUrl ?? '(no PR URL)'}${NC}`);
     console.log(buildStateSummary({ state }));
     return ok(undefined);
   }
@@ -1428,7 +1372,7 @@ function runProcess({
     env,
     stdio: captureOutput ? 'pipe' : 'inherit',
   });
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  const output = `${result.stdout}${result.stderr}`;
   return {
     exitCode: result.status ?? 1,
     output,
@@ -1443,13 +1387,7 @@ function getAugmentedPathEnv(): NodeJS.ProcessEnv {
   };
 }
 
-function collectEnvFiles({
-  currentDir,
-  foundFiles,
-}: {
-  currentDir: string;
-  foundFiles: string[];
-}): void {
+function collectEnvFiles({ currentDir, foundFiles }: { currentDir: string; foundFiles: string[] }): void {
   for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
     if (
       entry.name === '.git' ||
@@ -1672,19 +1610,7 @@ function createDefaultEnvironment(): RunOrchestrationEnvironment {
       return ok(undefined);
     },
     startCodexJob: ({ cwd, model, notifyOnComplete, prompt, reasoning, sandbox }) => {
-      const args = [
-        'start',
-        prompt,
-        '--map',
-        '-s',
-        sandbox,
-        '-d',
-        cwd,
-        '-m',
-        model,
-        '-r',
-        reasoning,
-      ];
+      const args = ['start', prompt, '--map', '-s', sandbox, '-d', cwd, '-m', model, '-r', reasoning];
       if (notifyOnComplete) {
         args.push('--notify-on-complete', 'cmux notify --title "Codex" --body "Agent ready"');
       }

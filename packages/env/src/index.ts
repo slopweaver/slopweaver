@@ -47,10 +47,7 @@ export function loadEnv({
     const issues: EnvIssue[] = result.error.issues.map((i) => {
       const firstKey = i.path[0];
       const path = i.path.map(String).join('.');
-      const received =
-        typeof firstKey === 'string' && typeof env[firstKey] === 'string'
-          ? env[firstKey]
-          : undefined;
+      const received = typeof firstKey === 'string' && typeof env[firstKey] === 'string' ? env[firstKey] : undefined;
       return { path, message: i.message, received };
     });
     return err(new EnvValidationError(issues));

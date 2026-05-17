@@ -72,6 +72,18 @@ type EvidenceRow = typeof evidenceLog.$inferSelect;
 type StartSessionItem = z.infer<typeof StartSessionResult>['items'][number];
 type ShapedEntry = { item: Omit<StartSessionItem, 'priority'>; evidence: EvidenceLogEntry };
 
+/**
+ * Build the `start_session` MCP tool — the composite "what should I work on
+ * next?" endpoint. Pulls ranked evidence from `evidence_log` across requested
+ * integrations and optionally refreshes any integration whose cache is older
+ * than `staleThresholdMs` (or when the caller passes `force_refresh: true`).
+ *
+ * @param args.pollers - Per-integration refresh hooks (defaults to none — the
+ *   tool returns whatever's in the cache without refreshing).
+ * @param args.staleThresholdMs - How old cached evidence must be before a
+ *   refresh fires. Defaults to {@link DEFAULT_STALE_THRESHOLD_MS}.
+ * @param args.now - Clock injection for tests; defaults to `Date.now`.
+ */
 export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): Tool {
   const pollers = args.pollers ?? {};
   const staleThresholdMs = args.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS;
@@ -111,9 +123,7 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
             try {
               await poller({ db, now: nowMs });
             } catch (error) {
-              process.stderr.write(
-                `slopweaver: ${integration} poller failed: ${describeError(error)}\n`,
-              );
+              process.stderr.write(`slopweaver: ${integration} poller failed: ${describeError(error)}\n`);
             }
           }
         }
@@ -230,10 +240,7 @@ function scoreOf(row: EvidenceRow, nowMs: number): number {
   return recencyScore + boost;
 }
 
-function compareRanked(
-  a: { row: EvidenceRow; score: number },
-  b: { row: EvidenceRow; score: number },
-): number {
+function compareRanked(a: { row: EvidenceRow; score: number }, b: { row: EvidenceRow; score: number }): number {
   if (b.score !== a.score) return b.score - a.score;
   if (b.row.occurredAtMs !== a.row.occurredAtMs) return b.row.occurredAtMs - a.row.occurredAtMs;
   return a.row.id - b.row.id;
@@ -247,8 +254,13 @@ function compareRanked(
  *   - unparseable `payload_json` → `payload_json` becomes null
  */
 function shapeRow(row: EvidenceRow, nowMs: number): ShapedEntry | null {
-  const title = (row.title && row.title.length > 0 ? row.title : row.kind) || null;
-  if (title == null) return null;
+  // Both `row.title` and `row.kind` can be empty strings; we want either an
+  // empty-string `title` or an empty-string `kind` to collapse to `null`
+  // (and skip the row). Explicit length checks avoid the `||` / `??` choice
+  // — neither operator gets the empty-string semantics right on its own.
+  const candidate = row.title && row.title.length > 0 ? row.title : row.kind;
+  const title = candidate.length > 0 ? candidate : null;
+  if (title === null) return null;
 
   const ref = buildRef(row);
   const citationUrl = ref.kind === 'url' ? ref.url : null;
@@ -303,7 +315,7 @@ function tryParseJson(json: string): z.infer<typeof EvidenceLogEntry>['payload_j
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'object' && error !== null && 'message' in error) {
-    const message = (error as { message: unknown }).message;
+    const { message } = error;
     if (typeof message === 'string') return message;
   }
   return String(error);

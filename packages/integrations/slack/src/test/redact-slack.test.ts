@@ -145,8 +145,7 @@ describe('slack redactors', () => {
     for (const redactor of slackRedactors) {
       redactor(recording);
     }
-    const serialized =
-      (recording.request?.postData?.text ?? '') + (recording.response?.content?.text ?? '');
+    const serialized = (recording.request?.postData?.text ?? '') + (recording.response?.content?.text ?? '');
     for (const sentinel of SENTINELS) {
       expect(serialized).not.toContain(sentinel);
     }

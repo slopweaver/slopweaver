@@ -97,7 +97,7 @@ describe('pollDMs', () => {
     const rows = dbHandle.db.select().from(evidenceLog).all();
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.kind === 'message')).toBe(true);
-    expect([...rows.map((r) => r.externalId)].sort()).toEqual([
+    expect(rows.map((r) => r.externalId).sort()).toEqual([
       'message_1762000010.000000:D0ALICE',
       'message_1762000020.000000:D0BOB',
       'message_1762000021.000000:D0BOB',

@@ -21,7 +21,7 @@
 
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import type { ResultAsync } from '@slopweaver/errors';
-import { readCursor } from '@slopweaver/integrations-core';
+import { readCursor, rejectBoundaryError } from '@slopweaver/integrations-core';
 import type { StartSessionPoller } from '@slopweaver/mcp-server';
 import { pollDMs } from './dms.ts';
 import { fromDatabaseError, type SlackError } from './errors.ts';
@@ -47,11 +47,8 @@ export function createSlackPoller({ token }: CreateSlackPollerArgs): StartSessio
     // `exactOptionalPropertyTypes`, so passing `since: undefined` is a
     // compile error. Spread `{ since }` only when there's a cursor; an empty
     // object otherwise.
-    const sinceArg = ({
-      cursor,
-    }: {
-      cursor: string | null;
-    }): { since: Date } | Record<string, never> => (cursor ? { since: new Date(cursor) } : {});
+    const sinceArg = ({ cursor }: { cursor: string | null }): { since: Date } | Record<string, never> =>
+      cursor ? { since: new Date(cursor) } : {};
 
     const result = await readSlackCursor({ db })
       .andThen((cursor) => pollMentions({ db, token, ...sinceArg({ cursor }), now: nowFn }))
@@ -59,7 +56,7 @@ export function createSlackPoller({ token }: CreateSlackPollerArgs): StartSessio
       .andThen((cursor) => pollDMs({ db, token, ...sinceArg({ cursor }), now: nowFn }));
 
     if (result.isErr()) {
-      return Promise.reject(result.error);
+      return rejectBoundaryError({ error: result.error });
     }
   };
 }
@@ -70,10 +67,6 @@ export function createSlackPoller({ token }: CreateSlackPollerArgs): StartSessio
  * lifts it into `SlackDatabaseError` so the chain's error type stays
  * `SlackError` throughout.
  */
-function readSlackCursor({
-  db,
-}: {
-  db: SlopweaverDatabase;
-}): ResultAsync<string | null, SlackError> {
+function readSlackCursor({ db }: { db: SlopweaverDatabase }): ResultAsync<string | null, SlackError> {
   return readCursor({ db, integration: INTEGRATION }).mapErr(fromDatabaseError);
 }
