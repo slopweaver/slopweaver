@@ -142,6 +142,7 @@ describe('createCatchMeUpTool', () => {
     seedEvidence({ externalId: 'good', integration: 'github', kind: 'pull_request' });
     seedEvidence({ externalId: 'empty-integration', integration: '', kind: 'pull_request' });
     seedEvidence({ externalId: 'empty-kind', integration: 'github', kind: '' });
+    seedEvidence({ externalId: '', integration: 'github', kind: 'pull_request' });
 
     const tool = createCatchMeUpTool({ now: () => FIXED_NOW });
     const raw = await callHandler(tool, {

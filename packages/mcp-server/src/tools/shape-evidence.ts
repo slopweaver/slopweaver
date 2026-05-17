@@ -25,11 +25,12 @@ type EvidenceRow = typeof evidenceLog.$inferSelect;
 const UrlSchema = z.url();
 
 export function shapeEvidenceRow(row: EvidenceRow): EvidenceLogEntry | null {
-  // EvidenceLogEntry's contract requires non-empty `integration` and `kind`.
-  // The DB columns are `NOT NULL` but `text`, so an empty string is possible
-  // (poller bug, ill-formed import). Skip rather than emit a row that would
-  // fail wire-schema validation downstream.
-  if (row.integration.length === 0 || row.kind.length === 0) {
+  // EvidenceLogEntry's contract requires non-empty `integration`, `kind`, and
+  // a non-empty canonical ref id (which falls back to `external_id` when
+  // `citation_url` is invalid). The DB columns are `NOT NULL` but `text`, so
+  // an empty string is possible (poller bug, ill-formed import). Skip rather
+  // than emit a row that would fail wire-schema validation downstream.
+  if (row.integration.length === 0 || row.kind.length === 0 || row.externalId.length === 0) {
     return null;
   }
 
