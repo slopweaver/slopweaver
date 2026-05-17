@@ -59,12 +59,9 @@ For PRs that come from `/fix-issue`, the issue link is automatic.
 
 Before requesting review:
 
-- `pnpm format:check` ✅
-- `pnpm lint` ✅
-- `pnpm compile` ✅
-- `pnpm test` ✅
+- `pnpm validate` ✅ — chains all eight local gates: `check-service-boundaries`, `check-error-code-preservation`, `check-cassette-quality`, `format:check`, `lint` (biome + oxlint + eslint), `compile`, `test`, `knip`.
 
-CI runs these on every PR. A PR with red CI is not ready for review.
+CI runs `pnpm validate` as a single step plus `gitleaks detect` as a ninth gate over the full tree. A PR with red CI is not ready for review.
 
 ## Self-review
 
