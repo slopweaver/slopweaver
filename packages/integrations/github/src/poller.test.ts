@@ -154,13 +154,13 @@ describe('createGithubPoller (cassette)', () => {
       .from(integrationState)
       .where(eq(integrationState.integration, 'github'))
       .get();
-    expect(stateAfterSecond).toBeDefined();
-    expect(stateAfterSecond?.lastPollStartedAtMs).toBeTypeOf('number');
-    expect(stateAfterSecond?.lastPollCompletedAtMs).toBeTypeOf('number');
-    expect(stateAfterSecond?.cursor).toBe(cursorAfterFirst);
-    // non-null: presence asserted above
-    expect(stateAfterSecond!.lastPollStartedAtMs!).toBeGreaterThan(completedAfterFirst);
-    // non-null: presence asserted above
-    expect(stateAfterSecond!.lastPollCompletedAtMs!).toBeGreaterThanOrEqual(completedAfterFirst);
+    if (!stateAfterSecond) throw new Error('integration_state row should exist after second poll');
+    expect(stateAfterSecond.cursor).toBe(cursorAfterFirst);
+    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } = stateAfterSecond;
+    if (startedAt2 === null || completedAt2 === null) {
+      throw new Error('poll watermarks should be set after a completed poll');
+    }
+    expect(startedAt2).toBeGreaterThan(completedAfterFirst);
+    expect(completedAt2).toBeGreaterThanOrEqual(completedAfterFirst);
   });
 });

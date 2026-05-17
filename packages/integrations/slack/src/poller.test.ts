@@ -54,11 +54,12 @@ describe('createSlackPoller (cassette)', () => {
       .from(integrationState)
       .where(eq(integrationState.integration, 'slack'))
       .get();
-    expect(state).toBeDefined();
-    expect(state?.lastPollStartedAtMs).toBeTypeOf('number');
-    expect(state?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // non-null: presence asserted above
-    expect(state!.lastPollStartedAtMs).toBeLessThanOrEqual(state!.lastPollCompletedAtMs!);
+    if (!state) throw new Error('integration_state row should exist after poll');
+    const { lastPollStartedAtMs: startedAt, lastPollCompletedAtMs: completedAt } = state;
+    if (startedAt === null || completedAt === null) {
+      throw new Error('poll watermarks should be set after a completed poll');
+    }
+    expect(startedAt).toBeLessThanOrEqual(completedAt);
 
     // evidence_log rows depend on the recording account's activity. When any
     // landed, they must be kind in {mention, message} with the expected
@@ -102,12 +103,12 @@ describe('createSlackPoller (cassette)', () => {
       .get();
     // The second poll must have re-bracketed the integration_state row —
     // proving the closure ran end-to-end again with the cursor it just read.
-    expect(stateAfterSecond).toBeDefined();
-    expect(stateAfterSecond?.lastPollStartedAtMs).toBeTypeOf('number');
-    expect(stateAfterSecond?.lastPollCompletedAtMs).toBeTypeOf('number');
-    // non-null: presence asserted above
-    expect(stateAfterSecond!.lastPollStartedAtMs!).toBeGreaterThan(firstCompleted);
-    // non-null: presence asserted above
-    expect(stateAfterSecond!.lastPollCompletedAtMs!).toBeGreaterThanOrEqual(firstCompleted);
+    if (!stateAfterSecond) throw new Error('integration_state row should exist after second poll');
+    const { lastPollStartedAtMs: startedAt2, lastPollCompletedAtMs: completedAt2 } = stateAfterSecond;
+    if (startedAt2 === null || completedAt2 === null) {
+      throw new Error('poll watermarks should be set after a completed poll');
+    }
+    expect(startedAt2).toBeGreaterThan(firstCompleted);
+    expect(completedAt2).toBeGreaterThanOrEqual(firstCompleted);
   });
 });
