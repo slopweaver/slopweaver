@@ -12,7 +12,7 @@ Three logical kinds of tests, distinguished by what they touch — not by where 
 
 - **Smoke / spawned-process tests.** Intentionally slow: launch a real binary, hit a real port, etc. Opt in via the `*.smoke.test.ts` suffix when filtering matters. No package uses this suffix today; introduce when needed.
 
-The `*.cassette.test.ts` and `*.smoke.test.ts` suffixes are aspirational — every package's `vitest.config.ts` includes only `src/**/*.test.ts` today. Don't introduce the suffixes pre-emptively; if you do, the runner won't pick them up.
+The default `vitest.config.ts` `include: ['src/**/*.test.ts']` already matches both `*.smoke.test.ts` and `*.cassette.test.ts` because they end in `.test.ts` — `apps/mcp-local/src/cli.smoke.test.ts` is the live example, and its package bumps `testTimeout` to 30s for the spawn cost. The suffix is purely a visibility tag today. To run smoke-only or exclude smoke (e.g. a "fast tests" subset in CI), pass a Vitest filter or update the package's `include`/`exclude` at the point you actually need the split. Don't introduce a new suffix without a concrete reason — extra metadata that nothing filters on is just noise.
 
 ## Assertion preferences
 

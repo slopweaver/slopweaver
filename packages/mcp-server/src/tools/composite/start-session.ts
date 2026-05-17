@@ -72,6 +72,18 @@ type EvidenceRow = typeof evidenceLog.$inferSelect;
 type StartSessionItem = z.infer<typeof StartSessionResult>['items'][number];
 type ShapedEntry = { item: Omit<StartSessionItem, 'priority'>; evidence: EvidenceLogEntry };
 
+/**
+ * Build the `start_session` MCP tool — the composite "what should I work on
+ * next?" endpoint. Pulls ranked evidence from `evidence_log` across requested
+ * integrations and optionally refreshes any integration whose cache is older
+ * than `staleThresholdMs` (or when the caller passes `force_refresh: true`).
+ *
+ * @param args.pollers - Per-integration refresh hooks (defaults to none — the
+ *   tool returns whatever's in the cache without refreshing).
+ * @param args.staleThresholdMs - How old cached evidence must be before a
+ *   refresh fires. Defaults to {@link DEFAULT_STALE_THRESHOLD_MS}.
+ * @param args.now - Clock injection for tests; defaults to `Date.now`.
+ */
 export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): Tool {
   const pollers = args.pollers ?? {};
   const staleThresholdMs = args.staleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS;
