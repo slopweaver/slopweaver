@@ -17,11 +17,7 @@
  * `sql` template against a typed raw row.
  */
 
-import {
-  type EvidenceLogEntry,
-  SearchWorkContextArgs,
-  SearchWorkContextResult,
-} from '@slopweaver/contracts';
+import { type EvidenceLogEntry, SearchWorkContextArgs, SearchWorkContextResult } from '@slopweaver/contracts';
 import { type evidenceLog } from '@slopweaver/db';
 import { ok } from '@slopweaver/errors';
 import { sql } from 'drizzle-orm';

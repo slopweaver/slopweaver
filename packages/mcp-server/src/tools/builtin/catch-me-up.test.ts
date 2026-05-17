@@ -39,10 +39,7 @@ describe('createCatchMeUpTool', () => {
       .get().id;
   }
 
-  async function callHandler(
-    tool: ReturnType<typeof createCatchMeUpTool>,
-    rawInput: unknown,
-  ): Promise<unknown> {
+  async function callHandler(tool: ReturnType<typeof createCatchMeUpTool>, rawInput: unknown): Promise<unknown> {
     const input = CatchMeUpArgs.parse(rawInput);
     const result = await tool.handler({ input, ctx: { db: dbHandle.db } });
     if (result.isErr()) {
@@ -130,8 +127,8 @@ describe('createCatchMeUpTool', () => {
     // newest 50 are pr-74 .. pr-25; pr-74 should be first
     const first = parsed.evidence[0];
     const last = parsed.evidence[49];
-    expect(first && first.ref.kind === 'canonical' ? first.ref.id : null).toBe('pr-74');
-    expect(last && last.ref.kind === 'canonical' ? last.ref.id : null).toBe('pr-25');
+    expect(first?.ref.kind === 'canonical' ? first.ref.id : null).toBe('pr-74');
+    expect(last?.ref.kind === 'canonical' ? last.ref.id : null).toBe('pr-25');
   });
 
   it('skips rows whose `integration` or `kind` is an empty string (contract-invalid)', async () => {
@@ -164,7 +161,7 @@ describe('createCatchMeUpTool', () => {
     // return zero matches.
     const tool = createCatchMeUpTool({ now: () => FIXED_NOW });
     const result = await tool.handler({
-      input: { since: 'not-a-real-datetime' } as never,
+      input: { since: 'not-a-real-datetime' },
       ctx: { db: dbHandle.db },
     });
     expect(result.isErr()).toBe(true);

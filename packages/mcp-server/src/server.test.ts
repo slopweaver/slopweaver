@@ -223,13 +223,7 @@ describe('createMcpServer + ping', () => {
     try {
       const list = await client.listTools();
       const names = list.tools.map((t) => t.name).sort();
-      expect(names).toEqual([
-        'catch_me_up',
-        'get_freshness',
-        'ping',
-        'search_work_context',
-        'start_session',
-      ]);
+      expect(names).toEqual(['catch_me_up', 'get_freshness', 'ping', 'search_work_context', 'start_session']);
     } finally {
       await client.close();
       await server.close();

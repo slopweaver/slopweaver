@@ -38,10 +38,7 @@ describe('createGetFreshnessTool', () => {
       .run();
   }
 
-  async function callHandler(
-    tool: ReturnType<typeof createGetFreshnessTool>,
-    rawInput: unknown,
-  ): Promise<unknown> {
+  async function callHandler(tool: ReturnType<typeof createGetFreshnessTool>, rawInput: unknown): Promise<unknown> {
     const input = GetFreshnessArgs.parse(rawInput);
     const result = await tool.handler({ input, ctx: { db: dbHandle.db } });
     if (result.isErr()) {

@@ -27,12 +27,7 @@
  * never aborts the whole tool call.
  */
 
-import {
-  type EvidenceLogEntry,
-  type Freshness,
-  StartSessionArgs,
-  StartSessionResult,
-} from '@slopweaver/contracts';
+import { type EvidenceLogEntry, type Freshness, StartSessionArgs, StartSessionResult } from '@slopweaver/contracts';
 import { evidenceLog, integrationState, type SlopweaverDatabase } from '@slopweaver/db';
 import { ok } from '@slopweaver/errors';
 import { desc, eq, inArray } from 'drizzle-orm';

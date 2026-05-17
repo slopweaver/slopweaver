@@ -252,7 +252,7 @@ describe('createSearchWorkContextTool', () => {
     });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.evidence).toEqual([]);
+      expect(SearchWorkContextResult.parse(result.value).evidence).toEqual([]);
     }
   });
 
