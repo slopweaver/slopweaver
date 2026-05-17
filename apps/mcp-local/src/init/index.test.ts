@@ -12,6 +12,9 @@
  *   4. Test poll fails gracefully (wizard still returns 0)
  */
 
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { createDb, loadIntegrationToken, saveIntegrationToken } from '@slopweaver/db';
 import { errAsync, okAsync } from '@slopweaver/errors';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +22,7 @@ import type { RunConnectGithubDeps } from '../connect/github.ts';
 import { runConnectGithub } from '../connect/github.ts';
 import type { RunConnectSlackDeps } from '../connect/slack.ts';
 import { runConnectSlack } from '../connect/slack.ts';
+import { detectClients as realDetectClients } from './detect-clients.ts';
 import { runInit, type RunInitDeps } from './index.ts';
 
 type Buf = { write: (s: string) => void; text: () => string };
@@ -398,6 +402,61 @@ describe('runInit', () => {
     const slackLoaded = await loadIntegrationToken({ db: handle.db, integration: 'slack' });
     expect(githubLoaded.isOk() && githubLoaded.value?.token).toBe('ghp_existing');
     expect(slackLoaded.isOk() && slackLoaded.value?.token).toBe('xoxp-happy');
+  });
+
+  // P2 (integration): real-FS end-to-end. Seed ~/.claude.json with an existing
+  // slopweaver entry (what `claude mcp add` would have written on a prior run),
+  // then run runInit with the REAL `detectClients` against that tempdir. This
+  // catches regressions in the detect → wizard glue that the all-mocked test
+  // below wouldn't: e.g. if detectClients ever stopped parsing `mcpServers` or
+  // if labelFor stopped recognising `variant: 'home'`.
+  it('idempotency (real fs): seeded ~/.claude.json with slopweaver entry → wizard skips registration', async () => {
+    const tempHome = await mkdtemp(join(tmpdir(), 'slopweaver-init-real-'));
+    const tempCwd = await mkdtemp(join(tmpdir(), 'slopweaver-init-real-cwd-'));
+    try {
+      const claudePath = join(tempHome, '.claude.json');
+      await mkdir(dirname(claudePath), { recursive: true });
+      await writeFile(
+        claudePath,
+        JSON.stringify(
+          {
+            mcpServers: {
+              slopweaver: { command: 'npx', args: ['-y', '@slopweaver/mcp-local'] },
+            },
+          },
+          null,
+          2,
+        ),
+        'utf-8',
+      );
+
+      const registerClient = vi.fn().mockReturnValue(okAsync(undefined));
+
+      const { deps, stdout } = defaultDeps({
+        db: handle.db,
+        overrides: {
+          home: tempHome,
+          cwd: tempCwd,
+          // Pass through to the real detect impl — no mock — so a regression
+          // in detection logic would surface as a registerClient call.
+          detectClients: (args) => realDetectClients(args),
+          registerClient,
+        },
+      });
+
+      await runInit(deps);
+
+      // Claude Code's slopweaver entry was already there, so we must NOT have
+      // attempted to register it again.
+      const claudeCalls = registerClient.mock.calls.filter(
+        (call) => (call[0] as { kind: string }).kind === 'claude-code',
+      );
+      expect(claudeCalls).toHaveLength(0);
+      expect(stdout.text()).toContain('Claude Code: slopweaver already registered');
+    } finally {
+      await rm(tempHome, { recursive: true, force: true });
+      await rm(tempCwd, { recursive: true, force: true });
+    }
   });
 
   // P2: idempotency after successful `claude mcp add`. The first run hands off
