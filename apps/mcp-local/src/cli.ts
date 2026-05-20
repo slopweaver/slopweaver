@@ -47,6 +47,7 @@ import {
   createMcpServer,
   createPingTool,
   createSearchWorkContextTool,
+  createStartDraftTool,
   createStartSessionTool,
   type StartSessionPoller,
   startStdio,
@@ -171,6 +172,7 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
       createGetFreshnessTool(),
       createCatchMeUpTool(),
       createSearchWorkContextTool(),
+      createStartDraftTool(),
     ],
   });
 
