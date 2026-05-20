@@ -42,18 +42,29 @@ import {
   safeSlackCall,
 } from '@slopweaver/integrations-slack';
 import {
+  allBuiltinPrompts,
   createCatchMeUpTool,
+  createEnsureWorkConsoleBranchTool,
+  createGetCalibrationReportTool,
   createGetFreshnessTool,
+  createGetWorkConsoleStateTool,
+  createListConsoleFilesTool,
+  createLogWalkFeedbackTool,
   createMcpServer,
   createPingTool,
+  createReadConsoleFileTool,
   createSearchWorkContextTool,
   createStartSessionTool,
+  createWriteConsoleFileTool,
+  resolveWorkConsoleConfig,
   type StartSessionPoller,
   startStdio,
 } from '@slopweaver/mcp-server';
 import { DEFAULT_PORT as UI_DEFAULT_PORT, startUiServer, type UiServerHandle } from '@slopweaver/ui';
 import { runConnectGithub } from './connect/github.ts';
 import { runConnectSlack } from './connect/slack.ts';
+import { runBootstrapWorkConsole } from './init/bootstrap-work-console.ts';
+import { defaultBootstrapWriters } from './init/bootstrap-work-console-runtime.ts';
 import { detectClients } from './init/detect-clients.ts';
 import { registerClient } from './init/register-client.ts';
 import { runInit } from './init/index.ts';
@@ -162,6 +173,12 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
     pollers['slack'] = createSlackPoller({ token: slackToken.token });
   }
 
+  // The work-console subsystem is resolved once at startup using process.cwd()
+  // (the directory Claude Code launched the binary from). Tools that touch
+  // git or the file tree share this config so the user can't accidentally
+  // straddle two repos in one session.
+  const workConsoleConfig = resolveWorkConsoleConfig({ cwd: processCwd() });
+
   const server = createMcpServer({
     db: dbHandle.db,
     version: VERSION,
@@ -171,7 +188,15 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
       createGetFreshnessTool(),
       createCatchMeUpTool(),
       createSearchWorkContextTool(),
+      createEnsureWorkConsoleBranchTool({ config: workConsoleConfig }),
+      createGetWorkConsoleStateTool({ config: workConsoleConfig }),
+      createReadConsoleFileTool({ config: workConsoleConfig }),
+      createWriteConsoleFileTool({ config: workConsoleConfig }),
+      createListConsoleFilesTool({ config: workConsoleConfig }),
+      createLogWalkFeedbackTool({ config: workConsoleConfig }),
+      createGetCalibrationReportTool({ config: workConsoleConfig }),
     ],
+    prompts: allBuiltinPrompts(),
   });
 
   // Start the local Diagnostics web UI (default ON). EADDRINUSE is non-fatal:
@@ -394,6 +419,8 @@ async function runInitCmd(): Promise<number> {
       },
       stdout,
       stderr,
+      bootstrapWorkConsole: runBootstrapWorkConsole,
+      bootstrapWriters: defaultBootstrapWriters(),
     });
   } finally {
     dbHandle.close();

@@ -28,6 +28,7 @@ import { loadIntegrationToken } from '@slopweaver/db';
 import type { BaseError, ResultAsync } from '@slopweaver/errors';
 import type { RunConnectGithubDeps } from '../connect/github.ts';
 import type { RunConnectSlackDeps } from '../connect/slack.ts';
+import type { BootstrapResult, RunBootstrapArgs, InitBootstrapError } from './bootstrap-work-console.ts';
 import type { DetectedClient, McpClientKind } from './detect-clients.ts';
 import type { InitError } from './errors.ts';
 
@@ -71,6 +72,10 @@ export type RunInitDeps = {
   stderr: { write: (s: string) => void };
   /** Inject in tests so token reads/writes hit an in-memory store, not the OS keychain. Defaults to the real adapter inside `loadIntegrationToken`/`saveIntegrationToken`. */
   keychainAdapter?: KeychainAdapter;
+  /** Bootstraps the AI work console: branch + scaffold + memory file. Optional so older callers compile unchanged. */
+  bootstrapWorkConsole?: (args: RunBootstrapArgs) => ResultAsync<BootstrapResult, InitBootstrapError>;
+  /** Default Writers implementation for the bootstrap step. Tests inject fakes here. */
+  bootstrapWriters?: RunBootstrapArgs['writers'];
 };
 
 const CLIENT_KIND_LABEL: Record<McpClientKind, string> = {
@@ -126,6 +131,8 @@ export async function runInit(deps: RunInitDeps): Promise<number> {
   });
   if (slackResult !== 0) return slackResult;
 
+  await stepBootstrapWorkConsole(deps);
+
   // P1 #3 fix: if any registration attempt failed (claude mcp add returned
   // non-zero, a JSON config was malformed and we refused to overwrite, etc.),
   // do NOT print the "you're all set" success banner. The wizard already
@@ -133,6 +140,53 @@ export async function runInit(deps: RunInitDeps): Promise<number> {
   // user knows to fix the underlying issue before trying start_session.
   stdout.write(registrationOk ? SUCCESS_CLOSING : PARTIAL_CLOSING);
   return 0;
+}
+
+async function stepBootstrapWorkConsole(deps: RunInitDeps): Promise<void> {
+  const { stdout, stderr, cwd, prompt, bootstrapWorkConsole, bootstrapWriters } = deps;
+  if (!bootstrapWorkConsole || !bootstrapWriters) {
+    // Older callers without the bootstrap injection: skip silently.
+    return;
+  }
+  stdout.write('Step 4: AI work console\n');
+  const shouldBootstrap = await prompt.confirm({
+    message: 'Scaffold the AI work console (.claude/personal/) and ensure the ai-work-console branch?',
+    defaultValue: true,
+  });
+  if (!shouldBootstrap) {
+    stdout.write('  · AI work console: skipped\n\n');
+    return;
+  }
+  const result = await bootstrapWorkConsole({
+    cwd,
+    writers: bootstrapWriters,
+  });
+  if (result.isErr()) {
+    stderr.write(`  ✗ AI work console: ${result.error.message}\n\n`);
+    return;
+  }
+  const r = result.value;
+  if (r.branchAction === 'no_git_repo') {
+    stdout.write('  · AI work console: cwd is not a git repo; created scaffold without branch isolation\n');
+  } else if (r.branchAction === 'already_on_branch') {
+    stdout.write(`  ✓ AI work console: already on branch ${r.branch}\n`);
+  } else if (r.branchAction === 'created_and_switched') {
+    stdout.write(`  ✓ AI work console: created and switched to branch ${r.branch}\n`);
+  } else {
+    stdout.write(`  ✓ AI work console: switched to branch ${r.branch}\n`);
+  }
+  if (r.filesCreated.length === 0) {
+    stdout.write('  · Scaffold: every file already existed\n');
+  } else {
+    stdout.write(`  ✓ Scaffold: created ${r.filesCreated.length} file(s) under ${r.consoleDir}\n`);
+  }
+  if (r.memoryFileCreated) {
+    stdout.write('  ✓ Memory: wrote .claude/SLOPWEAVER-MEMORY.md\n');
+  }
+  if (r.claudeMdImportAdded) {
+    stdout.write('  ✓ Memory: added @.claude/SLOPWEAVER-MEMORY.md import to CLAUDE.md\n');
+  }
+  stdout.write('\n');
 }
 
 /**

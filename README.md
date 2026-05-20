@@ -91,6 +91,26 @@ Then ask your client: *"What should I work on next?"* If anything fails, [open a
 
 ---
 
+## The AI work console (slash commands)
+
+SlopWeaver ships an opinionated workflow as a set of MCP prompts. The moment you finish `claude mcp add slopweaver`, these commands appear in Claude Code's slash-command menu as `/mcp__slopweaver__*` (and as bare `/session-start`-style names if you let `slopweaver init` drop short-name shims into `.claude/commands/`).
+
+| Command | What it does |
+| --- | --- |
+| `/session-start` | Switches to the `ai-work-console` git branch, fans out across every MCP server you've connected (Slack, Linear, Gmail, Calendar, GitHub, Notion, etc.), refreshes stale deltas, reconciles open items in your work files, prints a ranked snapshot ending in "what are we working on this session?" |
+| `/fan-out-audit` | First-run deep backfill. Builds `.claude/personal/{contexts,work,state,rules,daily,drafts,handoffs}` from scratch by querying every connected MCP server. Identity resolution, team directory, voice extraction, ranked priorities, work files per programme — the lot. |
+| `/lock-in` | Push-style execution walker. Steps through the ranked queue one item at a time, proposes a concrete next action, waits for `do | agent | handoff | defer | skip | note | open-question`. Every resolution feeds a calibration log. |
+| `/reconcile` | Cross-references work-file open items against the latest deltas. Buckets into `propose-close / propose-update / state-mismatch / new-attention / inbox`, then ranks for the walk. |
+| `/style-rule` | Capture a voice / workflow rule the user just stated. Verbatim. Appends to `rules/communication-style.md` (or the matching rules file). |
+| `/style-edit` | Amend or remove an existing rule. |
+| `/correct` | A correction the user just pushed back with. One-line acknowledgement, classify, update the right rules / context file, log a calibration breadcrumb. No apology essays. |
+
+The work console always lives on a dedicated git branch (default name: `ai-work-console`). Every slash command calls the `ensure_work_console_branch` MCP tool first so context/draft writes never leak into a PR branch. `slopweaver init` writes a `.claude/SLOPWEAVER-MEMORY.md` memory file and adds an `@.claude/SLOPWEAVER-MEMORY.md` import to your `CLAUDE.md`, so future Claude Code sessions automatically know to stay on the branch.
+
+See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full operating model.
+
+---
+
 ## Why local-first
 
 - **Your work data stays on your machine.** No SaaS, no cloud round-trip, no signup.

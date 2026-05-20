@@ -31,3 +31,41 @@ export type {
 } from './tools/composite/start-session.ts';
 export { startStdio } from './transports/stdio.ts';
 export type { StartStdioArgs, StartStdioHandle } from './transports/stdio.ts';
+export { defineMcpPrompt } from './prompts/registry.ts';
+export type {
+  McpPrompt,
+  PromptBuildResult,
+  PromptDefinition,
+  PromptHandler,
+  PromptHandlerArgs,
+  PromptHandlerContext,
+  SlopweaverPromptMessage,
+} from './prompts/registry.ts';
+export { allBuiltinPrompts } from './prompts/builtin/index.ts';
+export { createSessionStartPrompt } from './prompts/builtin/session-start.ts';
+export { createFanOutAuditPrompt } from './prompts/builtin/fan-out-audit.ts';
+export { createLockInPrompt } from './prompts/builtin/lock-in.ts';
+export { createReconcilePrompt } from './prompts/builtin/reconcile.ts';
+export { createStyleRulePrompt } from './prompts/builtin/style-rule.ts';
+export { createStyleEditPrompt } from './prompts/builtin/style-edit.ts';
+export { createCorrectPrompt } from './prompts/builtin/correct.ts';
+export { createEnsureWorkConsoleBranchTool } from './tools/builtin/ensure-work-console-branch.ts';
+export type { CreateEnsureWorkConsoleBranchToolArgs } from './tools/builtin/ensure-work-console-branch.ts';
+export { createGetWorkConsoleStateTool } from './tools/builtin/get-work-console-state.ts';
+export type { CreateGetWorkConsoleStateToolArgs } from './tools/builtin/get-work-console-state.ts';
+export { createReadConsoleFileTool } from './tools/builtin/read-console-file.ts';
+export { createWriteConsoleFileTool } from './tools/builtin/write-console-file.ts';
+export { createListConsoleFilesTool } from './tools/builtin/list-console-files.ts';
+export { createLogWalkFeedbackTool } from './tools/builtin/log-walk-feedback.ts';
+export { createGetCalibrationReportTool } from './tools/builtin/get-calibration-report.ts';
+export type { WorkConsoleConfig } from './work-console/config.ts';
+export {
+  resolveWorkConsoleConfig,
+  DEFAULT_WORK_CONSOLE_BRANCH,
+  DEFAULT_CONSOLE_REL_DIR,
+  DEFAULT_FEEDBACK_REL_PATH,
+} from './work-console/config.ts';
+export type { GitRunner, GitRunResult, EnsureBranchResult } from './work-console/branch.ts';
+export { ensureWorkConsoleBranch, readCurrentBranch, defaultGitRunner } from './work-console/branch.ts';
+export type { WorkConsoleError } from './work-console/errors.ts';
+export { WorkConsoleErrors } from './work-console/errors.ts';

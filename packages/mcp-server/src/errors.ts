@@ -22,11 +22,25 @@ export interface McpToolUnexpectedError extends BaseError {
 
 export type McpToolError = McpToolUnexpectedError;
 
+export interface McpPromptUnexpectedError extends BaseError {
+  readonly code: 'MCP_PROMPT_UNEXPECTED';
+  readonly promptName: string;
+  readonly cause?: unknown;
+}
+
+export type McpPromptError = McpPromptUnexpectedError;
+
 export const McpErrors = {
   unexpected: (toolName: string, cause?: unknown, message?: string): McpToolUnexpectedError => ({
     code: 'MCP_TOOL_UNEXPECTED',
     message: message ?? `Unexpected error in tool "${toolName}"`,
     toolName,
+    ...(cause !== undefined && { cause }),
+  }),
+  promptUnexpected: (promptName: string, cause?: unknown, message?: string): McpPromptUnexpectedError => ({
+    code: 'MCP_PROMPT_UNEXPECTED',
+    message: message ?? `Unexpected error in prompt "${promptName}"`,
+    promptName,
     ...(cause !== undefined && { cause }),
   }),
 } as const;
