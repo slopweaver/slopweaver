@@ -132,7 +132,7 @@ async function listImpl(
   const resolvedDir = resolveSafe(config, subdir);
   if (resolvedDir.isErr()) return err(resolvedDir.error);
   const absDir = resolvedDir.value;
-  const displaySubdir = subdir || '.';
+  const displaySubdir = subdir.length > 0 ? subdir : '.';
   let dirents: Dirent[];
   try {
     dirents = await readdir(absDir, { withFileTypes: true });
