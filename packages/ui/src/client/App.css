@@ -141,3 +141,81 @@ code {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.9em;
 }
+
+/* --- Flight-deck tab navigation ------------------------------------ */
+/* Same shell as PR #61 + PR #63. */
+
+.flight-deck__tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.75rem 1.5rem 0;
+  border-bottom: 1px solid var(--border);
+  background: #f9fafb;
+}
+
+.flight-deck__tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 0.5rem 0.875rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  margin-bottom: -1px;
+}
+
+.flight-deck__tab:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: #1f2937;
+}
+
+.flight-deck__tab--active {
+  color: #1f2937;
+  border-bottom-color: #2563eb;
+  background: #ffffff;
+}
+
+/* --- Stakeholder list --------------------------------------------- */
+
+.stakeholder-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stakeholder-list__item {
+  display: grid;
+  grid-template-columns: 3rem 1fr 4rem 6rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.stakeholder-list__dot {
+  background: #2563eb;
+  border-radius: 50%;
+  justify-self: center;
+}
+
+.stakeholder-list__identifier {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.stakeholder-list__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.stakeholder-list__time {
+  color: var(--muted);
+  text-align: right;
+}
