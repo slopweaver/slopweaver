@@ -24,6 +24,18 @@ export { createGetFreshnessTool } from './tools/builtin/get-freshness.ts';
 export type { CreateGetFreshnessToolArgs } from './tools/builtin/get-freshness.ts';
 export { createSearchWorkContextTool } from './tools/builtin/search-work-context.ts';
 export type { CreateSearchWorkContextToolArgs } from './tools/builtin/search-work-context.ts';
+export {
+  createPrepareSendTool,
+  createRecordSendOutcomeTool,
+  parseTarget,
+  parseFrontmatter,
+} from './tools/builtin/send/index.ts';
+export type {
+  CreatePrepareSendToolArgs,
+  CreateRecordSendOutcomeToolArgs,
+  ParsedTarget,
+  ParsedDraft,
+} from './tools/builtin/send/index.ts';
 export { createStartSessionTool } from './tools/composite/start-session.ts';
 export type {
   CreateStartSessionToolArgs,

@@ -143,3 +143,76 @@ export const SearchWorkContextResult = z
   })
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
+
+// --- Send-via-source (one-tap reply) ----------------------------------
+
+export const PrepareSendArgs = z
+  .object({
+    /** Absolute path to the draft file (frontmatter + body markdown). */
+    draft_path: NonEmptyStringSchema,
+  })
+  .strict();
+export type PrepareSendArgs = z.infer<typeof PrepareSendArgs>;
+
+const SendTargetSchema = z.discriminatedUnion('platform', [
+  z
+    .object({
+      platform: z.literal('slack'),
+      channel: NonEmptyStringSchema,
+      thread_ts: z.string().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      platform: z.literal('github'),
+      owner: NonEmptyStringSchema,
+      repo: NonEmptyStringSchema,
+      kind: z.enum(['pull', 'issue']),
+      number: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      platform: z.literal('gmail'),
+      thread_id: NonEmptyStringSchema,
+    })
+    .strict(),
+  z
+    .object({
+      platform: z.literal('linear'),
+      issue_id: NonEmptyStringSchema,
+    })
+    .strict(),
+]);
+
+export const PrepareSendResult = z
+  .object({
+    draft_id: z.string().optional(),
+    target: SendTargetSchema,
+    body: NonEmptyStringSchema,
+    instructions: NonEmptyStringSchema,
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type PrepareSendResult = z.infer<typeof PrepareSendResult>;
+
+export const RecordSendOutcomeArgs = z
+  .object({
+    /** Same draft_path that was passed to `prepare_send`. */
+    draft_path: NonEmptyStringSchema,
+    status: z.enum(['sent', 'failed', 'cancelled']),
+    /** Required when status='sent'. Source platform's permalink to the posted message. */
+    sent_url: z.url().optional(),
+    /** Required when status='failed'. */
+    error: z.string().optional(),
+  })
+  .strict();
+export type RecordSendOutcomeArgs = z.infer<typeof RecordSendOutcomeArgs>;
+
+export const RecordSendOutcomeResult = z
+  .object({
+    log_path: NonEmptyStringSchema,
+    line_number: z.number().int().positive(),
+  })
+  .strict();
+export type RecordSendOutcomeResult = z.infer<typeof RecordSendOutcomeResult>;
