@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import { runStaticEnvChecks, type StaticEnvChecks } from './checks.ts';
+import { buildCalibrationResponse, defaultCalibrationLogPath } from './calibration.ts';
 import { buildDiagnosticsResponse } from './diagnostics.ts';
 import { CLIENT_ASSETS_DIR } from './static-dir.ts';
 
@@ -194,6 +195,16 @@ function handleApi({
   }
   if (pathname === '/api/diagnostics') {
     const body = JSON.stringify(buildDiagnosticsResponse({ db, staticChecks, bindAddress }));
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(method === 'HEAD' ? undefined : body);
+    return;
+  }
+  if (pathname === '/api/calibration') {
+    const logPath = defaultCalibrationLogPath({ cwd: process.cwd() });
+    const body = JSON.stringify(buildCalibrationResponse({ logPath }));
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
