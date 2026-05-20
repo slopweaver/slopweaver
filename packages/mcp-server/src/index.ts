@@ -24,6 +24,8 @@ export { createGetFreshnessTool } from './tools/builtin/get-freshness.ts';
 export type { CreateGetFreshnessToolArgs } from './tools/builtin/get-freshness.ts';
 export { createSearchWorkContextTool } from './tools/builtin/search-work-context.ts';
 export type { CreateSearchWorkContextToolArgs } from './tools/builtin/search-work-context.ts';
+export { createStartRetroTool, createSnapshotProfileTool } from './tools/builtin/retro/index.ts';
+export type { CreateStartRetroToolArgs, CreateSnapshotProfileToolArgs } from './tools/builtin/retro/index.ts';
 export { createStartSessionTool } from './tools/composite/start-session.ts';
 export type {
   CreateStartSessionToolArgs,

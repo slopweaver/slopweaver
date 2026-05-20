@@ -143,3 +143,42 @@ export const SearchWorkContextResult = z
   })
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
+
+// --- Weekly retro ----------------------------------------------------
+
+export const StartRetroArgs = z
+  .object({
+    /** ISO date for the start of the retro window. Defaults to today minus 7 days. */
+    since: z.iso.date().optional(),
+  })
+  .strict();
+export type StartRetroArgs = z.infer<typeof StartRetroArgs>;
+
+export const StartRetroResult = z
+  .object({
+    retro_id: NonEmptyStringSchema,
+    since: z.iso.date(),
+    instructions: NonEmptyStringSchema,
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type StartRetroResult = z.infer<typeof StartRetroResult>;
+
+export const SnapshotProfileArgs = z
+  .object({
+    /** Absolute path to the source file. */
+    source_path: NonEmptyStringSchema,
+    /** Override the snapshot filename. Defaults to `<date>-<source-basename>`. */
+    snapshot_name: NonEmptyStringSchema.optional(),
+  })
+  .strict();
+export type SnapshotProfileArgs = z.infer<typeof SnapshotProfileArgs>;
+
+export const SnapshotProfileResult = z
+  .object({
+    snapshot_path: NonEmptyStringSchema,
+    bytes_written: z.number().int().nonnegative(),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type SnapshotProfileResult = z.infer<typeof SnapshotProfileResult>;
