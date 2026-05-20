@@ -70,6 +70,7 @@ describe('slopweaver bin (compiled CLI)', () => {
       expect(names).toContain('get_freshness');
       expect(names).toContain('catch_me_up');
       expect(names).toContain('search_work_context');
+      expect(names).toContain('apply_voice_rules');
 
       const ping = list.tools.find((t) => t.name === 'ping');
       expect(ping?.inputSchema.type).toBe('object');
