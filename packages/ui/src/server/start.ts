@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import { runStaticEnvChecks, type StaticEnvChecks } from './checks.ts';
+import { buildCompanionFileResponse } from './companion.ts';
 import { buildDiagnosticsResponse } from './diagnostics.ts';
 import { CLIENT_ASSETS_DIR } from './static-dir.ts';
 
@@ -183,13 +184,24 @@ function handleApi({
   staticChecks: StaticEnvChecks;
   bindAddress: { host: string; port: number };
 }): void {
+  if (!isOriginAllowed({ req, bindAddress })) {
+    writeText({ res, status: 403, body: 'forbidden origin\n' });
+    return;
+  }
+  if (pathname === '/api/companion/file') {
+    if (method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'text/plain', allow: 'POST' });
+      res.end('method not allowed\n');
+      return;
+    }
+    handleCompanionFile({ req, res }).catch((e: unknown) => {
+      writeText({ res, status: 500, body: `internal error: ${e instanceof Error ? e.message : String(e)}\n` });
+    });
+    return;
+  }
   if (method !== 'GET' && method !== 'HEAD') {
     res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET, HEAD' });
     res.end('method not allowed\n');
-    return;
-  }
-  if (!isOriginAllowed({ req, bindAddress })) {
-    writeText({ res, status: 403, body: 'forbidden origin\n' });
     return;
   }
   if (pathname === '/api/diagnostics') {
@@ -202,6 +214,27 @@ function handleApi({
     return;
   }
   writeText({ res, status: 404, body: 'not found\n' });
+}
+
+async function handleCompanionFile({ req, res }: { req: IncomingMessage; res: ServerResponse }): Promise<void> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const raw = Buffer.concat(chunks).toString('utf-8');
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    writeText({ res, status: 400, body: 'invalid JSON\n' });
+    return;
+  }
+  const result = await buildCompanionFileResponse({ cwd: process.cwd(), payload });
+  if (!result.filed) {
+    res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(result));
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(result));
 }
 
 function isOriginAllowed({
