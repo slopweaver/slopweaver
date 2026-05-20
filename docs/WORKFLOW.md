@@ -44,7 +44,7 @@ If you'd rather call the branch something else, set `SLOPWEAVER_CONSOLE_BRANCH=m
 
 `slopweaver init` scaffolds the dirs and seeds a handful of placeholder markdown files. `/fan-out-audit` populates the actual content from your MCP servers.
 
-## The seven slash commands
+## The eleven slash commands
 
 ### `/session-start [mode]`
 
@@ -107,6 +107,22 @@ Capture / amend rules. `/style-rule` appends; `/style-edit` refines or removes. 
 ### `/correct <correction>`
 
 The user just pushed back on something Claude did. One-line acknowledgement, no apology, classify the correction (voice / workflow / context / proposal), update the right rules or context file, log a calibration breadcrumb.
+
+### `/calibration-report [since]`
+
+Read-only diagnostic over the walk-feedback JSONL log. Shows the total number of walks + items in the window, acceptance / edit / rejection / deferred / dropped / noted rates, and the top friction tags (`friction:wrong-channel`, `friction:wrong-tone`, etc.). Ends with one interpretive sentence — if acceptance is low or one friction tag dominates, it suggests the matching `/style-edit` to make next. No file writes.
+
+### `/recompile-profile [trigger]`
+
+Refresh `contexts/core-profile.md` from the latest signal. Same idea as `/fan-out-audit` but scoped to just the four derived sections (identity, ranked priorities, voice deltas, open loops). Diff-and-apply, never wholesale rewrite. Preserves any sections the user has hand-edited.
+
+### `/decided <decision> [work_file]`
+
+Append a dated entry to the matching work file's `## Key decisions (YYYY-MM-DD onward)` section. The user just made a call; this command records it verbatim. If `work_file` isn't supplied, picks the most-recently-modified file under `work/`.
+
+### `/focus <scope> [duration_minutes]`
+
+Set a session-scoped focus filter. Writes `state/focus.md`. Subsequent `/session-start` snapshots elevate items matching the scope keywords; `/lock-in` skips non-matching items unless the user explicitly walks them. `/focus all` (or just clearing `focus.md`) drops the filter.
 
 ## How `/session-start` decides what to call
 

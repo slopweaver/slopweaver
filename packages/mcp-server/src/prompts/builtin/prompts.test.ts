@@ -13,7 +13,7 @@ import { allBuiltinPrompts } from './index.ts';
 const fakeCtx = { db: {} as never };
 
 describe('allBuiltinPrompts', () => {
-  it('returns exactly the seven SlopWeaver slash commands', () => {
+  it('returns every SlopWeaver slash command in the expected order', () => {
     const names = allBuiltinPrompts().map((p) => p.name);
     expect(names).toEqual([
       'session-start',
@@ -23,6 +23,10 @@ describe('allBuiltinPrompts', () => {
       'style-rule',
       'style-edit',
       'correct',
+      'calibration-report',
+      'recompile-profile',
+      'decided',
+      'focus',
     ]);
   });
 
@@ -86,6 +90,63 @@ describe('allBuiltinPrompts', () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.messages[0]?.content.text).toContain('stop section-headering');
+    }
+  });
+
+  it('decided surfaces the decision text verbatim', async () => {
+    const prompt = allBuiltinPrompts().find((p) => p.name === 'decided');
+    expect(prompt).toBeDefined();
+    if (!prompt) return;
+    const result = await prompt.handler({
+      args: { decision: 'go with SQLite-backed reconciliation cache' },
+      ctx: fakeCtx,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.messages[0]?.content.text).toContain('SQLite-backed reconciliation cache');
+    }
+  });
+
+  it('focus surfaces the scope text verbatim and includes the duration', async () => {
+    const prompt = allBuiltinPrompts().find((p) => p.name === 'focus');
+    expect(prompt).toBeDefined();
+    if (!prompt) return;
+    const result = await prompt.handler({
+      args: { scope: 'PR review only, ignore Slack', duration_minutes: 90 },
+      ctx: fakeCtx,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.messages[0]?.content.text).toContain('PR review only, ignore Slack');
+      expect(result.value.messages[0]?.content.text).toContain('90 minutes');
+    }
+  });
+
+  it('calibration-report surfaces the since-cutoff arg', async () => {
+    const prompt = allBuiltinPrompts().find((p) => p.name === 'calibration-report');
+    expect(prompt).toBeDefined();
+    if (!prompt) return;
+    const result = await prompt.handler({
+      args: { since: '2026-05-01T00:00:00Z' },
+      ctx: fakeCtx,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.messages[0]?.content.text).toContain('2026-05-01T00:00:00Z');
+    }
+  });
+
+  it('recompile-profile surfaces the trigger arg', async () => {
+    const prompt = allBuiltinPrompts().find((p) => p.name === 'recompile-profile');
+    expect(prompt).toBeDefined();
+    if (!prompt) return;
+    const result = await prompt.handler({
+      args: { trigger: 'sprint boundary' },
+      ctx: fakeCtx,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.messages[0]?.content.text).toContain('sprint boundary');
     }
   });
 

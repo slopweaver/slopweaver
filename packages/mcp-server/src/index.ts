@@ -49,6 +49,10 @@ export { createReconcilePrompt } from './prompts/builtin/reconcile.ts';
 export { createStyleRulePrompt } from './prompts/builtin/style-rule.ts';
 export { createStyleEditPrompt } from './prompts/builtin/style-edit.ts';
 export { createCorrectPrompt } from './prompts/builtin/correct.ts';
+export { createCalibrationReportPrompt } from './prompts/builtin/calibration-report.ts';
+export { createRecompileProfilePrompt } from './prompts/builtin/recompile-profile.ts';
+export { createDecidedPrompt } from './prompts/builtin/decided.ts';
+export { createFocusPrompt } from './prompts/builtin/focus.ts';
 export { createEnsureWorkConsoleBranchTool } from './tools/builtin/ensure-work-console-branch.ts';
 export type { CreateEnsureWorkConsoleBranchToolArgs } from './tools/builtin/ensure-work-console-branch.ts';
 export { createGetWorkConsoleStateTool } from './tools/builtin/get-work-console-state.ts';
@@ -58,6 +62,11 @@ export { createWriteConsoleFileTool } from './tools/builtin/write-console-file.t
 export { createListConsoleFilesTool } from './tools/builtin/list-console-files.ts';
 export { createLogWalkFeedbackTool } from './tools/builtin/log-walk-feedback.ts';
 export { createGetCalibrationReportTool } from './tools/builtin/get-calibration-report.ts';
+export { createRegisterHandoffTool, slugifyAnchor } from './tools/builtin/register-handoff.ts';
+export type { CreateRegisterHandoffToolArgs } from './tools/builtin/register-handoff.ts';
+export { createAppendDailyJournalTool } from './tools/builtin/append-daily-journal.ts';
+export type { CreateAppendDailyJournalToolArgs } from './tools/builtin/append-daily-journal.ts';
+export { createListAvailableMcpServersTool, KNOWN_MCP_SERVERS } from './tools/builtin/list-available-mcp-servers.ts';
 export type { WorkConsoleConfig } from './work-console/config.ts';
 export {
   resolveWorkConsoleConfig,

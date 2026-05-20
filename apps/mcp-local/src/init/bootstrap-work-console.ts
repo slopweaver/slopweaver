@@ -98,7 +98,68 @@ export type BootstrapResult = {
   filesCreated: ReadonlyArray<string>;
   memoryFileCreated: boolean;
   claudeMdImportAdded: boolean;
+  /** Relative paths of slash-command shims created under .claude/commands/. */
+  slashCommandsCreated: ReadonlyArray<string>;
 };
+
+/**
+ * Slash-command shims. Each entry produces a `<repo>/.claude/commands/<name>.md`
+ * file whose body tells Claude Code to invoke the corresponding MCP prompt
+ * under the SlopWeaver server. After this, the user's slash-command menu
+ * shows the bare `/session-start` form instead of the qualified
+ * `/mcp__slopweaver__session-start`.
+ *
+ * Keep the body minimal: a one-line description + an instruction to run
+ * the underlying prompt. The MCP prompt itself carries the substantive
+ * orchestration.
+ */
+const SLASH_COMMAND_SHIMS: ReadonlyArray<{ name: string; description: string }> = [
+  { name: 'session-start', description: 'Refresh the AI work console: branch check → fan-out → reconcile → snapshot.' },
+  {
+    name: 'fan-out-audit',
+    description: 'First-run deep backfill of the work console from every connected MCP server.',
+  },
+  { name: 'lock-in', description: 'Walk the ranked queue one item at a time. Push-style execution.' },
+  { name: 'reconcile', description: 'Cross-reference work-file open items against the latest deltas.' },
+  { name: 'style-rule', description: 'Capture a voice / style / workflow rule. Verbatim.' },
+  { name: 'style-edit', description: 'Amend or remove an existing rule.' },
+  { name: 'correct', description: 'Capture a user pushback as high-signal training data.' },
+  {
+    name: 'calibration-report',
+    description: 'Show /lock-in acceptance / edit / rejection rates and top friction tags.',
+  },
+  { name: 'recompile-profile', description: 'Refresh contexts/core-profile.md from latest signal across MCP servers.' },
+  { name: 'decided', description: "Append a decision to the matching work file's Key decisions section." },
+  { name: 'focus', description: 'Set the focus scope for this session. Subsequent snapshots filter accordingly.' },
+];
+
+const SLASH_COMMAND_REL_DIR = '.claude/commands';
+
+function renderSlashCommandShim(name: string, description: string): string {
+  return `---
+description: ${description}
+---
+
+# /${name}
+
+This shim delegates to the SlopWeaver MCP server's \`${name}\` prompt.
+
+> **What to do:** invoke the \`${name}\` prompt registered by the
+> SlopWeaver MCP server (under the \`slopweaver\` namespace). The prompt
+> body carries the substantive instructions — branch checks, MCP fan-out,
+> markdown writes, etc. Treat this file as a router, not as the source
+> of truth for what \`/${name}\` does.
+
+If your MCP client surfaces SlopWeaver prompts as
+\`/mcp__slopweaver__${name}\`, you can also run that form directly.
+This shim exists so you get the bare \`/${name}\` name in the slash-command
+menu.
+
+Argument forwarding: every argument the user typed after \`/${name}\`
+should be passed through to the MCP prompt verbatim. See the prompt's
+own argument schema for the recognised keys.
+`;
+}
 
 interface BootstrapWorkConsoleFailedError extends BaseError {
   readonly code: 'BOOTSTRAP_WORK_CONSOLE_FAILED';
@@ -275,16 +336,34 @@ export function runBootstrapWorkConsole(
       const branchAction: BootstrapBranchAction = branchResult.action;
       const consoleDir = `${config.cwd}/${DEFAULT_CONSOLE_REL_DIR}`;
       return runScaffold({ consoleDir, writers: args.writers }).andThen((filesCreated) =>
-        runMemoryFile({ cwd: config.cwd, writers: args.writers }).map((memoryOutcome) => ({
-          branch,
-          branchAction,
-          consoleDir,
-          filesCreated,
-          memoryFileCreated: memoryOutcome.memoryFileCreated,
-          claudeMdImportAdded: memoryOutcome.claudeMdImportAdded,
-        })),
+        runMemoryFile({ cwd: config.cwd, writers: args.writers }).andThen((memoryOutcome) =>
+          runSlashCommands({ cwd: config.cwd, writers: args.writers }).map((slashCommandsCreated) => ({
+            branch,
+            branchAction,
+            consoleDir,
+            filesCreated,
+            memoryFileCreated: memoryOutcome.memoryFileCreated,
+            claudeMdImportAdded: memoryOutcome.claudeMdImportAdded,
+            slashCommandsCreated,
+          })),
+        ),
       );
     });
+}
+
+function runSlashCommands(args: {
+  cwd: string;
+  writers: Writers;
+}): ResultAsync<ReadonlyArray<string>, BootstrapWorkConsoleFailedError> {
+  const promises = SLASH_COMMAND_SHIMS.map(async (shim): Promise<string | null> => {
+    const relPath = `${SLASH_COMMAND_REL_DIR}/${shim.name}.md`;
+    const absPath = `${args.cwd}/${relPath}`;
+    const exists = await args.writers.fileExists(absPath);
+    if (exists) return null;
+    await args.writers.writeFile(absPath, renderSlashCommandShim(shim.name, shim.description));
+    return relPath;
+  });
+  return wrapAll(promises);
 }
 
 function runScaffold(args: {

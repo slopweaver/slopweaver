@@ -104,6 +104,10 @@ SlopWeaver ships an opinionated workflow as a set of MCP prompts. The moment you
 | `/style-rule` | Capture a voice / workflow rule the user just stated. Verbatim. Appends to `rules/communication-style.md` (or the matching rules file). |
 | `/style-edit` | Amend or remove an existing rule. |
 | `/correct` | A correction the user just pushed back with. One-line acknowledgement, classify, update the right rules / context file, log a calibration breadcrumb. No apology essays. |
+| `/calibration-report` | Read the walk-feedback JSONL log; surface acceptance / edit / rejection rates and the top friction tags. Read-only. |
+| `/recompile-profile` | Refresh `contexts/core-profile.md` from latest signal across connected MCP servers. Conservative diff-and-apply, never wholesale rewrite. |
+| `/decided` | Append a dated entry to the matching work file's `## Key decisions` section. Verbatim. |
+| `/focus` | Set the focus scope for this session — subsequent snapshots elevate matching items and de-prioritize the rest. |
 
 The work console always lives on a dedicated git branch (default name: `ai-work-console`). Every slash command calls the `ensure_work_console_branch` MCP tool first so context/draft writes never leak into a PR branch. `slopweaver init` writes a `.claude/SLOPWEAVER-MEMORY.md` memory file and adds an `@.claude/SLOPWEAVER-MEMORY.md` import to your `CLAUDE.md`, so future Claude Code sessions automatically know to stay on the branch.
 

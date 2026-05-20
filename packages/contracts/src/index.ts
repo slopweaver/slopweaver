@@ -351,3 +351,73 @@ export const GetCalibrationReportResult = z
   })
   .strict();
 export type GetCalibrationReportResult = z.infer<typeof GetCalibrationReportResult>;
+
+export const RegisterHandoffArgs = z
+  .object({
+    anchor: NonEmptyStringSchema.describe(
+      'Slug-friendly identifier for the handoff, typically PR#NNNN, TICKET-N, or a short keyword. Used as the filename under handoffs/.',
+    ),
+    title: NonEmptyStringSchema.describe('One-line title shown at the top of the handoff file.'),
+    body: NonEmptyStringSchema.describe('Markdown body. Should be self-contained — picked-up-cold ready.'),
+    overwrite: z.boolean().optional().describe('Default false. When true, overwrites an existing handoff file.'),
+  })
+  .strict();
+export type RegisterHandoffArgs = z.infer<typeof RegisterHandoffArgs>;
+
+export const RegisterHandoffResult = z
+  .object({
+    path: NonEmptyStringSchema,
+    bytes_written: z.number().int().nonnegative(),
+    created: z.boolean(),
+  })
+  .strict();
+export type RegisterHandoffResult = z.infer<typeof RegisterHandoffResult>;
+
+export const AppendDailyJournalArgs = z
+  .object({
+    heading: NonEmptyStringSchema.describe(
+      'A short heading appended as `## <heading>`. E.g. "Session start", "PR #54 merged".',
+    ),
+    body: NonEmptyStringSchema.describe('Markdown body appended under the heading.'),
+    /** ISO date (YYYY-MM-DD) to target. Defaults to "today" per server's local time. */
+    date: z.iso.date().optional(),
+  })
+  .strict();
+export type AppendDailyJournalArgs = z.infer<typeof AppendDailyJournalArgs>;
+
+export const AppendDailyJournalResult = z
+  .object({
+    path: NonEmptyStringSchema,
+    bytes_written: z.number().int().nonnegative(),
+    created: z.boolean(),
+  })
+  .strict();
+export type AppendDailyJournalResult = z.infer<typeof AppendDailyJournalResult>;
+
+export const ListAvailableMcpServersArgs = z.object({}).strict();
+export type ListAvailableMcpServersArgs = z.infer<typeof ListAvailableMcpServersArgs>;
+
+export const ListAvailableMcpServersResult = z
+  .object({
+    /**
+     * SlopWeaver can only see its own MCP surface via the SDK. The "available
+     * MCP servers" question is answered by the MCP CLIENT (Claude Code,
+     * Cursor, Cline) inspecting its own tool registry. This tool returns the
+     * STATIC catalog of integrations SlopWeaver KNOWS HOW TO USE — call it a
+     * curated hint sheet for the fan-out prompt.
+     */
+    catalog: z.array(
+      z
+        .object({
+          slug: NonEmptyStringSchema,
+          display_name: NonEmptyStringSchema,
+          tool_namespace_prefix: NonEmptyStringSchema,
+          delta_filename: NonEmptyStringSchema,
+          purpose: NonEmptyStringSchema,
+        })
+        .strict(),
+    ),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type ListAvailableMcpServersResult = z.infer<typeof ListAvailableMcpServersResult>;

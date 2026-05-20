@@ -186,6 +186,11 @@ async function stepBootstrapWorkConsole(deps: RunInitDeps): Promise<void> {
   if (r.claudeMdImportAdded) {
     stdout.write('  ✓ Memory: added @.claude/SLOPWEAVER-MEMORY.md import to CLAUDE.md\n');
   }
+  if (r.slashCommandsCreated.length === 0) {
+    stdout.write('  · Slash commands: every shim already existed\n');
+  } else {
+    stdout.write(`  ✓ Slash commands: dropped ${r.slashCommandsCreated.length} shim(s) under .claude/commands/\n`);
+  }
   stdout.write('\n');
 }
 
