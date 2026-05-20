@@ -143,3 +143,40 @@ export const SearchWorkContextResult = z
   })
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
+
+// --- Semantic recall over the evidence_log ---------------------------
+
+export const RecallArgs = z
+  .object({
+    /** The natural-language query to match against evidence titles + bodies. */
+    query: NonEmptyStringSchema,
+    /** Max rows to return. 1–25; defaults to 10. */
+    limit: z.number().int().positive().max(25).optional(),
+    /** Optional filters; same shape as `search_work_context`. */
+    filters: z
+      .object({
+        integration: NonEmptyStringSchema.optional(),
+        kind: NonEmptyStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type RecallArgs = z.infer<typeof RecallArgs>;
+
+const RecallHitSchema = z
+  .object({
+    evidence: EvidenceLogEntry,
+    score: z.number().min(0).max(1),
+  })
+  .strict();
+
+export const RecallResult = z
+  .object({
+    hits: z.array(RecallHitSchema),
+    generated_at: IsoDatetimeSchema,
+    /** Marker for which embedder produced the scores — lets the live UI label the tab honestly. */
+    embedder: NonEmptyStringSchema,
+  })
+  .strict();
+export type RecallResult = z.infer<typeof RecallResult>;
