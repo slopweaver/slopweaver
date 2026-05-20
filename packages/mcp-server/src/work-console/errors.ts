@@ -57,7 +57,7 @@ export const WorkConsoleErrors = {
   }),
   gitFailed: (command: string, exitCode: number | null, stderr: string): WorkConsoleGitFailedError => ({
     code: 'WORK_CONSOLE_GIT_FAILED',
-    message: `git ${command} failed (exit ${exitCode ?? 'null'}): ${stderr.trim() || 'no stderr'}`,
+    message: `git ${command} failed (exit ${exitCode ?? 'null'}): ${stderr.trim().length > 0 ? stderr.trim() : 'no stderr'}`,
     command,
     exitCode,
     stderr,

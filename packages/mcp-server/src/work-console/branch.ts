@@ -107,7 +107,7 @@ export function ensureWorkConsoleBranch(args: {
           action: 'no_git_repo',
           branch,
           repoRoot: cwd,
-          message: toplevel.stderr.trim() || 'not a git repository',
+          message: toplevel.stderr.trim().length > 0 ? toplevel.stderr.trim() : 'not a git repository',
         });
       }
       const repoRoot = toplevel.stdout.trim();
