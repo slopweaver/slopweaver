@@ -443,6 +443,20 @@ cli
   });
 
 cli
+  .command('demo', 'Print a synthetic /session-start snapshot (no MCP calls; zero-friction try-before-BYOK)')
+  .example('  slopweaver demo')
+  .action(async () => {
+    try {
+      const { runDemo } = await import('./demo/index.ts');
+      const code = await runDemo({ stdout });
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
+  });
+
+cli
   .command('', 'Run the MCP server over stdio (default)')
   .option('--no-web-ui', 'Disable the local Diagnostics web UI on 127.0.0.1:60701')
   .action((options: { webUi: boolean }) => {
