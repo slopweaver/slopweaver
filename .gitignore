@@ -51,3 +51,23 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Slopweaver work-console (generated per-user by `bootstrap_work_console` —
+# `/session-start`'s first-run path). These files contain personal context
+# pulled from the user's connected MCP servers and must never be committed
+# to a public repo. Maintainers dogfooding slopweaver against this checkout
+# are protected by these entries.
+.claude/personal/
+.claude/SLOPWEAVER-MEMORY.md
+.claude/CLAUDE.md
+.claude/commands/session-start.md
+.claude/commands/fan-out-audit.md
+.claude/commands/lock-in.md
+.claude/commands/reconcile.md
+.claude/commands/style-rule.md
+.claude/commands/style-edit.md
+.claude/commands/correct.md
+.claude/commands/calibration-report.md
+.claude/commands/recompile-profile.md
+.claude/commands/decided.md
+.claude/commands/focus.md

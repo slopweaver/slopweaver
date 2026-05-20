@@ -85,7 +85,7 @@ export {
   SCAFFOLD_FILE_LIST,
   slopweaverMemoryContent,
   slopweaverMemoryRelPath,
-  rootClaudeMdRelPath,
+  projectClaudeMdRelPath,
 } from './work-console/bootstrap.ts';
 export type {
   BootstrapBranchAction,

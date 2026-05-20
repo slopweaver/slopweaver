@@ -109,7 +109,7 @@ SlopWeaver ships an opinionated workflow as a set of MCP prompts. The moment you
 | `/decided` | Append a dated entry to the matching work file's `## Key decisions` section. Verbatim. |
 | `/focus` | Set the focus scope for this session — subsequent snapshots elevate matching items and de-prioritize the rest. |
 
-The work console always lives on a dedicated git branch (default name: `ai-work-console`). Every slash command calls the `ensure_work_console_branch` MCP tool first so context/draft writes never leak into a PR branch. `slopweaver init` writes a `.claude/SLOPWEAVER-MEMORY.md` memory file and adds an `@.claude/SLOPWEAVER-MEMORY.md` import to your `CLAUDE.md`, so future Claude Code sessions automatically know to stay on the branch.
+The work console always lives on a dedicated git branch (default name: `ai-work-console`). Every slash command calls the `ensure_work_console_branch` MCP tool first so context/draft writes never leak into a PR branch. The bootstrap writes a `.claude/SLOPWEAVER-MEMORY.md` memory file and adds an `@.claude/SLOPWEAVER-MEMORY.md` import to `.claude/CLAUDE.md` (a project-local Claude memory file under the `.claude/` directory — never the tracked root `CLAUDE.md`, so dogfooding against a public repo can't accidentally stage an import line). Both files are listed in this repo's `.gitignore`.
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full operating model.
 

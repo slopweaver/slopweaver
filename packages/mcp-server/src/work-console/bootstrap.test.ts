@@ -7,7 +7,8 @@
  *   - branch is created on first run, switched on subsequent runs
  *   - scaffold files are dropped only when missing
  *   - SLOPWEAVER-MEMORY.md gets the import line added to an existing
- *     CLAUDE.md (and creates CLAUDE.md if missing)
+ *     .claude/CLAUDE.md (and creates it if missing — never touches a
+ *     tracked root CLAUDE.md so public-repo dogfooders are safe)
  *   - .claude/commands/<name>.md slash-command shims are dropped for
  *     every builtin prompt and skipped when the file already exists
  */
@@ -81,7 +82,7 @@ describe('runBootstrapWorkConsole', () => {
     // Spot-check on-disk content.
     expect(store.get('/tmp/repo/.claude/commands/session-start.md')).toContain('/session-start');
     expect(store.get('/tmp/repo/.claude/SLOPWEAVER-MEMORY.md')).toContain('AI work console');
-    expect(store.get('/tmp/repo/CLAUDE.md')).toContain('@.claude/SLOPWEAVER-MEMORY.md');
+    expect(store.get('/tmp/repo/.claude/CLAUDE.md')).toContain('@.claude/SLOPWEAVER-MEMORY.md');
   });
 
   it('skips files that already exist and reports an empty creation list for them', async () => {
@@ -89,7 +90,7 @@ describe('runBootstrapWorkConsole', () => {
       ['/tmp/repo/.claude/personal/contexts/core-profile.md', '# existing — keep me'],
       ['/tmp/repo/.claude/commands/session-start.md', '---\ndescription: my custom shim\n---\n\nKeep this'],
       ['/tmp/repo/.claude/SLOPWEAVER-MEMORY.md', '# existing memory'],
-      ['/tmp/repo/CLAUDE.md', '# existing memory\n@.claude/SLOPWEAVER-MEMORY.md\n'],
+      ['/tmp/repo/.claude/CLAUDE.md', '# existing memory\n@.claude/SLOPWEAVER-MEMORY.md\n'],
     ]);
     const { writers, store } = makeWriters(seed);
     const runner = makeRunner([

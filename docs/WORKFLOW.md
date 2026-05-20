@@ -19,7 +19,7 @@ That's it. No tokens to paste anywhere. No env vars. The only setup is whichever
 
 SlopWeaver's slash commands write to `.claude/personal/` on a dedicated branch — default name `ai-work-console`. The point is to keep context, drafts, deltas, and decision logs from polluting your PR branches.
 
-`slopweaver init` creates the branch and writes a memory file at `.claude/SLOPWEAVER-MEMORY.md` that gets imported by your repo-root `CLAUDE.md`. Future Claude Code sessions read that memory and automatically stay on the work-console branch when running any SlopWeaver slash command. PR work happens on separate feature branches as usual.
+The bootstrap (`bootstrap_work_console` MCP tool, called by `/session-start` on first run; also runnable via `slopweaver init`) creates the branch and writes a memory file at `.claude/SLOPWEAVER-MEMORY.md`. The import line `@.claude/SLOPWEAVER-MEMORY.md` is added to `.claude/CLAUDE.md` (a project-local Claude memory file). Claude Code reads both root `CLAUDE.md` and `.claude/CLAUDE.md`, but we deliberately use the latter so the bootstrap never modifies a tracked root file — public-repo maintainers dogfooding slopweaver get protected by `.gitignore` entries that exclude the bootstrap's generated artifacts. PR work happens on separate feature branches as usual.
 
 If you'd rather call the branch something else, set `SLOPWEAVER_CONSOLE_BRANCH=my-branch` in your env before invoking SlopWeaver.
 

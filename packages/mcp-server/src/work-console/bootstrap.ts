@@ -26,7 +26,13 @@ import { DEFAULT_WORK_CONSOLE_BRANCH, resolveWorkConsoleConfig } from './config.
 
 const DEFAULT_CONSOLE_REL_DIR = '.claude/personal';
 const SLOPWEAVER_MEMORY_REL_PATH = '.claude/SLOPWEAVER-MEMORY.md';
-const ROOT_CLAUDE_MD_REL_PATH = 'CLAUDE.md';
+// Memory import lives under `.claude/CLAUDE.md` rather than root `CLAUDE.md`
+// so the bootstrap never modifies a tracked root file. Claude Code reads
+// both locations and the `.claude/` directory is conventionally gitignored
+// (see .gitignore in the slopweaver public repo for the canonical entry).
+// This is the difference between a smooth dogfood loop and accidentally
+// staging a one-line tracked-file edit on every bootstrap.
+const PROJECT_CLAUDE_MD_REL_PATH = '.claude/CLAUDE.md';
 
 const SLOPWEAVER_MEMORY_CONTENT = `# SlopWeaver work console rules
 
@@ -375,7 +381,7 @@ function runMemoryFile(args: {
   writers: Writers;
 }): ResultAsync<{ memoryFileCreated: boolean; claudeMdImportAdded: boolean }, BootstrapWorkConsoleFailedError> {
   const memoryAbs = `${args.cwd}/${SLOPWEAVER_MEMORY_REL_PATH}`;
-  const claudeMdAbs = `${args.cwd}/${ROOT_CLAUDE_MD_REL_PATH}`;
+  const claudeMdAbs = `${args.cwd}/${PROJECT_CLAUDE_MD_REL_PATH}`;
   const importLine = `@${SLOPWEAVER_MEMORY_REL_PATH}`;
   const importStanza = `\n${importLine}\n`;
 
@@ -433,7 +439,7 @@ export type { BootstrapWorkConsoleFailedError as InitBootstrapError };
 export const SCAFFOLD_FILE_LIST = SCAFFOLD_FILES.map((f) => f.relPath);
 export const slopweaverMemoryContent = SLOPWEAVER_MEMORY_CONTENT;
 export const slopweaverMemoryRelPath = SLOPWEAVER_MEMORY_REL_PATH;
-export const rootClaudeMdRelPath = ROOT_CLAUDE_MD_REL_PATH;
+export const projectClaudeMdRelPath = PROJECT_CLAUDE_MD_REL_PATH;
 
 // errAsync is reserved for future failure paths inside the bootstrap.
 // Knip flags it if unreferenced; the `void` keeps the import alive

@@ -62,7 +62,7 @@ describe('createBootstrapWorkConsoleTool', () => {
     // Verify on-disk artifacts.
     expect(existsSync(`${tempCwd}/.claude/personal/contexts/core-profile.md`)).toBe(true);
     expect(existsSync(`${tempCwd}/.claude/SLOPWEAVER-MEMORY.md`)).toBe(true);
-    expect(existsSync(`${tempCwd}/CLAUDE.md`)).toBe(true);
+    expect(existsSync(`${tempCwd}/.claude/CLAUDE.md`)).toBe(true);
     expect(existsSync(`${tempCwd}/.claude/commands/session-start.md`)).toBe(true);
     const memory = readFileSync(`${tempCwd}/.claude/SLOPWEAVER-MEMORY.md`, 'utf-8');
     expect(memory).toContain('AI work console');
