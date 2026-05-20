@@ -48,17 +48,19 @@ You are running SlopWeaver's session-start flow. The user wants a single, trustw
 
 ## Operating rules (do these every time)
 
-1. **Branch isolation is non-negotiable.** The work console must live on a dedicated git branch (default name: \`ai-work-console\`). Call the \`ensure_work_console_branch\` MCP tool FIRST. If the result's \`action\` is \`no_git_repo\`, surface that and continue without a branch guarantee. If it returns a dirty-worktree error, ask the user to commit, stash, or pass \`allow_switch_with_uncommitted: true\` — never silently lose their changes.
+1. **Zero-install bootstrap.** If this is the first time the user has run \`/session-start\` after \`claude mcp add slopweaver\`, the work console doesn't exist yet. Call \`bootstrap_work_console\` FIRST. It's idempotent — safe to call every run. It creates the branch, drops the scaffold, writes the memory file, drops slash-command shims under \`.claude/commands/\`. On a fresh repo this is the entire setup; the user never has to run \`slopweaver init\`.
 
-2. **The console is markdown files on disk.** All persistent state lives under \`.claude/personal/\` on the work-console branch. Read with \`read_console_file\`, write with \`write_console_file\`, browse with \`list_console_files\`. Don't invent paths; check what's already there before you write.
+2. **Branch isolation is non-negotiable.** The work console must live on a dedicated git branch (default name: \`ai-work-console\`). The bootstrap above handles the branch switch when it can. If the result's \`branch_action\` is \`no_git_repo\`, surface that and continue without a branch guarantee. If it returns a dirty-worktree error, ask the user to commit, stash, or re-run with \`allow_switch_with_uncommitted: true\` — never silently lose their changes.
 
-3. **Use whatever MCP servers the user has connected.** SlopWeaver does NOT provide tokens. Look at the list of available tools (Slack, GitHub, Linear, Gmail, Google Calendar, Notion, etc. — anything namespaced \`mcp__*__*\`) and call them directly. If a tool is missing, note it in the snapshot and move on. Never tell the user to install something.
+3. **The console is markdown files on disk.** All persistent state lives under \`.claude/personal/\` on the work-console branch. Read with \`read_console_file\`, write with \`write_console_file\`, browse with \`list_console_files\`. Don't invent paths; check what's already there before you write.
+
+4. **Use whatever MCP servers the user has connected.** SlopWeaver does NOT provide tokens. Look at the list of available tools (Slack, GitHub, Linear, Gmail, Google Calendar, Notion, etc. — anything namespaced \`mcp__*__*\`) and call them directly. \`list_available_mcp_servers\` returns the catalog of namespace prefixes SlopWeaver knows about. If a tool is missing, note it in the snapshot and move on. Never tell the user to install something.
 
 ## The flow
 
-### Phase 0 — Branch + bootstrap check
+### Phase 0 — Bootstrap + branch + state
 
-Call \`ensure_work_console_branch\` then \`get_work_console_state\`. If \`initialized\` is false OR \`mode\` is \`bootstrap\`, run the fan-out-audit (see the \`fan-out-audit\` prompt for the deep-backfill spec) and then continue with the snapshot. Otherwise skip to Phase 1.
+Call \`bootstrap_work_console\` (zero-install bootstrap; idempotent), then \`get_work_console_state\` (diagnostic snapshot of what exists). If \`initialized\` was false before the bootstrap OR \`mode\` is \`bootstrap\`, run the fan-out-audit (see the \`fan-out-audit\` prompt for the deep-backfill spec) and then continue with the snapshot. Otherwise skip to Phase 1.
 
 ### Phase 1 — Freshness gate
 

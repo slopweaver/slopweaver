@@ -62,6 +62,8 @@ export { createWriteConsoleFileTool } from './tools/builtin/write-console-file.t
 export { createListConsoleFilesTool } from './tools/builtin/list-console-files.ts';
 export { createLogWalkFeedbackTool } from './tools/builtin/log-walk-feedback.ts';
 export { createGetCalibrationReportTool } from './tools/builtin/get-calibration-report.ts';
+export { createBootstrapWorkConsoleTool } from './tools/builtin/bootstrap-work-console.ts';
+export type { CreateBootstrapWorkConsoleToolArgs } from './tools/builtin/bootstrap-work-console.ts';
 export { createRegisterHandoffTool, slugifyAnchor } from './tools/builtin/register-handoff.ts';
 export type { CreateRegisterHandoffToolArgs } from './tools/builtin/register-handoff.ts';
 export { createAppendDailyJournalTool } from './tools/builtin/append-daily-journal.ts';
@@ -78,3 +80,18 @@ export type { GitRunner, GitRunResult, EnsureBranchResult } from './work-console
 export { ensureWorkConsoleBranch, readCurrentBranch, defaultGitRunner } from './work-console/branch.ts';
 export type { WorkConsoleError } from './work-console/errors.ts';
 export { WorkConsoleErrors } from './work-console/errors.ts';
+export {
+  runBootstrapWorkConsole,
+  SCAFFOLD_FILE_LIST,
+  slopweaverMemoryContent,
+  slopweaverMemoryRelPath,
+  rootClaudeMdRelPath,
+} from './work-console/bootstrap.ts';
+export type {
+  BootstrapBranchAction,
+  BootstrapResult,
+  RunBootstrapArgs,
+  InitBootstrapError,
+} from './work-console/bootstrap.ts';
+export { defaultBootstrapWriters } from './work-console/bootstrap-runtime.ts';
+export type { DefaultWritersResult } from './work-console/bootstrap-runtime.ts';

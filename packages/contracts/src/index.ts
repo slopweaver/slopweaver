@@ -394,6 +394,29 @@ export const AppendDailyJournalResult = z
   .strict();
 export type AppendDailyJournalResult = z.infer<typeof AppendDailyJournalResult>;
 
+export const BootstrapWorkConsoleArgs = z
+  .object({
+    /** Override the branch name. Defaults to `ai-work-console`. */
+    branch: NonEmptyStringSchema.optional(),
+    /** When true, lets the bootstrap stash uncommitted changes during the switch. */
+    allow_switch_with_uncommitted: z.boolean().optional(),
+  })
+  .strict();
+export type BootstrapWorkConsoleArgs = z.infer<typeof BootstrapWorkConsoleArgs>;
+
+export const BootstrapWorkConsoleResult = z
+  .object({
+    branch: NonEmptyStringSchema,
+    branch_action: z.enum(['no_git_repo', 'already_on_branch', 'switched', 'created_and_switched']),
+    console_dir: NonEmptyStringSchema,
+    files_created: z.array(NonEmptyStringSchema),
+    memory_file_created: z.boolean(),
+    claude_md_import_added: z.boolean(),
+    slash_commands_created: z.array(NonEmptyStringSchema),
+  })
+  .strict();
+export type BootstrapWorkConsoleResult = z.infer<typeof BootstrapWorkConsoleResult>;
+
 export const ListAvailableMcpServersArgs = z.object({}).strict();
 export type ListAvailableMcpServersArgs = z.infer<typeof ListAvailableMcpServersArgs>;
 

@@ -20,13 +20,9 @@
  */
 
 import { ResultAsync, errAsync, okAsync } from '@slopweaver/errors';
-import {
-  DEFAULT_WORK_CONSOLE_BRANCH,
-  type GitRunner,
-  ensureWorkConsoleBranch,
-  resolveWorkConsoleConfig,
-} from '@slopweaver/mcp-server';
 import type { BaseError } from '@slopweaver/errors';
+import { ensureWorkConsoleBranch, type GitRunner } from './branch.ts';
+import { DEFAULT_WORK_CONSOLE_BRANCH, resolveWorkConsoleConfig } from './config.ts';
 
 const DEFAULT_CONSOLE_REL_DIR = '.claude/personal';
 const SLOPWEAVER_MEMORY_REL_PATH = '.claude/SLOPWEAVER-MEMORY.md';
@@ -435,6 +431,15 @@ function wrapAll<T>(
 
 // Re-export for callers that need to handle the typed error.
 export type { BootstrapWorkConsoleFailedError as InitBootstrapError };
+
+// Public exports for the bootstrap MCP tool + docs. These were
+// previously knip-stripped when the bootstrap was app-internal; now
+// that it's reachable from `@slopweaver/mcp-server` they're part of
+// the public surface.
+export const SCAFFOLD_FILE_LIST = SCAFFOLD_FILES.map((f) => f.relPath);
+export const slopweaverMemoryContent = SLOPWEAVER_MEMORY_CONTENT;
+export const slopweaverMemoryRelPath = SLOPWEAVER_MEMORY_REL_PATH;
+export const rootClaudeMdRelPath = ROOT_CLAUDE_MD_REL_PATH;
 
 // errAsync is reserved for future failure paths inside the bootstrap.
 // Knip flags it if unreferenced; the `void` keeps the import alive

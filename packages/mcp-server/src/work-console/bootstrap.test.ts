@@ -13,8 +13,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GitRunner } from '@slopweaver/mcp-server';
-import { runBootstrapWorkConsole } from './bootstrap-work-console.ts';
+import { runBootstrapWorkConsole } from './bootstrap.ts';
+import type { GitRunner } from './branch.ts';
 
 type WrittenFile = { content: string; created: boolean };
 

@@ -44,6 +44,7 @@ import {
 import {
   allBuiltinPrompts,
   createAppendDailyJournalTool,
+  createBootstrapWorkConsoleTool,
   createCatchMeUpTool,
   createEnsureWorkConsoleBranchTool,
   createGetCalibrationReportTool,
@@ -59,15 +60,15 @@ import {
   createSearchWorkContextTool,
   createStartSessionTool,
   createWriteConsoleFileTool,
+  defaultBootstrapWriters,
   resolveWorkConsoleConfig,
+  runBootstrapWorkConsole,
   type StartSessionPoller,
   startStdio,
 } from '@slopweaver/mcp-server';
 import { DEFAULT_PORT as UI_DEFAULT_PORT, startUiServer, type UiServerHandle } from '@slopweaver/ui';
 import { runConnectGithub } from './connect/github.ts';
 import { runConnectSlack } from './connect/slack.ts';
-import { runBootstrapWorkConsole } from './init/bootstrap-work-console.ts';
-import { defaultBootstrapWriters } from './init/bootstrap-work-console-runtime.ts';
 import { detectClients } from './init/detect-clients.ts';
 import { registerClient } from './init/register-client.ts';
 import { runInit } from './init/index.ts';
@@ -201,6 +202,7 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
       createRegisterHandoffTool({ config: workConsoleConfig }),
       createAppendDailyJournalTool({ config: workConsoleConfig }),
       createListAvailableMcpServersTool(),
+      createBootstrapWorkConsoleTool({ config: workConsoleConfig }),
     ],
     prompts: allBuiltinPrompts(),
   });

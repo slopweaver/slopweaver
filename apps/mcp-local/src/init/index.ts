@@ -28,7 +28,7 @@ import { loadIntegrationToken } from '@slopweaver/db';
 import type { BaseError, ResultAsync } from '@slopweaver/errors';
 import type { RunConnectGithubDeps } from '../connect/github.ts';
 import type { RunConnectSlackDeps } from '../connect/slack.ts';
-import type { BootstrapResult, RunBootstrapArgs, InitBootstrapError } from './bootstrap-work-console.ts';
+import type { BootstrapResult, RunBootstrapArgs, InitBootstrapError } from '@slopweaver/mcp-server';
 import type { DetectedClient, McpClientKind } from './detect-clients.ts';
 import type { InitError } from './errors.ts';
 
