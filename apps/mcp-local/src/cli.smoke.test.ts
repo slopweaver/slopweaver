@@ -70,6 +70,47 @@ describe('slopweaver bin (compiled CLI)', () => {
       expect(names).toContain('get_freshness');
       expect(names).toContain('catch_me_up');
       expect(names).toContain('search_work_context');
+      // Work-console surface ships under v1.
+      expect(names).toContain('bootstrap_work_console');
+      expect(names).toContain('ensure_work_console_branch');
+      expect(names).toContain('get_work_console_state');
+      expect(names).toContain('read_console_file');
+      expect(names).toContain('write_console_file');
+      expect(names).toContain('list_console_files');
+      expect(names).toContain('log_walk_feedback');
+      expect(names).toContain('get_calibration_report');
+      expect(names).toContain('register_handoff');
+      expect(names).toContain('append_daily_journal');
+      expect(names).toContain('list_available_mcp_servers');
+
+      // The 11 slash-command prompts.
+      const prompts = await client.listPrompts();
+      const promptNames = prompts.prompts.map((p) => p.name);
+      expect(promptNames).toEqual([
+        'session-start',
+        'fan-out-audit',
+        'lock-in',
+        'reconcile',
+        'style-rule',
+        'style-edit',
+        'correct',
+        'calibration-report',
+        'recompile-profile',
+        'decided',
+        'focus',
+      ]);
+
+      // Fetching a prompt returns a single user-text message with the
+      // body. Use one with required args + one without to cover both
+      // shapes.
+      const sessionStartPrompt = await client.getPrompt({ name: 'session-start', arguments: { mode: 'auto' } });
+      expect(sessionStartPrompt.messages.length).toBe(1);
+      expect(sessionStartPrompt.messages[0]?.role).toBe('user');
+      const firstContent = sessionStartPrompt.messages[0]?.content;
+      expect(firstContent?.type).toBe('text');
+      if (firstContent?.type === 'text') {
+        expect(firstContent.text).toContain('bootstrap_work_console');
+      }
 
       const ping = list.tools.find((t) => t.name === 'ping');
       expect(ping?.inputSchema.type).toBe('object');
