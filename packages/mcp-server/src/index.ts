@@ -24,6 +24,16 @@ export { createGetFreshnessTool } from './tools/builtin/get-freshness.ts';
 export type { CreateGetFreshnessToolArgs } from './tools/builtin/get-freshness.ts';
 export { createSearchWorkContextTool } from './tools/builtin/search-work-context.ts';
 export type { CreateSearchWorkContextToolArgs } from './tools/builtin/search-work-context.ts';
+export {
+  createStartMegaAuditTool,
+  createRecordAuditProgressTool,
+  MEGA_AUDIT_INSTRUCTIONS,
+  renderInstructions,
+} from './tools/builtin/mega-audit/index.ts';
+export type {
+  CreateStartMegaAuditToolArgs,
+  CreateRecordAuditProgressToolArgs,
+} from './tools/builtin/mega-audit/index.ts';
 export { createStartSessionTool } from './tools/composite/start-session.ts';
 export type {
   CreateStartSessionToolArgs,
