@@ -1,8 +1,8 @@
 {
-  "name": "@slopweaver/mcp-server",
+  "name": "@slopweaver/voice-rules",
   "version": "0.0.0",
   "private": false,
-  "description": "Framework-agnostic MCP server for SlopWeaver. Tool registry, builtin tools, stdio transport.",
+  "description": "Deterministic post-processor for SlopWeaver drafts. Parses rules/communication-style.md into a rule list, applies them to a draft string, returns the rewritten output plus an edit log. Pure functions; no I/O.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,13 +27,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "@slopweaver/contracts": "workspace:*",
-    "@slopweaver/db": "workspace:*",
-    "@slopweaver/errors": "workspace:*",
-    "@slopweaver/voice-rules": "workspace:*",
-    "drizzle-orm": "0.45.2",
-    "zod": "4.4.2"
+    "@slopweaver/errors": "workspace:*"
   },
   "devDependencies": {
     "typescript": "6.0.3",
