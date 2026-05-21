@@ -143,3 +143,33 @@ export const SearchWorkContextResult = z
   })
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
+
+// --- Voice rules post-processor ---------------------------------------
+
+const VoiceRuleEditSchema = z
+  .object({
+    rule_line: z.number().int().positive(),
+    kind: z.enum(['forbid_token', 'replace', 'disallow_pattern']),
+    description: NonEmptyStringSchema,
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ApplyVoiceRulesArgs = z
+  .object({
+    /** The draft to rewrite. */
+    draft: z.string(),
+    /** The contents of `rules/communication-style.md` (or equivalent). Parsed in-tool. */
+    rules_markdown: z.string(),
+  })
+  .strict();
+export type ApplyVoiceRulesArgs = z.infer<typeof ApplyVoiceRulesArgs>;
+
+export const ApplyVoiceRulesResult = z
+  .object({
+    rewritten: z.string(),
+    edits: z.array(VoiceRuleEditSchema),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type ApplyVoiceRulesResult = z.infer<typeof ApplyVoiceRulesResult>;
