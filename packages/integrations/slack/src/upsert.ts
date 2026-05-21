@@ -59,6 +59,11 @@ export function upsertSlackMessage({
     'permalink' in message && typeof message.permalink === 'string' ? message.permalink : undefined;
   const citationUrl = permalinkFromMatch ?? buildPermalink({ workspaceUrl, channelId: resolvedChannelId, ts });
 
+  // Normalise a top-level `author` onto payload_json so cross-integration
+  // consumers (e.g. `/api/stakeholders`) can group by author without
+  // knowing about Slack's `user` field shape (user-id string).
+  const author = typeof message.user === 'string' && message.user.length > 0 ? message.user : null;
+
   return upsertEvidence({
     db,
     integration: 'slack',
@@ -67,7 +72,7 @@ export function upsertSlackMessage({
     title,
     body: text || null,
     citationUrl,
-    payloadJson: JSON.stringify({ ...message, _team_id: teamId }),
+    payloadJson: JSON.stringify({ ...message, _team_id: teamId, author }),
     occurredAtMs,
     now,
   })

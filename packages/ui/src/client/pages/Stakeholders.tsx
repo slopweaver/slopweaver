@@ -4,11 +4,18 @@ import { fetchStakeholders, type StakeholdersResponse } from '../api/stakeholder
 const POLL_INTERVAL_MS = 30_000;
 
 /**
- * Stakeholders tab. v1.1 first cut: a ranked list with relative-size
- * circles next to each entry. Not a real force-graph layout yet —
- * that's a v1.2 follow-up once we have a denser interaction graph to
- * lay out. For now the relative-size visual conveys the same "who do
- * I talk to most" answer without pulling in a graph library.
+ * Stakeholders tab. Ships a ranked list of identifiers ordered by
+ * interaction volume in `evidence_log`, with a relative-size dot next
+ * to each entry to convey "who do I talk to most" at a glance.
+ *
+ * The originating issue's framing was a *graph* (edges between
+ * stakeholders by co-occurrence on the same evidence row, with a
+ * force-directed layout). That's deferred: the ranked list is the
+ * shippable, useful-today subset of the same data, and a denser
+ * interaction graph plus a graph library can land later without
+ * changing the underlying aggregation. This page is intentionally
+ * named "Stakeholders" rather than "Stakeholder graph" so the title
+ * matches what's on screen.
  */
 export function Stakeholders(): ReactElement {
   const [data, setData] = useState<StakeholdersResponse | null>(null);

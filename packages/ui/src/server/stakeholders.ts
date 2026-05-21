@@ -4,11 +4,19 @@
  * mentions each person. v1.1 first cut uses a simple identity map:
  * we don't have a persisted team_directory table yet, so the response
  * is derived purely from the evidence_log row counts grouped by
- * `payload_json -> 'author'` (when present).
+ * `payload_json -> 'author'`.
  *
- * Returns the top-N stakeholders by row count. The eventual
- * force-graph layout uses these counts as edge weights; v1.1 ships
- * just the ranked list — the layout follows in a v1.2 PR.
+ * Production writers (GitHub + Slack pollers in
+ * `packages/integrations/{github,slack}/src`) normalise a top-level
+ * `author` field onto `payload_json` on write, so this builder reads a
+ * single, stable path. Rows without an `author` (legacy rows pre-dating
+ * the normalisation, or future integrations that haven't been wired in)
+ * are surfaced explicitly under `unattributed_count` rather than
+ * silently dropped — so a consumer can tell apart "no stakeholders
+ * found" from "many rows, none attributable yet".
+ *
+ * Returns the top-N stakeholders by row count. A ranked list, not a
+ * graph layout — stakeholder co-occurrence edges are deferred.
  */
 
 import { evidenceLog, type SlopweaverDatabase } from '@slopweaver/db';
@@ -29,6 +37,14 @@ export type StakeholdersResponse = {
   entries: ReadonlyArray<StakeholderEntry>;
   /** Total distinct identifiers found (may exceed entries.length when the limit clamps). */
   total: number;
+  /**
+   * Count of evidence_log rows whose payload_json had no top-level `author`
+   * field. Surfaced so consumers can tell "no data" apart from "rows exist
+   * but aren't attributable yet" (e.g. older rows pre-dating the
+   * payload-normalisation, or a future integration that hasn't been wired
+   * to write the `author` field).
+   */
+  unattributed_count: number;
   generated_at: string;
 };
 
@@ -57,8 +73,14 @@ export function buildStakeholdersResponse(args: BuildStakeholdersArgs): Stakehol
     .all();
 
   const filtered: StakeholderEntry[] = [];
+  let unattributedCount = 0;
   for (const row of rows) {
-    if (row.identifier === null || row.identifier.length === 0) continue;
+    if (row.identifier === null || row.identifier.length === 0) {
+      // Group row for "no author" — the aggregate count is the number of
+      // unattributed evidence_log rows.
+      unattributedCount += row.interactions;
+      continue;
+    }
     filtered.push({
       identifier: row.identifier,
       interactions: row.interactions,
@@ -70,6 +92,7 @@ export function buildStakeholdersResponse(args: BuildStakeholdersArgs): Stakehol
   return {
     entries: filtered.slice(0, limit),
     total: filtered.length,
+    unattributed_count: unattributedCount,
     generated_at: new Date(nowMs).toISOString(),
   };
 }
