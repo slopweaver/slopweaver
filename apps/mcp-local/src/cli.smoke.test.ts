@@ -70,6 +70,10 @@ describe('slopweaver bin (compiled CLI)', () => {
       expect(names).toContain('get_freshness');
       expect(names).toContain('catch_me_up');
       expect(names).toContain('search_work_context');
+      expect(names).toContain('apply_voice_rules');
+      expect(names).toContain('recall');
+      expect(names).toContain('start_mega_audit');
+      expect(names).toContain('record_audit_progress');
       expect(names).toContain('start_retro');
       expect(names).toContain('snapshot_profile');
 
