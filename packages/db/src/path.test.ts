@@ -9,7 +9,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveDataDir, resolveDbPath } from './path.ts';
+import { resolveDataDir, resolveDbPath, resolveDemoDbPath } from './path.ts';
 
 describe('resolveDataDir', () => {
   it('uses XDG_DATA_HOME when supplied', () => {
@@ -58,6 +58,46 @@ describe('resolveDbPath', () => {
 
   it('propagates DATA_PATH_INVALID from resolveDataDir', () => {
     const result = resolveDbPath({ xdgDataHome: 'tmp/relative' });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.code).toBe('DATA_PATH_INVALID');
+    }
+  });
+});
+
+describe('resolveDemoDbPath', () => {
+  it('appends demo.db (not slopweaver.db) to the XDG-aware data dir', () => {
+    const result = resolveDemoDbPath({ xdgDataHome: '/tmp/xdg' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe('/tmp/xdg/slopweaver/demo.db');
+    }
+  });
+
+  it('sits beside slopweaver.db under the same data dir (sibling, not nested)', () => {
+    const real = resolveDbPath({ xdgDataHome: '/tmp/xdg' });
+    const demo = resolveDemoDbPath({ xdgDataHome: '/tmp/xdg' });
+    expect(real.isOk()).toBe(true);
+    expect(demo.isOk()).toBe(true);
+    if (real.isOk() && demo.isOk()) {
+      // Same parent directory; different filename. This is what makes
+      // `slopweaver doctor` / Diagnostics UI work transparently against
+      // either file without a directory remount.
+      expect(real.value.replace(/[^/]+$/, '')).toBe(demo.value.replace(/[^/]+$/, ''));
+      expect(real.value).not.toBe(demo.value);
+    }
+  });
+
+  it('defaults to os.homedir() when no home is supplied and XDG_DATA_HOME is unset', () => {
+    const result = resolveDemoDbPath({ xdgDataHome: '' });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe(join(homedir(), '.slopweaver', 'demo.db'));
+    }
+  });
+
+  it('propagates DATA_PATH_INVALID from resolveDataDir', () => {
+    const result = resolveDemoDbPath({ xdgDataHome: 'tmp/relative' });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error.code).toBe('DATA_PATH_INVALID');

@@ -70,6 +70,9 @@ importers:
       '@slopweaver/errors':
         specifier: workspace:*
         version: link:../../packages/errors
+      '@slopweaver/integrations-core':
+        specifier: workspace:*
+        version: link:../../packages/integrations/core
       '@slopweaver/integrations-github':
         specifier: workspace:*
         version: link:../../packages/integrations/github
@@ -85,6 +88,9 @@ importers:
       cac:
         specifier: 7.0.0
         version: 7.0.0
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.2.0)
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
@@ -301,6 +307,9 @@ importers:
       '@slopweaver/errors':
         specifier: workspace:*
         version: link:../errors
+      '@slopweaver/voice-rules':
+        specifier: workspace:*
+        version: link:../voice-rules
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.2.0)
@@ -357,6 +366,19 @@ importers:
       vite:
         specifier: 8.0.10
         version: 8.0.10(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.4)
+      vitest:
+        specifier: 4.1.5
+        version: 4.1.5(@types/node@22.19.17)(jsdom@29.1.1)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.4))
+
+  packages/voice-rules:
+    dependencies:
+      '@slopweaver/errors':
+        specifier: workspace:*
+        version: link:../errors
+    devDependencies:
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 4.1.5
         version: 4.1.5(@types/node@22.19.17)(jsdom@29.1.1)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.4))
