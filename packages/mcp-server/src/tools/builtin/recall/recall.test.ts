@@ -95,6 +95,43 @@ describe('createRecallTool', () => {
     }
   });
 
+  it('filters by kind when supplied (pushed into SQL)', async () => {
+    seedRow({ integration: 'github', kind: 'pull_request', title: 'oauth pr' });
+    seedRow({ integration: 'github', kind: 'issue', title: 'oauth issue' });
+    const tool = createRecallTool({ now: () => FIXED_NOW });
+    const result = await tool.handler({
+      input: RecallArgs.parse({ query: 'oauth', filters: { kind: 'issue' } }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const parsed = RecallResult.parse(result.value);
+      expect(parsed.hits.length).toBe(1);
+      expect(parsed.hits[0]?.evidence.kind).toBe('issue');
+    }
+  });
+
+  it('combines integration + kind filters in SQL', async () => {
+    seedRow({ integration: 'github', kind: 'pull_request', title: 'oauth gh pr' });
+    seedRow({ integration: 'github', kind: 'issue', title: 'oauth gh issue' });
+    seedRow({ integration: 'slack', kind: 'message', title: 'oauth slack msg' });
+    const tool = createRecallTool({ now: () => FIXED_NOW });
+    const result = await tool.handler({
+      input: RecallArgs.parse({
+        query: 'oauth',
+        filters: { integration: 'github', kind: 'issue' },
+      }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const parsed = RecallResult.parse(result.value);
+      expect(parsed.hits.length).toBe(1);
+      expect(parsed.hits[0]?.evidence.integration).toBe('github');
+      expect(parsed.hits[0]?.evidence.kind).toBe('issue');
+    }
+  });
+
   it('returns an empty hits list when nothing matches', async () => {
     seedRow({ title: 'completely unrelated', body: 'lorem ipsum' });
     const tool = createRecallTool({ now: () => FIXED_NOW });

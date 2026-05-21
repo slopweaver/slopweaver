@@ -167,7 +167,17 @@ export type RecallArgs = z.infer<typeof RecallArgs>;
 const RecallHitSchema = z
   .object({
     evidence: EvidenceLogEntry,
-    score: z.number().min(0).max(1),
+    /**
+     * Cosine similarity of query + evidence embeddings. The embedder
+     * is contracted to return L2-normalized vectors, so this is the
+     * true dot product in `[-1, 1]` — not a remapped/clamped variant.
+     * The `recall` tool itself filters non-positive scores out before
+     * returning, so in practice values are `(0, 1]`, but the wire
+     * contract preserves the underlying range so a future embedder
+     * that wants to expose anti-correlated hits doesn't need a
+     * breaking schema change.
+     */
+    score: z.number().min(-1).max(1),
   })
   .strict();
 
