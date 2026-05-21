@@ -17,10 +17,12 @@ describe('startUiServer', () => {
   let dbHandle: ReturnType<typeof createDb>;
   let handle: UiServerHandle | undefined;
   let tempAssets: string;
+  let tempCwd: string;
 
   beforeEach(() => {
     dbHandle = createDb({ path: ':memory:' });
     tempAssets = mkdtempSync(join(tmpdir(), 'ui-assets-'));
+    tempCwd = mkdtempSync(join(tmpdir(), 'ui-cwd-'));
     mkdirSync(join(tempAssets, 'assets'), { recursive: true });
     writeFileSync(join(tempAssets, 'index.html'), '<!doctype html><title>diag</title>');
     writeFileSync(join(tempAssets, 'assets', 'app.js'), 'console.log("hi")');
@@ -30,6 +32,7 @@ describe('startUiServer', () => {
     if (handle) await handle.close();
     handle = undefined;
     rmSync(tempAssets, { recursive: true, force: true });
+    rmSync(tempCwd, { recursive: true, force: true });
     dbHandle.close();
   });
 
@@ -41,6 +44,7 @@ describe('startUiServer', () => {
       port: 0,
       clientAssetsDir: tempAssets,
       staticChecks: STATIC_CHECKS,
+      companionCwd: tempCwd,
     });
     return handle;
   }
@@ -156,5 +160,86 @@ describe('startUiServer', () => {
     const res = await fetch(`${h.url}/api/diagnostics`);
     const body = (await res.json()) as DiagnosticsResponse;
     expect(body.server.port).toBe(h.address.port);
+  });
+
+  describe('POST /api/companion/file', () => {
+    it('accepts a request with a cross-origin Origin (extension service worker)', async () => {
+      // The Chrome extension's background worker sends Origin:
+      // `chrome-extension://<id>` (or none at all). The same-origin
+      // allow-list would reject that; the companion endpoint must
+      // bypass it. This is the P0 fix from #79.
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'chrome-extension://abcdef1234567890',
+        },
+        body: JSON.stringify({ url: 'https://github.com/o/r/pull/1', title: 'PR #1' }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { filed: boolean };
+      expect(body.filed).toBe(true);
+    });
+
+    it('responds to the CORS preflight OPTIONS request', async () => {
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'OPTIONS',
+        headers: { origin: 'chrome-extension://abcdef1234567890' },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get('access-control-allow-methods')).toContain('POST');
+    });
+
+    it('rejects a javascript: URL with 400', async () => {
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'javascript:alert(1)', title: 'evil' }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { filed: boolean; error: string };
+      expect(body.filed).toBe(false);
+      expect(body.error).toContain('http');
+    });
+
+    it('rejects a data: URL with 400', async () => {
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'data:text/html,<script>x</script>', title: 'evil' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a file: URL with 400', async () => {
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'file:///etc/passwd', title: 'evil' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects invalid JSON with 400', async () => {
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: 'not json',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects GET with 405 and Allow: POST, OPTIONS', async () => {
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`);
+      expect(res.status).toBe(405);
+      expect(res.headers.get('allow')).toContain('POST');
+    });
   });
 });

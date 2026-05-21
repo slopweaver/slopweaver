@@ -3,14 +3,19 @@
   "name": "SlopWeaver companion",
   "version": "0.0.1",
   "description": "File-this-thread button for the local SlopWeaver work console (http://127.0.0.1:60701).",
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": ["https://github.com/*", "https://*.slack.com/*", "http://127.0.0.1:60701/*"],
+  "permissions": [],
+  "host_permissions": ["http://127.0.0.1:60701/*"],
   "background": {
     "service_worker": "src/background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://github.com/*/pull/*", "https://*.slack.com/*"],
+      "matches": [
+        "https://github.com/*/*/pull/*",
+        "https://github.com/*/*/issues/*",
+        "https://app.slack.com/client/*",
+        "https://*.slack.com/archives/*"
+      ],
       "js": ["src/content.js"],
       "css": ["src/content.css"],
       "run_at": "document_idle"

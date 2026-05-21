@@ -86,6 +86,12 @@ export async function buildCompanionFileResponse(
 
 type Validated = { valid: true; url: string; title: string } | { valid: false; error: string };
 
+/** Hard caps on payload sizes. URL spec doesn't bound length, but most
+ * browsers + servers choke past ~2 KiB; titles ditto past ~512 chars.
+ * Larger values are almost always a bug or an exfiltration attempt. */
+const MAX_URL_LENGTH = 2048;
+const MAX_TITLE_LENGTH = 512;
+
 function validatePayload(payload: unknown): Validated {
   if (typeof payload !== 'object' || payload === null) {
     return { valid: false, error: 'payload must be a JSON object' };
@@ -96,8 +102,26 @@ function validatePayload(payload: unknown): Validated {
   if (typeof url !== 'string' || url.length === 0) {
     return { valid: false, error: 'url must be a non-empty string' };
   }
+  if (url.length > MAX_URL_LENGTH) {
+    return { valid: false, error: `url exceeds ${MAX_URL_LENGTH} characters` };
+  }
   if (typeof title !== 'string') {
     return { valid: false, error: 'title must be a string' };
+  }
+  if (title.length > MAX_TITLE_LENGTH) {
+    return { valid: false, error: `title exceeds ${MAX_TITLE_LENGTH} characters` };
+  }
+  // Restrict to http(s) — `javascript:`, `data:`, `file:` and friends
+  // would let an attacker land an arbitrary scheme into the inbox file
+  // that a downstream tool might later open / render.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { valid: false, error: 'url is not a valid URL' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { valid: false, error: `url scheme must be http(s), got "${parsed.protocol}"` };
   }
   return { valid: true, url, title };
 }

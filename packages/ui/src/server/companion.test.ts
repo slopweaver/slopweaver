@@ -71,4 +71,90 @@ describe('buildCompanionFileResponse', () => {
     });
     expect(result.filed).toBe(false);
   });
+
+  it('returns filed:false when payload is null', async () => {
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: null,
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(false);
+    if (!result.filed) expect(result.error).toContain('object');
+  });
+
+  it('returns filed:false when url is missing', async () => {
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: { title: 'orphan' },
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(false);
+    if (!result.filed) expect(result.error).toContain('url');
+  });
+
+  it('returns filed:false when title is missing', async () => {
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: { url: 'https://example.com/x' },
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(false);
+    if (!result.filed) expect(result.error).toContain('title');
+  });
+
+  it.each([
+    ['javascript:alert(1)', 'javascript'],
+    ['data:text/html,<script>alert(1)</script>', 'data'],
+    ['file:///etc/passwd', 'file'],
+    ['ftp://example.com/x', 'ftp'],
+    ['chrome://settings', 'chrome'],
+  ])('rejects non-http(s) URL scheme %s', async (url) => {
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: { url, title: 'evil' },
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(false);
+    if (!result.filed) expect(result.error).toContain('http');
+  });
+
+  it('rejects URLs that fail to parse', async () => {
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: { url: 'not a url', title: 'x' },
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(false);
+    if (!result.filed) expect(result.error.toLowerCase()).toContain('url');
+  });
+
+  it('rejects URLs exceeding the length cap', async () => {
+    const longUrl = `https://example.com/${'a'.repeat(2100)}`;
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: { url: longUrl, title: 'x' },
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(false);
+    if (!result.filed) expect(result.error).toContain('2048');
+  });
+
+  it('rejects titles exceeding the length cap', async () => {
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: { url: 'https://example.com/x', title: 'a'.repeat(600) },
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(false);
+    if (!result.filed) expect(result.error).toContain('512');
+  });
+
+  it('accepts http URLs (not just https)', async () => {
+    const result = await buildCompanionFileResponse({
+      cwd: tempCwd,
+      payload: { url: 'http://127.0.0.1:8080/x', title: 'local' },
+      nowMs: FIXED_NOW,
+    });
+    expect(result.filed).toBe(true);
+  });
 });

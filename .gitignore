@@ -11,6 +11,10 @@ build/
 
 # Local data
 .slopweaver/
+# Per-user work-console state (companion inbox, journals, etc.). Public
+# repo: must never be committed — may contain URLs, page titles, and
+# other personal context from the user's browsing session.
+.claude/personal/
 *.db
 *.db-journal
 *.db-shm

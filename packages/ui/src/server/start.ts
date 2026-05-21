@@ -17,6 +17,8 @@ export type StartUiServerOptions = {
   clientAssetsDir?: string;
   /** Override env checks (tests). */
   staticChecks?: StaticEnvChecks;
+  /** Override cwd used by the companion endpoint (tests). Defaults to `process.cwd()`. */
+  companionCwd?: string;
 };
 
 export type UiServerHandle = {
@@ -90,7 +92,8 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   // when callers pass `port: 0` (tests).
   const bindAddress = { host: requestedHost, port: requestedPort };
 
-  const server = createServer(createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress }));
+  const companionCwd = opts.companionCwd ?? process.cwd();
+  const server = createServer(createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress, companionCwd }));
 
   await listen({ server, port: requestedPort, host: requestedHost });
 
@@ -134,6 +137,7 @@ type HandlerArgs = {
   staticChecks: StaticEnvChecks;
   clientAssetsDir: string;
   bindAddress: { host: string; port: number };
+  companionCwd: string;
 };
 
 function createHandler({
@@ -141,6 +145,7 @@ function createHandler({
   staticChecks,
   clientAssetsDir,
   bindAddress,
+  companionCwd,
 }: HandlerArgs): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
     const method = req.method ?? 'GET';
@@ -154,7 +159,7 @@ function createHandler({
     }
 
     if (pathname.startsWith('/api/')) {
-      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress });
+      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress, companionCwd });
       return;
     }
 
@@ -175,6 +180,7 @@ function handleApi({
   db,
   staticChecks,
   bindAddress,
+  companionCwd,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -183,20 +189,39 @@ function handleApi({
   db: SlopweaverDatabase;
   staticChecks: StaticEnvChecks;
   bindAddress: { host: string; port: number };
+  companionCwd: string;
 }): void {
-  if (!isOriginAllowed({ req, bindAddress })) {
-    writeText({ res, status: 403, body: 'forbidden origin\n' });
-    return;
-  }
+  // The companion endpoint is reached from the Chrome extension's
+  // background service worker. That request's Origin is either
+  // `chrome-extension://<id>` or absent (some extension fetches strip
+  // it), neither of which the same-origin allow-list accepts. The
+  // server is loopback-bound (127.0.0.1) so the only attack surface
+  // is malicious code on the same machine — and that's already inside
+  // the trust boundary. Skip the Origin guard for this endpoint and
+  // handle the CORS preflight explicitly.
   if (pathname === '/api/companion/file') {
+    if (method === 'OPTIONS') {
+      res.writeHead(204, {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-headers': 'content-type',
+        'access-control-max-age': '600',
+      });
+      res.end();
+      return;
+    }
     if (method !== 'POST') {
-      res.writeHead(405, { 'content-type': 'text/plain', allow: 'POST' });
+      res.writeHead(405, { 'content-type': 'text/plain', allow: 'POST, OPTIONS' });
       res.end('method not allowed\n');
       return;
     }
-    handleCompanionFile({ req, res }).catch((e: unknown) => {
+    handleCompanionFile({ req, res, companionCwd }).catch((e: unknown) => {
       writeText({ res, status: 500, body: `internal error: ${e instanceof Error ? e.message : String(e)}\n` });
     });
+    return;
+  }
+  if (!isOriginAllowed({ req, bindAddress })) {
+    writeText({ res, status: 403, body: 'forbidden origin\n' });
     return;
   }
   if (method !== 'GET' && method !== 'HEAD') {
@@ -216,7 +241,15 @@ function handleApi({
   writeText({ res, status: 404, body: 'not found\n' });
 }
 
-async function handleCompanionFile({ req, res }: { req: IncomingMessage; res: ServerResponse }): Promise<void> {
+async function handleCompanionFile({
+  req,
+  res,
+  companionCwd,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  companionCwd: string;
+}): Promise<void> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   const raw = Buffer.concat(chunks).toString('utf-8');
@@ -224,17 +257,22 @@ async function handleCompanionFile({ req, res }: { req: IncomingMessage; res: Se
   try {
     payload = JSON.parse(raw);
   } catch {
-    writeText({ res, status: 400, body: 'invalid JSON\n' });
+    writeJson({ res, status: 400, body: { filed: false, error: 'invalid JSON' } });
     return;
   }
-  const result = await buildCompanionFileResponse({ cwd: process.cwd(), payload });
-  if (!result.filed) {
-    res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify(result));
-    return;
-  }
-  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(result));
+  const result = await buildCompanionFileResponse({ cwd: companionCwd, payload });
+  writeJson({ res, status: result.filed ? 200 : 400, body: result });
+}
+
+function writeJson({ res, status, body }: { res: ServerResponse; status: number; body: unknown }): void {
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    // Same rationale as the OPTIONS preflight above: the companion's
+    // background worker calls this from the extension origin, which
+    // is not the bound localhost origin.
+    'access-control-allow-origin': '*',
+  });
+  res.end(JSON.stringify(body));
 }
 
 function isOriginAllowed({
