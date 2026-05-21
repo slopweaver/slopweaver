@@ -27,7 +27,12 @@ describe('createStartRetroTool', () => {
       expect(parsed.since).toBe(SEVEN_DAYS_BACK);
       expect(parsed.instructions).toContain('Weekly retro');
       expect(parsed.instructions).toContain('snapshot_profile');
-      expect(parsed.instructions).toContain('get_calibration_report');
+      expect(parsed.instructions).toContain('catch_me_up');
+      // The prompt must only reference tools registered in this build.
+      expect(parsed.instructions).not.toContain('list_console_files');
+      expect(parsed.instructions).not.toContain('get_calibration_report');
+      // No private-repo PR references must leak into the user-facing prompt.
+      expect(parsed.instructions).not.toContain('#54');
     }
   });
 
@@ -38,6 +43,9 @@ describe('createStartRetroTool', () => {
       ctx: { db: dbHandle.db },
     });
     expect(result.isOk()).toBe(true);
-    if (result.isOk()) expect(result.value.since).toBe('2026-01-01');
+    if (result.isOk()) {
+      const parsed = StartRetroResult.parse(result.value);
+      expect(parsed.since).toBe('2026-01-01');
+    }
   });
 });

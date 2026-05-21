@@ -166,9 +166,16 @@ export type StartRetroResult = z.infer<typeof StartRetroResult>;
 
 export const SnapshotProfileArgs = z
   .object({
-    /** Absolute path to the source file. */
+    /**
+     * Path to the source file. May be absolute or relative; relative
+     * paths are resolved against `process.cwd()` by `snapshot_profile`.
+     */
     source_path: NonEmptyStringSchema,
-    /** Override the snapshot filename. Defaults to `<date>-<source-basename>`. */
+    /**
+     * Override the snapshot filename. Defaults to a sortable
+     * `<YYYY-MM-DDTHHMMSSZ>-<source-basename>` so same-day re-runs
+     * produce distinct files rather than silently overwriting.
+     */
     snapshot_name: NonEmptyStringSchema.optional(),
   })
   .strict();

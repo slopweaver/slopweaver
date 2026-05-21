@@ -1,8 +1,8 @@
 /**
  * `start_retro` — returns the instructional body the model follows
- * to run a weekly retro. Tool-only design (same pattern as
- * `start_mega_audit`) so this PR is independent of #54's prompt
- * registry.
+ * to run a weekly retro. Tool-only design: the prompt is delivered
+ * as the tool's structured output so the model can follow it inline
+ * without needing a separate prompt-registry surface.
  */
 
 import { StartRetroArgs, StartRetroResult } from '@slopweaver/contracts';
@@ -24,7 +24,7 @@ export function createStartRetroTool(args: CreateStartRetroToolArgs = {}): Tool 
   return defineTool({
     name: 'start_retro',
     description:
-      'Returns the instructional body for a weekly retro: snapshot the current profile, diff against last week, re-aggregate /lock-in calibration, propose 1-2 /style-edit candidates from friction-tag spikes. Designed for a Sunday-evening run.',
+      'Returns the instructional body for a weekly retro over the last 7 days of activity: pull evidence via catch_me_up + search_work_context, identify shifts in priorities/stakeholders/open loops, and propose 1-2 follow-ups. Returns the retro inline; only persists if work-console write tools are present. Designed for a Sunday-evening run.',
     inputSchema: StartRetroArgs,
     outputSchema: StartRetroResult,
     handler: async ({ input }) => {
