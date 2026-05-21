@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb } from '@slopweaver/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { CalibrationResponse } from './calibration.ts';
 import type { StaticEnvChecks } from './checks.ts';
 import { startUiServer, type UiServerHandle } from './start.ts';
 import type { DiagnosticsResponse } from './types.ts';
@@ -36,7 +37,7 @@ describe('startUiServer', () => {
     dbHandle.close();
   });
 
-  async function start(): Promise<UiServerHandle> {
+  async function start(opts: { feedbackLogPath?: string } = {}): Promise<UiServerHandle> {
     handle = await startUiServer({
       db: dbHandle.db,
       dataDir: '/tmp/never-used-because-staticChecks-is-injected',
@@ -45,6 +46,7 @@ describe('startUiServer', () => {
       clientAssetsDir: tempAssets,
       staticChecks: STATIC_CHECKS,
       companionCwd: tempCwd,
+      ...(opts.feedbackLogPath !== undefined ? { feedbackLogPath: opts.feedbackLogPath } : {}),
     });
     return handle;
   }
@@ -304,5 +306,66 @@ describe('startUiServer', () => {
       expect(res.status).toBe(405);
       expect(res.headers.get('allow')).toContain('POST');
     });
+  });
+
+  it('responds to GET /api/calibration with an empty body when the log is missing', async () => {
+    // Point at a path inside tempAssets that does not exist. The endpoint
+    // must respond 200 with `source_present: false` rather than throwing.
+    const missingLogPath = join(tempAssets, 'missing-log.jsonl');
+    const h = await start({ feedbackLogPath: missingLogPath });
+    const res = await fetch(`${h.url}/api/calibration`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    const body = (await res.json()) as CalibrationResponse;
+    expect(body.source_present).toBe(false);
+    expect(body.empty).toBe(true);
+    expect(body.total_walks).toBe(0);
+    expect(body.source_path).toBe(missingLogPath);
+  });
+
+  it('responds to GET /api/calibration with aggregated data when the log exists', async () => {
+    const logPath = join(tempAssets, 'feedback.jsonl');
+    const lines = [
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        walk_id: 'w1',
+        outcome: 'approved-as-proposed',
+        integration: 'github',
+        kind: 'review_request',
+      }),
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        walk_id: 'w1',
+        outcome: 'edited',
+        integration: 'slack',
+        kind: 'mention',
+      }),
+    ];
+    writeFileSync(logPath, `${lines.join('\n')}\n`);
+
+    const h = await start({ feedbackLogPath: logPath });
+    const res = await fetch(`${h.url}/api/calibration`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as CalibrationResponse;
+    expect(body.source_present).toBe(true);
+    expect(body.empty).toBe(false);
+    expect(body.total_items).toBe(2);
+    expect(body.by_integration.map((r) => r.key).sort()).toEqual(['github', 'slack']);
+    expect(body.by_kind.map((r) => r.key).sort()).toEqual(['mention', 'review_request']);
+  });
+
+  it('rejects /api/calibration with a foreign Origin', async () => {
+    const h = await start();
+    const res = await fetch(`${h.url}/api/calibration`, {
+      headers: { origin: 'http://evil.example' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 405 for POST /api/calibration', async () => {
+    const h = await start();
+    const res = await fetch(`${h.url}/api/calibration`, { method: 'POST' });
+    expect(res.status).toBe(405);
+    expect(res.headers.get('allow')).toBe('GET, HEAD');
   });
 });

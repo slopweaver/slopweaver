@@ -3,8 +3,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import { runStaticEnvChecks, type StaticEnvChecks } from './checks.ts';
+import { buildCalibrationResponse, resolveCalibrationLogPath } from './calibration.ts';
 import { buildCompanionFileResponse } from './companion.ts';
 import { buildDiagnosticsResponse } from './diagnostics.ts';
+import { buildEvidenceTailResponse } from './evidence.ts';
+import { buildStakeholdersResponse } from './stakeholders.ts';
 import { CLIENT_ASSETS_DIR } from './static-dir.ts';
 
 export type StartUiServerOptions = {
@@ -19,6 +22,12 @@ export type StartUiServerOptions = {
   staticChecks?: StaticEnvChecks;
   /** Override cwd used by the companion endpoint (tests). Defaults to `process.cwd()`. */
   companionCwd?: string;
+  /**
+   * Explicit walk-feedback JSONL path. Takes precedence over
+   * `SLOPWEAVER_FEEDBACK_LOG` and the cwd-relative default. Mainly
+   * useful for tests; production callers can rely on the env var.
+   */
+  feedbackLogPath?: string;
 };
 
 export type UiServerHandle = {
@@ -86,6 +95,14 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   const requestedPort = opts.port ?? DEFAULT_PORT;
   const clientAssetsDir = resolve(opts.clientAssetsDir ?? CLIENT_ASSETS_DIR);
   const staticChecks = opts.staticChecks ?? runStaticEnvChecks({ dataDir: opts.dataDir });
+  // Resolved once at startup so a later env-var change doesn't surprise
+  // a running server. Env-var override beats the cwd default; an
+  // explicit `feedbackLogPath` beats both.
+  const feedbackLogPath = resolveCalibrationLogPath({
+    feedbackLogPath: opts.feedbackLogPath,
+    env: process.env,
+    cwd: process.cwd(),
+  });
 
   // The bound port is only known after listen() resolves. Hold a mutable ref
   // and capture it by closure so the response can report the actual address
@@ -93,7 +110,9 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   const bindAddress = { host: requestedHost, port: requestedPort };
 
   const companionCwd = opts.companionCwd ?? process.cwd();
-  const server = createServer(createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress, companionCwd }));
+  const server = createServer(
+    createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress, companionCwd, feedbackLogPath }),
+  );
 
   await listen({ server, port: requestedPort, host: requestedHost });
 
@@ -138,6 +157,7 @@ type HandlerArgs = {
   clientAssetsDir: string;
   bindAddress: { host: string; port: number };
   companionCwd: string;
+  feedbackLogPath: string;
 };
 
 function createHandler({
@@ -146,6 +166,7 @@ function createHandler({
   clientAssetsDir,
   bindAddress,
   companionCwd,
+  feedbackLogPath,
 }: HandlerArgs): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
     const method = req.method ?? 'GET';
@@ -159,7 +180,7 @@ function createHandler({
     }
 
     if (pathname.startsWith('/api/')) {
-      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress, companionCwd });
+      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress, companionCwd, feedbackLogPath });
       return;
     }
 
@@ -181,6 +202,7 @@ function handleApi({
   staticChecks,
   bindAddress,
   companionCwd,
+  feedbackLogPath,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -190,6 +212,7 @@ function handleApi({
   staticChecks: StaticEnvChecks;
   bindAddress: { host: string; port: number };
   companionCwd: string;
+  feedbackLogPath: string;
 }): void {
   // The companion endpoint is reached from the Chrome extension's
   // background service worker. The same-origin allow-list (which
@@ -245,6 +268,33 @@ function handleApi({
   }
   if (pathname === '/api/diagnostics') {
     const body = JSON.stringify(buildDiagnosticsResponse({ db, staticChecks, bindAddress }));
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(method === 'HEAD' ? undefined : body);
+    return;
+  }
+  if (pathname === '/api/evidence') {
+    const body = JSON.stringify(buildEvidenceTailResponse({ db }));
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(method === 'HEAD' ? undefined : body);
+    return;
+  }
+  if (pathname === '/api/calibration') {
+    const body = JSON.stringify(buildCalibrationResponse({ logPath: feedbackLogPath }));
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(method === 'HEAD' ? undefined : body);
+    return;
+  }
+  if (pathname === '/api/stakeholders') {
+    const body = JSON.stringify(buildStakeholdersResponse({ db }));
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',

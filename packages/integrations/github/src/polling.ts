@@ -103,6 +103,10 @@ async function runSearchInner({
   const observedAt = now();
 
   for (const item of items) {
+    // Normalise a top-level `author` onto payload_json so cross-integration
+    // consumers (e.g. `/api/stakeholders`) can group by author without
+    // knowing about GitHub's nested `user.login` shape.
+    const author = item.user?.login ?? null;
     const upsertResult = await upsertEvidence({
       db,
       integration: INTEGRATION,
@@ -111,7 +115,7 @@ async function runSearchInner({
       title: item.title,
       body: item.body ?? null,
       citationUrl: item.html_url,
-      payloadJson: JSON.stringify(item),
+      payloadJson: JSON.stringify({ ...item, author }),
       occurredAtMs: Date.parse(item.updated_at),
       now: observedAt,
     });

@@ -160,6 +160,12 @@ export function createStartSessionTool(args: CreateStartSessionToolArgs = {}): T
  * the union of registered pollers and existing `integration_state` rows so a
  * first-run `force_refresh` actually has something to poll. First-seen order
  * is preserved.
+ *
+ * Sentinel/internal rows whose `integration` begins with `__` (currently only
+ * the `__demo__` label written by `slopweaver demo seed`) are filtered out so
+ * they never appear in the wire response. The `__`-prefix convention is the
+ * one rule service code uses to distinguish labels-on-DB-state from real
+ * integration slugs.
  */
 function resolveRequested(
   db: SlopweaverDatabase,
@@ -167,14 +173,23 @@ function resolveRequested(
   pollers: Record<string, StartSessionPoller>,
 ): string[] {
   if (inputIntegrations !== undefined) {
-    return dedupeOrdered(inputIntegrations);
+    return dedupeOrdered(inputIntegrations).filter(isRealIntegration);
   }
   const stateRows = db
     .select({ integration: integrationState.integration })
     .from(integrationState)
     .all()
     .map((r) => r.integration);
-  return dedupeOrdered([...Object.keys(pollers), ...stateRows]);
+  return dedupeOrdered([...Object.keys(pollers), ...stateRows]).filter(isRealIntegration);
+}
+
+/**
+ * `__`-prefixed integration slugs are reserved sentinels (e.g. `__demo__`)
+ * that label DB state without representing a real integration. Service code
+ * must not iterate over them.
+ */
+function isRealIntegration(integration: string): boolean {
+  return !integration.startsWith('__');
 }
 
 function dedupeOrdered(values: readonly string[]): string[] {

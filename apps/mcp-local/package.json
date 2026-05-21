@@ -29,11 +29,13 @@
     "@slopweaver/db": "workspace:*",
     "@slopweaver/env": "workspace:*",
     "@slopweaver/errors": "workspace:*",
+    "@slopweaver/integrations-core": "workspace:*",
     "@slopweaver/integrations-github": "workspace:*",
     "@slopweaver/integrations-slack": "workspace:*",
     "@slopweaver/mcp-server": "workspace:*",
     "@slopweaver/ui": "workspace:*",
-    "cac": "7.0.0"
+    "cac": "7.0.0",
+    "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
