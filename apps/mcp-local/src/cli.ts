@@ -26,7 +26,7 @@ import { homedir } from 'node:os';
 import { argv, cwd as processCwd, env, exit, stderr, stdout } from 'node:process';
 import { confirm, password, select } from '@inquirer/prompts';
 import { cac } from 'cac';
-import { createDb, loadIntegrationToken, resolveDataDir, resolveDbPath } from '@slopweaver/db';
+import { createDb, loadIntegrationToken, resolveDataDir, resolveDbPath, resolveDemoDbPath } from '@slopweaver/db';
 import { loadEnv } from '@slopweaver/env';
 import {
   createGithubClient,
@@ -42,11 +42,17 @@ import {
   safeSlackCall,
 } from '@slopweaver/integrations-slack';
 import {
+  createApplyVoiceRulesTool,
   createCatchMeUpTool,
   createGetFreshnessTool,
   createMcpServer,
   createPingTool,
+  createRecallTool,
+  createRecordAuditProgressTool,
   createSearchWorkContextTool,
+  createSnapshotProfileTool,
+  createStartMegaAuditTool,
+  createStartRetroTool,
   createStartSessionTool,
   type StartSessionPoller,
   startStdio,
@@ -89,7 +95,25 @@ function resolveWebUiPort(): number {
   return parsed;
 }
 
-async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void> {
+/**
+ * Decide whether the current invocation is in demo mode. The flag is
+ * intentionally orthogonal to the rest of the CLI surface: a single
+ * `--demo` (or `SLOPWEAVER_DEMO=1`) flips the DB resolver from
+ * `slopweaver.db` to `demo.db`, and the rest of the binary runs
+ * unchanged against the alternate DB. The two files are never
+ * accidentally mixed because the resolver helpers in `@slopweaver/db`
+ * are the only callers that map an environment to a path.
+ */
+function isDemoModeEnabled({ flag }: { flag: boolean }): boolean {
+  if (flag) return true;
+  const raw = env['SLOPWEAVER_DEMO'];
+  if (raw === undefined || raw === '') return false;
+  // Accept the usual truthy strings; reject anything else so a typo
+  // doesn't silently disable the flag.
+  return raw === '1' || raw === 'true';
+}
+
+async function runMcpServer({ uiEnabled, demo }: { uiEnabled: boolean; demo: boolean }): Promise<void> {
   // Validate the environment before opening the SQLite file or starting the
   // server. The `EnvValidationError` is unwrapped at this CLI boundary so the
   // outer .catch() in the cac action prints + exits non-zero.
@@ -98,7 +122,8 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
     throw envResult.error;
   }
 
-  const dbPathResult = resolveDbPath();
+  const demoEnabled = isDemoModeEnabled({ flag: demo });
+  const dbPathResult = demoEnabled ? resolveDemoDbPath() : resolveDbPath();
   if (dbPathResult.isErr()) {
     throw dbPathResult.error;
   }
@@ -110,6 +135,9 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
   const startedAtMs = Date.now();
   const dbHandle = createDb({ path: dbPathResult.value });
   const dataDir = dataDirResult.value;
+  if (demoEnabled) {
+    stderr.write(`slopweaver: demo mode — serving from ${dbPathResult.value}\n`);
+  }
 
   // Load connected integration tokens from `integration_tokens` in parallel,
   // then build a poller map keyed by integration slug to pass into the
@@ -171,6 +199,12 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
       createGetFreshnessTool(),
       createCatchMeUpTool(),
       createSearchWorkContextTool(),
+      createApplyVoiceRulesTool(),
+      createRecallTool(),
+      createStartMegaAuditTool(),
+      createRecordAuditProgressTool(),
+      createStartRetroTool(),
+      createSnapshotProfileTool(),
     ],
   });
 
@@ -457,10 +491,61 @@ cli
   });
 
 cli
+  .command(
+    'demo [action]',
+    'Demo mode (zero-friction try-before-BYOK). Actions: seed | reset | exit. With no action, prints a static snapshot.',
+  )
+  .example('  slopweaver demo           # print synthetic snapshot to stdout')
+  .example('  slopweaver demo seed      # populate a demo DB so start_session returns synthetic evidence')
+  .example('  slopweaver demo reset     # drop the demo DB and re-seed')
+  .example(
+    '  slopweaver demo exit      # remove the demo DB (restart without --demo / unset SLOPWEAVER_DEMO to return to real mode)',
+  )
+  .action(async (action: string | undefined) => {
+    try {
+      const code = await dispatchDemoAction({ action });
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
+  });
+
+/**
+ * Resolve `slopweaver demo [action]` to an exit code. Pulled out of
+ * the cac action callback so TypeScript's narrowing doesn't have to
+ * fight `process.exit`'s `never` return: every branch here returns a
+ * concrete `number` that the action wraps in `exit()`.
+ */
+async function dispatchDemoAction({ action }: { action: string | undefined }): Promise<number> {
+  const demo = await import('./demo/index.ts');
+  if (action === undefined) {
+    return demo.runDemo({ stdout });
+  }
+  if (action !== 'seed' && action !== 'reset' && action !== 'exit') {
+    stderr.write(`slopweaver: unknown demo action "${action}". Expected seed, reset, or exit.\n`);
+    return 1;
+  }
+  const demoDbPathResult = resolveDemoDbPath();
+  if (demoDbPathResult.isErr()) {
+    throw demoDbPathResult.error;
+  }
+  const demoDbPath = demoDbPathResult.value;
+  if (action === 'seed') {
+    return demo.runDemoSeed({ demoDbPath, stdout, stderr });
+  }
+  if (action === 'reset') {
+    return demo.runDemoReset({ demoDbPath, stdout, stderr });
+  }
+  return demo.runDemoExit({ demoDbPath, stdout, stderr });
+}
+
+cli
   .command('', 'Run the MCP server over stdio (default)')
   .option('--no-web-ui', 'Disable the local Diagnostics web UI on 127.0.0.1:60701')
-  .action((options: { webUi: boolean }) => {
-    runMcpServer({ uiEnabled: options.webUi }).catch((error: unknown) => {
+  .option('--demo', 'Use the demo DB (~/.slopweaver/demo.db) instead of slopweaver.db; equivalent to SLOPWEAVER_DEMO=1')
+  .action((options: { webUi: boolean; demo?: boolean }) => {
+    runMcpServer({ uiEnabled: options.webUi, demo: options.demo === true }).catch((error: unknown) => {
       stderr.write(`slopweaver: ${asMessage({ error })}\n`);
       exit(1);
     });
