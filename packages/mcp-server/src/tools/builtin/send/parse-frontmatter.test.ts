@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashFrontmatter, parseFrontmatter, serializeDraft } from './parse-frontmatter.ts';
+import { hashContent, parseFrontmatter, serializeDraft } from './parse-frontmatter.ts';
 
 describe('parseFrontmatter', () => {
   it('parses a well-formed frontmatter block + body', () => {
@@ -31,34 +31,52 @@ describe('parseFrontmatter', () => {
   });
 });
 
-describe('hashFrontmatter', () => {
+describe('hashContent', () => {
   it('produces a stable hex hash for the same input', () => {
-    const h1 = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C1' } });
-    const h2 = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C1' } });
+    const h1 = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'hello' });
+    const h2 = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'hello' });
     expect(h1).toBe(h2);
     expect(h1).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  it('is order-independent (sort-stable)', () => {
-    const h1 = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C1' } });
-    const h2 = hashFrontmatter({ frontmatter: { target: 'slack:C1', draft_id: 'a' } });
+  it('is order-independent for frontmatter keys (sort-stable)', () => {
+    const h1 = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'hello' });
+    const h2 = hashContent({ frontmatter: { target: 'slack:C1', draft_id: 'a' }, body: 'hello' });
     expect(h1).toBe(h2);
   });
 
   it('ignores the `status` field so record_send_outcome can rewrite it without invalidating the hash', () => {
-    const before = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C1' } });
-    const afterSent = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C1', status: 'sent' } });
-    const afterFailed = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C1', status: 'failed' } });
+    const before = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'hi' });
+    const afterSent = hashContent({
+      frontmatter: { draft_id: 'a', target: 'slack:C1', status: 'sent' },
+      body: 'hi',
+    });
+    const afterFailed = hashContent({
+      frontmatter: { draft_id: 'a', target: 'slack:C1', status: 'failed' },
+      body: 'hi',
+    });
     expect(before).toBe(afterSent);
     expect(before).toBe(afterFailed);
   });
 
   it('changes when target or draft_id change', () => {
-    const base = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C1' } });
-    const changedId = hashFrontmatter({ frontmatter: { draft_id: 'b', target: 'slack:C1' } });
-    const changedTarget = hashFrontmatter({ frontmatter: { draft_id: 'a', target: 'slack:C2' } });
+    const base = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'hi' });
+    const changedId = hashContent({ frontmatter: { draft_id: 'b', target: 'slack:C1' }, body: 'hi' });
+    const changedTarget = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C2' }, body: 'hi' });
     expect(changedId).not.toBe(base);
     expect(changedTarget).not.toBe(base);
+  });
+
+  it('changes when the body changes (body coverage is the iter-3 fix)', () => {
+    const base = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'original' });
+    const edited = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'EDITED' });
+    expect(edited).not.toBe(base);
+  });
+
+  it('treats body whitespace at the edges as insignificant (trim)', () => {
+    const base = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: 'hi there' });
+    const padded = hashContent({ frontmatter: { draft_id: 'a', target: 'slack:C1' }, body: '  hi there\n' });
+    expect(padded).toBe(base);
   });
 });
 

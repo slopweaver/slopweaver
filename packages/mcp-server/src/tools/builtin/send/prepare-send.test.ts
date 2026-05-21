@@ -47,7 +47,7 @@ describe('createPrepareSendTool', () => {
       expect(parsed.requires_confirmation).toBe(true);
       expect(parsed.tool_args).toBeUndefined();
       expect(parsed.confirmation_token.length).toBeGreaterThan(0);
-      expect(parsed.frontmatter_hash.length).toBeGreaterThan(0);
+      expect(parsed.content_hash.length).toBeGreaterThan(0);
       expect(parsed.instructions).toContain('5 seconds');
       expect(parsed.instructions).toContain('undo');
       expect(parsed.instructions).toContain('confirmed: true');
@@ -84,7 +84,7 @@ describe('createPrepareSendTool', () => {
       });
       expect(parsed.instructions).toContain('mcp__slack__slack_send_message');
       expect(parsed.instructions).toContain('record_send_outcome');
-      expect(parsed.instructions).toContain(parsed.frontmatter_hash);
+      expect(parsed.instructions).toContain(parsed.content_hash);
     }
   });
 
@@ -101,6 +101,46 @@ describe('createPrepareSendTool', () => {
     });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) expect(result.error.message).toContain('confirmation_token mismatch');
+  });
+
+  /**
+   * Iter-3 P1: confirmation token must cover body drift. If the body
+   * changes between the unconfirmed and confirmed calls, the old
+   * token must NOT validate — otherwise an edited body could be sent
+   * without fresh user approval. Frontmatter-only hashing missed
+   * this; content-hash (frontmatter + body) closes it.
+   */
+  it('invalidates the confirmation token when the draft body changes between calls', async () => {
+    const originalDraft = '---\ndraft_id: d1\ntarget: slack:C123\n---\nOriginal body\n';
+    const editedDraft = '---\ndraft_id: d1\ntarget: slack:C123\n---\nMALICIOUSLY EDITED BODY\n';
+
+    let draftContent = originalDraft;
+    const tool = createPrepareSendTool({
+      now: () => FIXED_NOW,
+      readFileImpl: async () => draftContent,
+    });
+
+    const first = await tool.handler({
+      input: PrepareSendArgs.parse({ draft_path: '/tmp/d.md' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(first.isOk()).toBe(true);
+    if (!first.isOk()) return;
+    const firstParsed = PrepareSendResult.parse(first.value);
+
+    // Body mutates between the two prepare_send calls.
+    draftContent = editedDraft;
+
+    const second = await tool.handler({
+      input: PrepareSendArgs.parse({
+        draft_path: '/tmp/d.md',
+        confirmed: true,
+        confirmation_token: firstParsed.confirmation_token,
+      }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(second.isErr()).toBe(true);
+    if (second.isErr()) expect(second.error.message).toContain('confirmation_token mismatch');
   });
 
   it('uses MCP routing (not gh api) for a GitHub PR target', async () => {

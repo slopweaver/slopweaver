@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { RecordSendOutcomeArgs, RecordSendOutcomeResult } from '@slopweaver/contracts';
 import { createDb } from '@slopweaver/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hashFrontmatter, parseFrontmatter } from './parse-frontmatter.ts';
+import { hashContent, parseFrontmatter } from './parse-frontmatter.ts';
 import { createRecordSendOutcomeTool } from './record-send-outcome.ts';
 
 const FIXED_NOW = Date.UTC(2026, 4, 21, 10, 0, 0);
@@ -45,7 +45,7 @@ describe('createRecordSendOutcomeTool', () => {
     writeFileSync(draftPath, content, 'utf-8');
     const parsed = parseFrontmatter({ input: content });
     if (parsed === null) throw new Error('seedDraft produced unparseable content');
-    return hashFrontmatter({ frontmatter: parsed.frontmatter });
+    return hashContent({ frontmatter: parsed.frontmatter, body: parsed.body });
   }
 
   it('appends a sent outcome with permalink and rewrites the draft status', async () => {
@@ -55,7 +55,7 @@ describe('createRecordSendOutcomeTool', () => {
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'd1',
-        frontmatter_hash: hash,
+        content_hash: hash,
         status: 'sent',
         sent_url: 'https://slack.com/archives/C1/p123',
       }),
@@ -73,7 +73,7 @@ describe('createRecordSendOutcomeTool', () => {
     expect(parsed['status']).toBe('sent');
     expect(parsed['sent_url']).toBe('https://slack.com/archives/C1/p123');
     expect(parsed['draft_id']).toBe('d1');
-    expect(parsed['frontmatter_hash']).toBe(hash);
+    expect(parsed['content_hash']).toBe(hash);
 
     // The draft on disk has been atomically rewritten to include `status: sent`.
     const updatedDraft = readFileSync(draftPath, 'utf-8');
@@ -90,7 +90,7 @@ describe('createRecordSendOutcomeTool', () => {
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'd1',
-        frontmatter_hash: hash,
+        content_hash: hash,
         status: 'failed',
         error: 'rate limited',
       }),
@@ -109,7 +109,7 @@ describe('createRecordSendOutcomeTool', () => {
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'd1',
-        frontmatter_hash: hash,
+        content_hash: hash,
         status: 'cancelled',
       }),
       ctx: { db: dbHandle.db },
@@ -128,7 +128,7 @@ describe('createRecordSendOutcomeTool', () => {
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'different',
-        frontmatter_hash: hash,
+        content_hash: hash,
         status: 'cancelled',
       }),
       ctx: { db: dbHandle.db },
@@ -137,20 +137,47 @@ describe('createRecordSendOutcomeTool', () => {
     if (result.isErr()) expect(result.error.message).toContain('draft_id mismatch');
   });
 
-  it('rejects when frontmatter_hash does not match the on-disk frontmatter', async () => {
+  it('rejects when content_hash does not match the on-disk content', async () => {
     seedDraft({ draftId: 'd1', target: 'slack:C1' });
     const tool = createRecordSendOutcomeTool({ logPathOverride: logPath, now: () => FIXED_NOW });
     const result = await tool.handler({
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'd1',
-        frontmatter_hash: 'deadbeefdeadbeef',
+        content_hash: 'deadbeefdeadbeef',
         status: 'cancelled',
       }),
       ctx: { db: dbHandle.db },
     });
     expect(result.isErr()).toBe(true);
-    if (result.isErr()) expect(result.error.message).toContain('frontmatter_hash mismatch');
+    if (result.isErr()) expect(result.error.message).toContain('content_hash mismatch');
+  });
+
+  /**
+   * Iter-3 P1: drift detection must cover body, not just frontmatter.
+   * If the body changes on disk between prepare_send and
+   * record_send_outcome, the previously-issued content_hash must no
+   * longer match — otherwise calibration data would log an outcome
+   * against a draft body the model didn't actually approve to send.
+   */
+  it('rejects when only the body has drifted (body is part of content_hash)', async () => {
+    const originalHash = seedDraft({ draftId: 'd1', target: 'slack:C1', body: 'original body text' });
+    // Rewrite the draft body but keep frontmatter intact.
+    const drifted = '---\ndraft_id: d1\ntarget: slack:C1\n---\nEDITED body text\n';
+    writeFileSync(draftPath, drifted, 'utf-8');
+
+    const tool = createRecordSendOutcomeTool({ logPathOverride: logPath, now: () => FIXED_NOW });
+    const result = await tool.handler({
+      input: RecordSendOutcomeArgs.parse({
+        draft_path: draftPath,
+        draft_id: 'd1',
+        content_hash: originalHash,
+        status: 'cancelled',
+      }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) expect(result.error.message).toContain('content_hash mismatch');
   });
 
   it('rejects an attempt to overwrite a terminal status with a different one', async () => {
@@ -160,7 +187,7 @@ describe('createRecordSendOutcomeTool', () => {
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'd1',
-        frontmatter_hash: hash,
+        content_hash: hash,
         status: 'failed',
         error: 'after-the-fact',
       }),
@@ -170,31 +197,47 @@ describe('createRecordSendOutcomeTool', () => {
     if (result.isErr()) expect(result.error.message).toContain('already has terminal status');
   });
 
-  it('is idempotent when called twice with the same terminal status', async () => {
+  /**
+   * Iter-3 P1: idempotent on (draft_id, status, content_hash). A
+   * retry after the model loses the first response (transport
+   * ambiguity, network blip) must NOT append a duplicate JSONL row —
+   * the calibration loop would otherwise double-count send outcomes.
+   * The second call returns the existing line_number unchanged and
+   * does not write to disk.
+   */
+  it('is idempotent when called twice with the same (draft_id, status, content_hash)', async () => {
     const hash = seedDraft({ draftId: 'd1', target: 'slack:C1' });
     const tool = createRecordSendOutcomeTool({ logPathOverride: logPath, now: () => FIXED_NOW });
     const first = await tool.handler({
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'd1',
-        frontmatter_hash: hash,
+        content_hash: hash,
         status: 'cancelled',
       }),
       ctx: { db: dbHandle.db },
     });
     expect(first.isOk()).toBe(true);
+    if (!first.isOk()) return;
+    const firstLine = first.value['line_number'];
+    expect(firstLine).toBe(1);
 
     const second = await tool.handler({
       input: RecordSendOutcomeArgs.parse({
         draft_path: draftPath,
         draft_id: 'd1',
-        frontmatter_hash: hash,
+        content_hash: hash,
         status: 'cancelled',
       }),
       ctx: { db: dbHandle.db },
     });
     expect(second.isOk()).toBe(true);
-    if (second.isOk()) expect(second.value['line_number']).toBe(2);
+    if (second.isOk()) expect(second.value['line_number']).toBe(firstLine);
+
+    // On disk there should still be exactly one JSONL row — no duplicate.
+    const onDisk = readFileSync(logPath, 'utf-8');
+    const rows = onDisk.split('\n').filter((l) => l.trim().length > 0);
+    expect(rows.length).toBe(1);
   });
 
   it('appends multiple lines and reports incrementing line numbers', async () => {
@@ -207,7 +250,7 @@ describe('createRecordSendOutcomeTool', () => {
         input: RecordSendOutcomeArgs.parse({
           draft_path: draftPath,
           draft_id: `d${i}`,
-          frontmatter_hash: hash,
+          content_hash: hash,
           status: 'cancelled',
         }),
         ctx: { db: dbHandle.db },
@@ -221,7 +264,7 @@ describe('createRecordSendOutcomeTool', () => {
     const parsed = RecordSendOutcomeArgs.safeParse({
       draft_path: '/tmp/d.md',
       draft_id: 'd1',
-      frontmatter_hash: 'abcdef0123456789',
+      content_hash: 'abcdef0123456789',
       status: 'sent',
       // sent_url omitted
     });
@@ -232,7 +275,7 @@ describe('createRecordSendOutcomeTool', () => {
     const parsed = RecordSendOutcomeArgs.safeParse({
       draft_path: '/tmp/d.md',
       draft_id: 'd1',
-      frontmatter_hash: 'abcdef0123456789',
+      content_hash: 'abcdef0123456789',
       status: 'failed',
       // error omitted
     });
@@ -243,7 +286,7 @@ describe('createRecordSendOutcomeTool', () => {
     const parsed = RecordSendOutcomeArgs.safeParse({
       draft_path: '/tmp/d.md',
       draft_id: 'd1',
-      frontmatter_hash: 'abcdef0123456789',
+      content_hash: 'abcdef0123456789',
       status: 'cancelled',
       sent_url: 'https://slack.com/x',
     });

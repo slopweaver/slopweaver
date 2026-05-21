@@ -19,9 +19,12 @@
  * confirmation" is therefore enforced by the contract, not just prose.
  *
  * The `confirmation_token` is deterministic per (draft_path,
- * frontmatter_hash) so a re-call from the same draft state yields the
- * same token. Editing the draft between calls changes the hash, which
- * changes the token, which invalidates any pending confirmation.
+ * content_hash) so a re-call from the same draft state yields the
+ * same token. Editing the draft between calls — frontmatter OR body —
+ * changes the hash, which changes the token, which invalidates any
+ * pending confirmation. Body coverage is critical: without it, a
+ * model could edit the body between the unconfirmed and confirmed
+ * passes and send text the user never approved.
  */
 
 import { createHash } from 'node:crypto';
@@ -30,7 +33,7 @@ import { PrepareSendArgs, PrepareSendResult } from '@slopweaver/contracts';
 import { err, ok } from '@slopweaver/errors';
 import { McpErrors } from '../../../errors.ts';
 import { defineTool, type Tool } from '../../registry.ts';
-import { hashFrontmatter, parseFrontmatter } from './parse-frontmatter.ts';
+import { hashContent, parseFrontmatter } from './parse-frontmatter.ts';
 import { parseTarget, type ParsedTarget } from './parse-target.ts';
 
 export type CreatePrepareSendToolArgs = {
@@ -98,10 +101,10 @@ export function createPrepareSendTool(args: CreatePrepareSendToolArgs = {}): Too
         return err(McpErrors.unexpected('prepare_send', undefined, `draft at ${input.draft_path} has an empty body`));
       }
       const draftId = parsed.frontmatter['draft_id'];
-      const frontmatterHash = hashFrontmatter({ frontmatter: parsed.frontmatter });
+      const contentHash = hashContent({ frontmatter: parsed.frontmatter, body });
       const confirmationToken = deriveConfirmationToken({
         draftPath: input.draft_path,
-        frontmatterHash,
+        contentHash,
       });
 
       const isConfirmed = input.confirmed === true;
@@ -110,7 +113,7 @@ export function createPrepareSendTool(args: CreatePrepareSendToolArgs = {}): Too
           McpErrors.unexpected(
             'prepare_send',
             undefined,
-            `confirmation_token mismatch — re-call prepare_send without \`confirmed\` to fetch a fresh token (the draft frontmatter may have changed since the first call)`,
+            `confirmation_token mismatch — re-call prepare_send without \`confirmed\` to fetch a fresh token (the draft content may have changed since the first call)`,
           ),
         );
       }
@@ -125,14 +128,14 @@ export function createPrepareSendTool(args: CreatePrepareSendToolArgs = {}): Too
         ...(isConfirmed && { tool_args: routing.tool_args }),
         requires_confirmation: !isConfirmed,
         confirmation_token: confirmationToken,
-        frontmatter_hash: frontmatterHash,
+        content_hash: contentHash,
         instructions: buildInstructions({
           target,
           draftPath: input.draft_path,
           routing,
           isConfirmed,
           confirmationToken,
-          frontmatterHash,
+          contentHash,
           draftId: draftId != null && draftId.length > 0 ? draftId : null,
         }),
         generated_at: new Date(now()).toISOString(),
@@ -201,19 +204,15 @@ function buildRouting({ target, body }: { target: ParsedTarget; body: string }):
 
 /**
  * Deterministic per-draft-state token. Tying the token to the
- * frontmatter hash (not just a random nonce) means: editing the draft
- * between the first and second call changes the hash → changes the
- * token → the second call fails the equality check. That's the
- * "drift detection" half of the confirmation gate.
+ * content hash (frontmatter + body) means: editing the draft between
+ * the first and second call — frontmatter OR body — changes the
+ * hash → changes the token → the second call fails the equality
+ * check. That's the "drift detection" half of the confirmation
+ * gate, and the body coverage closes the body-edit attack on the
+ * earlier frontmatter-only token.
  */
-function deriveConfirmationToken({
-  draftPath,
-  frontmatterHash,
-}: {
-  draftPath: string;
-  frontmatterHash: string;
-}): string {
-  return createHash('sha256').update(`${draftPath}\n${frontmatterHash}`, 'utf-8').digest('hex').slice(0, 24);
+function deriveConfirmationToken({ draftPath, contentHash }: { draftPath: string; contentHash: string }): string {
+  return createHash('sha256').update(`${draftPath}\n${contentHash}`, 'utf-8').digest('hex').slice(0, 24);
 }
 
 function buildInstructions(args: {
@@ -222,14 +221,14 @@ function buildInstructions(args: {
   routing: Routing;
   isConfirmed: boolean;
   confirmationToken: string;
-  frontmatterHash: string;
+  contentHash: string;
   draftId: string | null;
 }): string {
   if (!args.isConfirmed) {
     return `# Confirm the send\n\nA draft is ready at \`${args.draftPath}\`. Routing:\n\n- server: \`${args.routing.server}\`\n- tool: \`${args.routing.tool_name}\`\n- target: ${describeTarget(args.target)}\n\nSurface this one-liner to the user:\n\n> Sending to ${describeTarget(args.target)} in 5 seconds. Reply with \`undo\` to cancel.\n\nWait for either an \`undo\` (in which case call \`record_send_outcome\` with status \`cancelled\` and stop) or 5 seconds of silence.\n\nThen re-call \`prepare_send\` with \`confirmed: true\` and \`confirmation_token: "${args.confirmationToken}"\` to receive the executable \`tool_args\`. Do not invoke any send tool without that second response — the contract intentionally omits \`tool_args\` on the unconfirmed pass.\n`;
   }
   const draftIdLine = args.draftId != null ? `, draft_id: "${args.draftId}"` : '';
-  return `# Execute the send\n\nInvoke \`mcp__${args.routing.server}__${args.routing.tool_name}\` with the \`tool_args\` from this response. After it returns:\n\n- On success: \`record_send_outcome({ draft_path: "${args.draftPath}"${draftIdLine}, frontmatter_hash: "${args.frontmatterHash}", status: "sent", sent_url: <permalink-from-send-response> })\`\n- On failure: \`record_send_outcome({ draft_path: "${args.draftPath}"${draftIdLine}, frontmatter_hash: "${args.frontmatterHash}", status: "failed", error: <message> })\`\n`;
+  return `# Execute the send\n\nInvoke \`mcp__${args.routing.server}__${args.routing.tool_name}\` with the \`tool_args\` from this response. After it returns:\n\n- On success: \`record_send_outcome({ draft_path: "${args.draftPath}"${draftIdLine}, content_hash: "${args.contentHash}", status: "sent", sent_url: <permalink-from-send-response> })\`\n- On failure: \`record_send_outcome({ draft_path: "${args.draftPath}"${draftIdLine}, content_hash: "${args.contentHash}", status: "failed", error: <message> })\`\n`;
 }
 
 function describeTarget(target: ParsedTarget): string {

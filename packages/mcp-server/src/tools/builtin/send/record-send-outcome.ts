@@ -9,15 +9,20 @@
  *
  * Responsibilities (Codex P1):
  *  1. Load the draft file at `draft_path`.
- *  2. Validate the draft frontmatter still matches what `prepare_send`
- *     saw — same `draft_id`, same `frontmatter_hash`. Mismatch ⇒ drift,
- *     reject the call so the calibration log can't be poisoned with a
- *     payload that no longer matches the draft on disk.
+ *  2. Validate the draft still matches what `prepare_send` saw —
+ *     same `draft_id`, same `content_hash` (covering frontmatter +
+ *     body). Mismatch ⇒ drift, reject the call so the calibration
+ *     log can't be poisoned with a payload that no longer matches
+ *     the draft on disk.
  *  3. Atomically rewrite the draft's `status:` field (temp-file +
  *     rename, never an in-place write). Reject repeat calls that would
  *     overwrite a terminal status with a different terminal status —
  *     `cancelled` -> `sent` is meaningless.
  *  4. Append a JSONL entry to `<data-dir>/sends.jsonl` for calibration.
+ *     Idempotent on `(draft_id, status, content_hash)` — repeat calls
+ *     with the same triple return the existing line_number without
+ *     writing a new row, so a retry after transport ambiguity can't
+ *     double-count calibration data.
  *
  * `safeQuery`/Result patterns from `@slopweaver/errors` are used at the
  * boundary; the tool itself uses local `try/catch` around fs calls to
@@ -33,7 +38,7 @@ import { resolveDataDir } from '@slopweaver/db';
 import { err, ok } from '@slopweaver/errors';
 import { McpErrors } from '../../../errors.ts';
 import { defineTool, type Tool } from '../../registry.ts';
-import { hashFrontmatter, parseFrontmatter, serializeDraft } from './parse-frontmatter.ts';
+import { hashContent, parseFrontmatter, serializeDraft } from './parse-frontmatter.ts';
 
 const SENDS_LOG_FILENAME = 'sends.jsonl';
 
@@ -62,7 +67,7 @@ export function createRecordSendOutcomeTool(args: CreateRecordSendOutcomeToolArg
   return defineTool({
     name: 'record_send_outcome',
     description:
-      'Record the outcome of a send attempt. Loads the draft at `draft_path`, validates `draft_id` + `frontmatter_hash` still match what `prepare_send` saw (drift detection), atomically rewrites the draft frontmatter `status:` field, and appends a JSONL entry to <data-dir>/sends.jsonl. Rejects repeat calls that would overwrite a terminal status with a different one. Required for the calibration loop to track send hit-rate.',
+      'Record the outcome of a send attempt. Loads the draft at `draft_path`, validates `draft_id` + `content_hash` (frontmatter + body) still match what `prepare_send` saw (drift detection), atomically rewrites the draft frontmatter `status:` field, and appends a JSONL entry to <data-dir>/sends.jsonl. Rejects repeat calls that would overwrite a terminal status with a different one; idempotent for repeat calls with the same `(draft_id, status, content_hash)` triple. Required for the calibration loop to track send hit-rate.',
     inputSchema: RecordSendOutcomeArgs,
     outputSchema: RecordSendOutcomeResult,
     handler: async ({ input }) => {
@@ -101,13 +106,13 @@ export function createRecordSendOutcomeTool(args: CreateRecordSendOutcomeToolArg
           ),
         );
       }
-      const hashOnDisk = hashFrontmatter({ frontmatter: parsedDraft.frontmatter });
-      if (hashOnDisk !== input.frontmatter_hash) {
+      const hashOnDisk = hashContent({ frontmatter: parsedDraft.frontmatter, body: parsedDraft.body });
+      if (hashOnDisk !== input.content_hash) {
         return err(
           McpErrors.unexpected(
             'record_send_outcome',
             undefined,
-            `frontmatter_hash mismatch — input \`${input.frontmatter_hash}\`, on-disk \`${hashOnDisk}\`. The draft frontmatter was edited between prepare_send and record_send_outcome; re-run prepare_send to refresh.`,
+            `content_hash mismatch — input \`${input.content_hash}\`, on-disk \`${hashOnDisk}\`. The draft (frontmatter or body) was edited between prepare_send and record_send_outcome; re-run prepare_send to refresh.`,
           ),
         );
       }
@@ -161,11 +166,17 @@ export function createRecordSendOutcomeTool(args: CreateRecordSendOutcomeToolArg
         );
       }
 
-      // 6. Read existing log line count, append the new JSONL entry.
-      let existingLines = 0;
+      // 6. Read existing log, check idempotency, append the new JSONL entry.
+      //
+      // Idempotency: if a row already exists with the same
+      // (draft_id, status, content_hash) triple, return that row's
+      // line_number instead of writing a new row. Without this, a
+      // retry after transport ambiguity (the model never saw the
+      // tool's response and called record_send_outcome a second time)
+      // would double-count the outcome in the calibration log.
+      let prevContent = '';
       try {
-        const content = await readImpl(logPath);
-        existingLines = content.split('\n').filter((l) => l.trim().length > 0).length;
+        prevContent = await readImpl(logPath);
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
           return err(
@@ -176,6 +187,20 @@ export function createRecordSendOutcomeTool(args: CreateRecordSendOutcomeToolArg
             ),
           );
         }
+      }
+      const existingLines = prevContent.length === 0 ? [] : prevContent.split('\n').filter((l) => l.trim().length > 0);
+      const duplicateLineNumber = findIdempotentMatch({
+        lines: existingLines,
+        draftId: input.draft_id,
+        status: input.status,
+        contentHash: input.content_hash,
+      });
+      if (duplicateLineNumber != null) {
+        return ok({
+          log_path: logPath,
+          line_number: duplicateLineNumber,
+          draft_status: input.status,
+        });
       }
 
       const parent = dirname(logPath);
@@ -195,7 +220,7 @@ export function createRecordSendOutcomeTool(args: CreateRecordSendOutcomeToolArg
         ts: new Date(now()).toISOString(),
         draft_path: input.draft_path,
         draft_id: input.draft_id,
-        frontmatter_hash: input.frontmatter_hash,
+        content_hash: input.content_hash,
         status: input.status,
       };
       if (input.status === 'sent') line['sent_url'] = input.sent_url;
@@ -206,8 +231,10 @@ export function createRecordSendOutcomeTool(args: CreateRecordSendOutcomeToolArg
       try {
         const existing = await stat(logPath);
         if (existing.isFile()) {
-          const prev = await readImpl(logPath);
-          next = prev.endsWith('\n') || prev.length === 0 ? `${prev}${encoded}` : `${prev}\n${encoded}`;
+          next =
+            prevContent.endsWith('\n') || prevContent.length === 0
+              ? `${prevContent}${encoded}`
+              : `${prevContent}\n${encoded}`;
         }
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -234,9 +261,46 @@ export function createRecordSendOutcomeTool(args: CreateRecordSendOutcomeToolArg
 
       return ok({
         log_path: logPath,
-        line_number: existingLines + 1,
+        line_number: existingLines.length + 1,
         draft_status: input.status,
       });
     },
   });
+}
+
+/**
+ * Scan the existing JSONL log for a row matching
+ * `(draft_id, status, content_hash)`. Returns the 1-based line number
+ * of the first match (or `null` if no match). Malformed lines are
+ * skipped — a corrupted historical row should never block a new
+ * append. Used to make `record_send_outcome` idempotent across
+ * retries.
+ */
+function findIdempotentMatch({
+  lines,
+  draftId,
+  status,
+  contentHash,
+}: {
+  lines: readonly string[];
+  draftId: string;
+  status: string;
+  contentHash: string;
+}): number | null {
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i];
+    if (raw == null) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== 'object' || parsed === null) continue;
+    const row = parsed as Record<string, unknown>;
+    if (row['draft_id'] === draftId && row['status'] === status && row['content_hash'] === contentHash) {
+      return i + 1;
+    }
+  }
+  return null;
 }

@@ -231,19 +231,23 @@ export const PrepareSendResult = z
      * Opaque token that the model must echo back as
      * `confirmation_token` on the second call. Present on both passes
      * (so the second-pass response can self-attest which token it
-     * resolved). Tied to the draft's `frontmatter_hash` — re-issuing
-     * `prepare_send` after the draft mutates produces a new token and
-     * invalidates any previously-issued one.
+     * resolved). Tied to the draft's `content_hash` — re-issuing
+     * `prepare_send` after the draft mutates (frontmatter OR body)
+     * produces a new token and invalidates any previously-issued one.
      */
     confirmation_token: NonEmptyStringSchema,
     /**
-     * Stable hash of the draft's frontmatter (sorted-key
-     * `key: value\n` body). `record_send_outcome` requires the model to
-     * echo this back; mismatch means the draft was edited between
-     * `prepare_send` and `record_send_outcome` and the outcome is
-     * rejected as drift.
+     * Stable hash of the draft's full content (sorted-key frontmatter
+     * `key: value\n` body, with `status` excluded, plus the trimmed
+     * body). `record_send_outcome` requires the model to echo this
+     * back; mismatch means the draft was edited between `prepare_send`
+     * and `record_send_outcome` and the outcome is rejected as drift.
+     * Body coverage is essential — without it, a model could edit the
+     * draft text after the first `prepare_send`, send the edited body
+     * on the confirmed call, and the calibration log would still
+     * validate against the old hash.
      */
-    frontmatter_hash: NonEmptyStringSchema,
+    content_hash: NonEmptyStringSchema,
     instructions: NonEmptyStringSchema,
     generated_at: IsoDatetimeSchema,
   })
@@ -258,12 +262,14 @@ export type PrepareSendResult = z.infer<typeof PrepareSendResult>;
  *  - `failed` → `error` is required, `sent_url` must be absent.
  *  - `cancelled` → neither `sent_url` nor `error`.
  *
- * Every variant requires `draft_id` and `frontmatter_hash`. The tool
- * reads the draft from disk, validates the frontmatter still matches
- * (same `draft_id`, same hash), refuses to overwrite a terminal status
- * with a different terminal status, and atomically rewrites the
- * draft's `status:` field via temp-file + rename before appending to
- * the JSONL log.
+ * Every variant requires `draft_id` and `content_hash`. The tool
+ * reads the draft from disk, validates the content still matches
+ * (same `draft_id`, same hash over frontmatter + body), refuses to
+ * overwrite a terminal status with a different terminal status, and
+ * atomically rewrites the draft's `status:` field via temp-file +
+ * rename before appending to the JSONL log. Repeat calls with the
+ * same `(draft_id, status, content_hash)` are idempotent — the
+ * existing log line is returned, no duplicate row is written.
  *
  * Implemented as a single `ZodObject` + `.superRefine` rather than a
  * `z.discriminatedUnion` because the MCP tool registry (see
@@ -277,8 +283,8 @@ export const RecordSendOutcomeArgs = z
     draft_path: NonEmptyStringSchema,
     /** Echoed from the draft's frontmatter. Must match what's on disk. */
     draft_id: NonEmptyStringSchema,
-    /** Echoed from the `PrepareSendResult.frontmatter_hash` field. */
-    frontmatter_hash: NonEmptyStringSchema,
+    /** Echoed from the `PrepareSendResult.content_hash` field. */
+    content_hash: NonEmptyStringSchema,
     status: z.enum(['sent', 'failed', 'cancelled']),
     /** Required when status='sent'. Source platform's permalink to the posted message. */
     sent_url: z.url().optional(),

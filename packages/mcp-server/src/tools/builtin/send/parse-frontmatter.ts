@@ -41,21 +41,38 @@ export function parseFrontmatter({ input }: { input: string }): ParsedDraft | nu
 }
 
 /**
- * Stable, order-independent hash of a frontmatter record. Keys are
- * sorted before hashing so adding/removing the `status:` field (which
- * `record_send_outcome` rewrites) doesn't perturb it — the hash
- * intentionally excludes `status` so the model can be told "this hash
- * pins the draft target+body+id between prepare_send and
- * record_send_outcome" without having to re-issue the hash on every
- * status transition.
+ * Stable, order-independent hash of the entire draft content
+ * (frontmatter + body). Frontmatter keys are sorted before hashing so
+ * adding/removing the `status:` field (which `record_send_outcome`
+ * rewrites) doesn't perturb the hash — `status` is excluded so the
+ * model can be told "this hash pins the draft id+target+body between
+ * prepare_send and record_send_outcome" without having to re-issue
+ * the hash on every status transition.
+ *
+ * Body is included because a model could otherwise edit the draft
+ * body between the first (unconfirmed) and second (confirmed)
+ * `prepare_send` call, send the edited text, and the calibration log
+ * would still validate against the original hash. With body
+ * coverage, any change to the body invalidates the confirmation
+ * token and triggers a fresh user confirmation.
+ *
+ * Body is trimmed before hashing to match how `prepare_send` and
+ * `record_send_outcome` already normalise it on read.
  */
-export function hashFrontmatter({ frontmatter }: { frontmatter: Readonly<Record<string, string>> }): string {
-  const entries = Object.entries(frontmatter)
+export function hashContent({
+  frontmatter,
+  body,
+}: {
+  frontmatter: Readonly<Record<string, string>>;
+  body: string;
+}): string {
+  const fmEntries = Object.entries(frontmatter)
     .filter(([k]) => k !== 'status')
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n');
-  return createHash('sha256').update(entries, 'utf-8').digest('hex').slice(0, 16);
+  const payload = `${fmEntries}\n---\n${body.trim()}`;
+  return createHash('sha256').update(payload, 'utf-8').digest('hex').slice(0, 16);
 }
 
 /**
