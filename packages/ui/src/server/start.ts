@@ -6,6 +6,7 @@ import { runStaticEnvChecks, type StaticEnvChecks } from './checks.ts';
 import { buildCalibrationResponse, resolveCalibrationLogPath } from './calibration.ts';
 import { buildDiagnosticsResponse } from './diagnostics.ts';
 import { buildEvidenceTailResponse } from './evidence.ts';
+import { buildStakeholdersResponse } from './stakeholders.ts';
 import { CLIENT_ASSETS_DIR } from './static-dir.ts';
 
 export type StartUiServerOptions = {
@@ -234,6 +235,15 @@ function handleApi({
   }
   if (pathname === '/api/calibration') {
     const body = JSON.stringify(buildCalibrationResponse({ logPath: feedbackLogPath }));
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(method === 'HEAD' ? undefined : body);
+    return;
+  }
+  if (pathname === '/api/stakeholders') {
+    const body = JSON.stringify(buildStakeholdersResponse({ db }));
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',

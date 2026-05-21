@@ -41,6 +41,20 @@ describe('App (tab navigation)', () => {
             }),
           } as unknown as Response;
         }
+        if (url.includes('/api/stakeholders')) {
+          return {
+            ok: true,
+            json: async () => ({
+              entries: [
+                { identifier: 'alice', interactions: 12, last_seen: '2026-05-21T00:00:00.000Z' },
+                { identifier: 'bob', interactions: 4, last_seen: '2026-05-20T00:00:00.000Z' },
+              ],
+              total: 2,
+              unattributed_count: 0,
+              generated_at: '2026-05-21T00:00:00.000Z',
+            }),
+          } as unknown as Response;
+        }
         return {
           ok: true,
           json: async () => ({
@@ -88,17 +102,27 @@ describe('App (tab navigation)', () => {
     await waitFor(() => screen.getByRole('heading', { name: 'Calibration' }));
   });
 
-  it('shows the empty-state copy when the calibration log is missing', async () => {
+  it('switches to the Stakeholders tab on click', async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Calibration' }));
-    const emptyState = await waitFor(() => screen.getByText(/No walks recorded/));
-    expect(emptyState).toBeTruthy();
+    const tab = screen.getByRole('button', { name: 'Stakeholders' });
+    fireEvent.click(tab);
+    expect(tab.getAttribute('aria-current')).toBe('page');
+    await waitFor(() => screen.getByRole('heading', { name: 'Stakeholders' }));
   });
 
-  it('renders all three tab buttons', () => {
+  it('renders the ranked stakeholder list when the API returns entries', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stakeholders' }));
+    const alice = await waitFor(() => screen.getByText('alice'));
+    expect(alice).toBeTruthy();
+    expect(screen.getByText('bob')).toBeTruthy();
+  });
+
+  it('renders all four tab buttons', () => {
     render(<App />);
     expect(screen.getByRole('button', { name: 'Diagnostics' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Evidence' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Calibration' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Stakeholders' })).toBeTruthy();
   });
 });

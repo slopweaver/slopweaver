@@ -3,8 +3,9 @@ import './App.css';
 import { Calibration } from './pages/Calibration.tsx';
 import { Diagnostics } from './pages/Diagnostics.tsx';
 import { Evidence } from './pages/Evidence.tsx';
+import { Stakeholders } from './pages/Stakeholders.tsx';
 
-type Tab = 'diagnostics' | 'evidence' | 'calibration';
+type Tab = 'diagnostics' | 'evidence' | 'calibration' | 'stakeholders';
 
 /**
  * Top-level shell for the flight-deck UI. Single-process tab state
@@ -19,6 +20,7 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'evidence', label: 'Evidence' },
   { id: 'calibration', label: 'Calibration' },
+  { id: 'stakeholders', label: 'Stakeholders' },
 ];
 
 export function App(): ReactElement {
@@ -53,5 +55,7 @@ function renderActiveTab(tab: Tab): ReactElement {
       return <Evidence />;
     case 'calibration':
       return <Calibration />;
+    case 'stakeholders':
+      return <Stakeholders />;
   }
 }
