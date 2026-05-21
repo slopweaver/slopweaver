@@ -484,6 +484,44 @@ cli
 
 cli
   .command(
+    'notion-upload-image',
+    'Upload an image to a Notion page via the same 3-call web-API path Notion uses. Requires the user token_v2 cookie.',
+  )
+  .option('--page <id-or-url>', 'Page UUID, undashed 32-hex, or notion.so page URL. Required.')
+  .option('--image <path>', 'Absolute path to a PNG / JPEG. Required.')
+  .option('--token-v2 <token>', 'token_v2 cookie value. Falls back to NOTION_TOKEN_V2.')
+  .option('--user-id <id>', 'notion_user_id cookie value. Falls back to NOTION_USER_ID.')
+  .option(
+    '--workspace-url <url>',
+    'Override the API base (e.g. https://www.notion.example). Falls back to SLOPWEAVER_NOTION_API_BASE; defaults to https://www.notion.so.',
+  )
+  .example('  slopweaver notion-upload-image --page <uuid> --image /tmp/screenshot.png')
+  .action(async (opts: { page?: string; image?: string; tokenV2?: string; userId?: string; workspaceUrl?: string }) => {
+    try {
+      if (opts.page === undefined || opts.image === undefined) {
+        stderr.write('notion-upload-image: --page and --image are required.\n');
+        exit(2);
+      }
+      const { runNotionUploadImage } = await import('./notion-upload/cli-action.ts');
+      const code = await runNotionUploadImage({
+        flags: {
+          page: opts.page,
+          image: opts.image,
+          ...(opts.tokenV2 !== undefined ? { tokenV2: opts.tokenV2 } : {}),
+          ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
+          ...(opts.workspaceUrl !== undefined ? { workspaceUrl: opts.workspaceUrl } : {}),
+        },
+        io: { stdout, stderr, env: process.env },
+      });
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
+  });
+
+cli
+  .command(
     'add-voice-rule',
     'Append a voice-rule directive (forbid/replace/pattern) to a markdown rules file. Powers the /correct skill.',
   )
