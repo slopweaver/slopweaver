@@ -42,11 +42,17 @@ import {
   safeSlackCall,
 } from '@slopweaver/integrations-slack';
 import {
+  createApplyVoiceRulesTool,
   createCatchMeUpTool,
   createGetFreshnessTool,
   createMcpServer,
   createPingTool,
+  createRecallTool,
+  createRecordAuditProgressTool,
   createSearchWorkContextTool,
+  createSnapshotProfileTool,
+  createStartMegaAuditTool,
+  createStartRetroTool,
   createStartSessionTool,
   type StartSessionPoller,
   startStdio,
@@ -193,6 +199,12 @@ async function runMcpServer({ uiEnabled, demo }: { uiEnabled: boolean; demo: boo
       createGetFreshnessTool(),
       createCatchMeUpTool(),
       createSearchWorkContextTool(),
+      createApplyVoiceRulesTool(),
+      createRecallTool(),
+      createStartMegaAuditTool(),
+      createRecordAuditProgressTool(),
+      createStartRetroTool(),
+      createSnapshotProfileTool(),
     ],
   });
 
