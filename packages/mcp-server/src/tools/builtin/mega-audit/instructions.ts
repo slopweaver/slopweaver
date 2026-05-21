@@ -30,15 +30,17 @@ Call \`record_audit_progress({ audit_id, phase: 'inventory', message: 'detected 
 
 ## Phase 2 — Polling (parallel)
 
-For each detected MCP server, issue a tight, scope-bounded read over the lookback window. Suggested budgets per source (adjust based on \`per_source_token_budget\`):
+For each detected MCP server, issue a tight, scope-bounded read over the lookback window. The default \`per_source_token_budget\` is 90,000 tokens. Concrete per-source targets at that budget:
 
-- **Slack**: own \`@mentions\` + DMs since \`SINCE_DATE\`, plus the top 3 channels by message volume in the last 30 days. Search for \`from:<self>\` to recover threads the user authored.
-- **GitHub**: \`gh pr list --author @me --state all --search "updated:>=SINCE_DATE"\` plus issues + mentions on the same window. Also recent reviews requested of the user.
-- **Linear/Jira**: assigned + mentioned tickets updated since \`SINCE_DATE\`, plus the current cycle's open items.
-- **Gmail**: \`is:important newer_than:90d\` + recent threads with replies authored by the user.
-- **Calendar**: events in the last 90 days. Heavy weight on recurring 1:1s + people the user dedicates focused time to.
-- **Notion/Confluence**: pages the user authored or edited recently.
-- **HubSpot/Stripe/Mixpanel/etc.**: light reads only — not on the daily-fan-out path; surface only if the user is a primary owner of records there.
+- **Slack** (~30K tokens): own \`@mentions\` + DMs since \`SINCE_DATE\` (cap ~300 messages), plus the top 3 channels by message volume in the last 30 days (cap ~200 messages per channel). Search for \`from:<self>\` to recover threads the user authored.
+- **GitHub** (~20K tokens): \`gh pr list --author @me --state all --search "updated:>=SINCE_DATE"\` (cap ~150 PRs), plus issues + mentions on the same window. Also recent reviews requested of the user.
+- **Linear/Jira** (~10K tokens): assigned + mentioned tickets updated since \`SINCE_DATE\` (cap ~100 tickets), plus the current cycle's open items.
+- **Gmail** (~10K tokens): \`is:important newer_than:90d\` (cap ~100 threads) + recent threads with replies authored by the user.
+- **Calendar** (~5K tokens): events in the last 90 days (cap ~200 events). Heavy weight on recurring 1:1s + people the user dedicates focused time to.
+- **Notion/Confluence** (~10K tokens): pages the user authored or edited recently (cap ~50 pages).
+- **HubSpot/Stripe/Mixpanel/etc.** (~5K tokens combined): light reads only. Not on the daily-fan-out path; surface only if the user is a primary owner of records there.
+
+If the caller passes a different \`per_source_token_budget\`, scale every cap proportionally.
 
 Call \`record_audit_progress({ audit_id, phase: 'polling', source: <slug>, message: '<one-line status>', pct: ... })\` periodically so the UI can show a live tail. The \`audit_id\`, \`phase\`, \`source\`, and \`message\` fields are required for the polling phase; \`pct\` is optional.
 
@@ -68,9 +70,49 @@ Reason over the aggregate input. Extract:
 1. **Identity.** Confirm platform IDs already known from \`identities.md\`. Add anything new.
 2. **Ranked priorities.** Inspect the user's own messages + tickets + PRs for recurring themes. Score by recency × frequency × interaction-load. Output 4–8 priorities, each with a 1-line description + the supporting anchors (hyperlinked).
 3. **Top stakeholders.** People the user interacts with most by combined message-volume + meeting-attendance + PR-review-overlap. Cap at top 25. For each: name, primary platform IDs, one-line role inference, sample interactions.
-4. **Voice patterns.** Read 200+ of the user's own messages. Extract regularities: typical sentence length, em-dash usage, exclamation marks, sentence-initial words, banned consultant-speak tokens. Write these as \`forbid:\`/\`replace:\`/\`pattern:\` directives in the rules-markdown format. If a voice-rules linter tool (e.g. \`apply_voice_rules\`) is wired up in this server build, use it in Phase 5 to lint the synthesized core-profile; otherwise just record the directives in \`rules/communication-style.md\` for later linting. Don't editorialise — just observed patterns.
+4. **Voice patterns.** Read the 200 most-recent messages authored by the user, biased to the last 30 days. Extract regularities: typical sentence length, em-dash usage, exclamation marks, sentence-initial words, banned consultant-speak tokens. Write these as \`forbid:\`/\`replace:\`/\`pattern:\` directives in the rules-markdown format. Don't editorialise. Just observed patterns.
+
+   Example shape for \`rules/communication-style.md\` (replace the example tokens with the user's actual observed patterns):
+
+   \`\`\`markdown
+   ## Hard rules
+
+   - forbid: delve
+   - forbid: notably
+   - forbid: in conclusion
+   - replace: ! => .
+   - pattern: \\\\bIt's not X, it's Y\\\\b
+
+   ## Defaults
+
+   - replace:  --  =>  ,
+   \`\`\`
+
+   If a voice-rules linter tool (e.g. \`apply_voice_rules\`) is wired up in this server build, use it in Phase 5 to lint the synthesized core-profile; otherwise just record the directives in \`rules/communication-style.md\` for later linting.
 5. **Open loops.** Anything that smells like "the user owes someone a reply" or "a long-running ask hasn't moved". One bullet per loop, hyperlinked anchor.
-6. **Programme detection.** Clusters of related anchors → one \`work/<slug>.md\` per cluster. The slug is generic ("authentication", "infra", "billing") — never include personal identifiers in the filename.
+6. **Programme detection.** Clusters of related anchors. One \`work/<slug>.md\` per cluster. The slug is generic ("authentication", "infra", "billing"). Never include personal identifiers in the filename.
+
+   Example skeleton for \`work/<slug>.md\`:
+
+   \`\`\`markdown
+   # <Programme title>
+
+   One-line description of what this programme covers.
+
+   ## Programme state (open items only)
+
+   - [ ] <Item 1> ([anchor](url))
+   - [ ] <Item 2> ([anchor](url))
+
+   ## Key decisions
+
+   - <YYYY-MM-DD>: <decision> ([anchor](url))
+   - <YYYY-MM-DD>: <decision> ([anchor](url))
+
+   ## Stakeholders
+
+   - <name> (<platform IDs>): <role inference>
+   \`\`\`
 
 Call \`record_audit_progress({ audit_id, phase: 'synthesizing', message: 'synthesizing identity, priorities, stakeholders, voice, open loops, programmes' })\`.
 
