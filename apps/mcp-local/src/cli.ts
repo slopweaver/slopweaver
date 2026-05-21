@@ -484,6 +484,41 @@ cli
 
 cli
   .command(
+    'slack-extract-xoxc',
+    'Find the user xoxc token in a Slack localStorage dump read from stdin. Pairs with the slack-extract-token skill.',
+  )
+  .option(
+    '--format <fmt>',
+    'Output format: "token" (default, bare token + newline) or "export" (`export SLACK_XOXC=...` shell line).',
+    { default: 'token' },
+  )
+  .example('  cat localstorage.json | slopweaver slack-extract-xoxc')
+  .example('  eval "$(cat localstorage.json | slopweaver slack-extract-xoxc --format export)"')
+  .action(async (opts: { format?: string }) => {
+    try {
+      const format = opts.format === 'export' ? 'export' : 'token';
+      const { runSlackExtractXoxc } = await import('./slack-extract/cli-action.ts');
+      const code = await runSlackExtractXoxc({
+        flags: { format },
+        io: {
+          stdout,
+          stderr,
+          readStdin: async () => {
+            const chunks: Buffer[] = [];
+            for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+            return Buffer.concat(chunks).toString('utf-8');
+          },
+        },
+      });
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
+  });
+
+cli
+  .command(
     'annotate-image',
     'Composite an annotation overlay (boxes, arrows, text) onto an image. Spec is JSON; output is PNG.',
   )
