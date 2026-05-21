@@ -141,3 +141,74 @@ code {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.9em;
 }
+
+/* --- Flight-deck tab navigation ------------------------------------ */
+
+.flight-deck__tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.75rem 1.5rem 0;
+  border-bottom: 1px solid var(--border);
+  background: #f9fafb;
+}
+
+.flight-deck__tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 0.5rem 0.875rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  margin-bottom: -1px;
+}
+
+.flight-deck__tab:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: #1f2937;
+}
+
+.flight-deck__tab--active {
+  color: #1f2937;
+  border-bottom-color: #2563eb;
+  background: #ffffff;
+}
+
+/* --- Evidence list ------------------------------------------------- */
+
+.evidence-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.evidence-item {
+  display: grid;
+  grid-template-columns: 12rem 1fr 12rem;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+  align-items: baseline;
+}
+
+.evidence-item__chip {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.evidence-item__title {
+  overflow-wrap: anywhere;
+}
+
+.evidence-item__time {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
