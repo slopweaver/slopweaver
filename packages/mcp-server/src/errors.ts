@@ -20,7 +20,18 @@ export interface McpToolUnexpectedError extends BaseError {
   readonly cause?: unknown;
 }
 
-export type McpToolError = McpToolUnexpectedError;
+export interface SnapshotNameInvalidError extends BaseError {
+  readonly code: 'MCP_SNAPSHOT_NAME_INVALID';
+  readonly snapshotName: string;
+  readonly reason: string;
+}
+
+export interface SnapshotExistsError extends BaseError {
+  readonly code: 'MCP_SNAPSHOT_EXISTS';
+  readonly snapshotPath: string;
+}
+
+export type McpToolError = McpToolUnexpectedError | SnapshotNameInvalidError | SnapshotExistsError;
 
 export const McpErrors = {
   unexpected: (toolName: string, cause?: unknown, message?: string): McpToolUnexpectedError => ({
@@ -28,5 +39,22 @@ export const McpErrors = {
     message: message ?? `Unexpected error in tool "${toolName}"`,
     toolName,
     ...(cause !== undefined && { cause }),
+  }),
+  snapshotNameInvalid: ({
+    snapshotName,
+    reason,
+  }: {
+    snapshotName: string;
+    reason: string;
+  }): SnapshotNameInvalidError => ({
+    code: 'MCP_SNAPSHOT_NAME_INVALID',
+    message: `snapshot_name "${snapshotName}" is invalid: ${reason}`,
+    snapshotName,
+    reason,
+  }),
+  snapshotExists: ({ snapshotPath }: { snapshotPath: string }): SnapshotExistsError => ({
+    code: 'MCP_SNAPSHOT_EXISTS',
+    message: `snapshot already exists at ${snapshotPath}; pass overwrite: true to replace it`,
+    snapshotPath,
   }),
 } as const;

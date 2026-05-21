@@ -2,22 +2,22 @@ import { type ReactElement, useState } from 'react';
 import './App.css';
 import { Calibration } from './pages/Calibration.tsx';
 import { Diagnostics } from './pages/Diagnostics.tsx';
+import { Evidence } from './pages/Evidence.tsx';
 
-type Tab = 'diagnostics' | 'calibration';
+type Tab = 'diagnostics' | 'evidence' | 'calibration';
 
 /**
- * Top-level shell. Single-process tab state via `useState` — no
- * router, no URL sync (page count too small for either to pay back).
+ * Top-level shell for the flight-deck UI. Single-process tab state
+ * via `useState`. No router, no URL sync. The page count stays small
+ * enough that the cost of bringing in react-router doesn't pay back.
  *
  * Adding a new tab: append to `TABS`, create the matching page
- * component, add the switch arm in `renderActiveTab`.
- *
- * Note: PR #61 (flight-deck Evidence tab) ships a parallel tab arm.
- * When both merge, resolve the conflict by combining both tab lists +
- * both switch arms.
+ * component, add the switch arm in `renderActiveTab`. Three files
+ * touched per tab.
  */
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'diagnostics', label: 'Diagnostics' },
+  { id: 'evidence', label: 'Evidence' },
   { id: 'calibration', label: 'Calibration' },
 ];
 
@@ -49,6 +49,8 @@ function renderActiveTab(tab: Tab): ReactElement {
   switch (tab) {
     case 'diagnostics':
       return <Diagnostics />;
+    case 'evidence':
+      return <Evidence />;
     case 'calibration':
       return <Calibration />;
   }

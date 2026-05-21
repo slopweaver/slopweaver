@@ -5,9 +5,20 @@ import { App } from './App.tsx';
 
 describe('App (tab navigation)', () => {
   beforeEach(() => {
-    // jsdom has no fetch; stub it for the polling effects in both tabs.
-    Object.defineProperty(globalThis, 'fetch', {
-      value: vi.fn(async (url: string) => {
+    // jsdom doesn't define fetch. Stub it to return empty payloads so
+    // the polling effects in every tab complete cleanly. Use
+    // `vi.stubGlobal` so `vi.unstubAllGlobals()` in afterEach restores
+    // the original (undefined) value and doesn't leak the stub into
+    // subsequent test files. Matches the pattern in Diagnostics.test.tsx.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/api/evidence')) {
+          return {
+            ok: true,
+            json: async () => ({ rows: [], total_in_db: 0, generated_at: new Date().toISOString() }),
+          } as unknown as Response;
+        }
         if (url.includes('/api/calibration')) {
           return {
             ok: true,
@@ -46,19 +57,27 @@ describe('App (tab navigation)', () => {
           }),
         } as unknown as Response;
       }),
-      writable: true,
-    });
+    );
   });
 
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it('renders the Diagnostics tab by default', async () => {
     render(<App />);
     expect(screen.getByRole('button', { name: 'Diagnostics' }).getAttribute('aria-current')).toBe('page');
     await waitFor(() => screen.getByText(/Listening on/));
+  });
+
+  it('switches to the Evidence tab on click', async () => {
+    render(<App />);
+    const evidenceTab = screen.getByRole('button', { name: 'Evidence' });
+    fireEvent.click(evidenceTab);
+    expect(evidenceTab.getAttribute('aria-current')).toBe('page');
+    await waitFor(() => screen.getByRole('heading', { name: 'Evidence tail' }));
   });
 
   it('switches to the Calibration tab on click', async () => {
@@ -69,10 +88,17 @@ describe('App (tab navigation)', () => {
     await waitFor(() => screen.getByRole('heading', { name: 'Calibration' }));
   });
 
-  it('shows the empty-state copy when the log source is missing', async () => {
+  it('shows the empty-state copy when the calibration log is missing', async () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: 'Calibration' }));
     const emptyState = await waitFor(() => screen.getByText(/No walks recorded/));
     expect(emptyState).toBeTruthy();
+  });
+
+  it('renders all three tab buttons', () => {
+    render(<App />);
+    expect(screen.getByRole('button', { name: 'Diagnostics' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Evidence' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Calibration' })).toBeTruthy();
   });
 });
