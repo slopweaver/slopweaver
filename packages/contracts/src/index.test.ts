@@ -4,6 +4,7 @@ import {
   Freshness,
   PingArgs,
   PingResult,
+  RecordAuditProgressArgs,
   Reference,
   StartSessionArgs,
   StartSessionResult,
@@ -141,5 +142,52 @@ describe('EvidenceLogEntry', () => {
       citation_url: null,
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe('RecordAuditProgressArgs', () => {
+  it('accepts a polling event with a source', () => {
+    const result = RecordAuditProgressArgs.safeParse({
+      audit_id: 'audit_x',
+      phase: 'polling',
+      source: 'slack',
+      message: 'polling slack mentions',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a polling event without a source', () => {
+    // The refinement makes `source` required for polling events
+    // specifically. Other phases (inventory, aggregating, etc.)
+    // still permit omitting it.
+    const result = RecordAuditProgressArgs.safeParse({
+      audit_id: 'audit_x',
+      phase: 'polling',
+      message: 'polling but forgot to name a source',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const sourceIssue = result.error.issues.find((i) => i.path[0] === 'source');
+      expect(sourceIssue?.message).toBe('source is required when phase is "polling"');
+    }
+  });
+
+  it('accepts non-polling phases without a source', () => {
+    const result = RecordAuditProgressArgs.safeParse({
+      audit_id: 'audit_x',
+      phase: 'inventory',
+      message: 'detected 3 MCP servers: slack, github, linear',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an empty-string source on a polling event', () => {
+    const result = RecordAuditProgressArgs.safeParse({
+      audit_id: 'audit_x',
+      phase: 'polling',
+      source: '',
+      message: 'polling with empty source',
+    });
+    expect(result.success).toBe(false);
   });
 });

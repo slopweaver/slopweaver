@@ -113,6 +113,21 @@ describe('createGetFreshnessTool', () => {
     expect(parsed.freshness[0]?.stale).toBe(true);
   });
 
+  it('filters out `__`-prefixed sentinel rows (e.g. `__demo__`) so they never appear in the wire response', async () => {
+    // The demo seeder writes an `integration_state` row with
+    // integration = '__demo__' as a label for the demo DB profile. That row
+    // must not pollute the freshness output — it's not a real integration.
+    seedIntegrationState({ integration: '__demo__', lastPollCompletedAtMs: FIXED_NOW - FIVE_MIN });
+    seedIntegrationState({ integration: 'github', lastPollCompletedAtMs: FIXED_NOW - FIVE_MIN });
+
+    const tool = createGetFreshnessTool({ now: () => FIXED_NOW });
+    const raw = await callHandler(tool, {});
+    const parsed = GetFreshnessResult.parse(raw);
+
+    expect(parsed.freshness).toHaveLength(1);
+    expect(parsed.freshness[0]?.integration).toBe('github');
+  });
+
   it('returns entries sorted alphabetically by integration (deterministic across SQLite plans)', async () => {
     // Seed in reverse-alphabetical insertion order so a missing ORDER BY would
     // produce `['slack', 'github']` and fail this assertion.
