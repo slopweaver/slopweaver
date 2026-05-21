@@ -74,7 +74,21 @@ describe('createStartMegaAuditTool', () => {
     expect(a.isOk()).toBe(true);
     expect(b.isOk()).toBe(true);
     if (a.isOk() && b.isOk()) {
-      expect(a.value.audit_id).not.toBe(b.value.audit_id);
+      expect(a.value['audit_id']).not.toBe(b.value['audit_id']);
+    }
+  });
+
+  it('defaults to a UUID-suffixed id with a date prefix', async () => {
+    // The default generator uses crypto.randomUUID() for the suffix
+    // (122 bits of entropy) instead of Math.random(). Assert the
+    // shape: `audit_YYYYMMDD_<32-hex-chars>`. The 32-hex shape
+    // matches a UUID-without-dashes; if the implementation regresses
+    // to a 6-char Math.random suffix this test fails on length.
+    const tool = createStartMegaAuditTool({ now: () => FIXED_NOW });
+    const result = await tool.handler({ input: StartMegaAuditArgs.parse({}), ctx: { db: dbHandle.db } });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value['audit_id']).toMatch(/^audit_\d{8}_[0-9a-f]{32}$/);
     }
   });
 });

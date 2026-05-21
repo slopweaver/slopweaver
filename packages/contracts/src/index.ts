@@ -189,14 +189,22 @@ export const RecordAuditProgressArgs = z
     /** Audit run identifier. Generate once at the top of the audit; reuse for every progress event. */
     audit_id: NonEmptyStringSchema,
     phase: AuditPhaseSchema,
-    /** Optional MCP-server slug (e.g. "slack", "github") associated with this event. */
+    /** MCP-server slug (e.g. "slack", "github") associated with this event. Required when `phase === 'polling'` — every polling event must name the source it polled. */
     source: NonEmptyStringSchema.optional(),
     /** Free-form human-readable message. Surfaced verbatim in the UI tail. */
     message: NonEmptyStringSchema,
     /** Optional 0-100 progress hint for the current phase. */
     pct: z.number().int().min(0).max(100).optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => value.phase !== 'polling' || (value.source !== undefined && value.source.length > 0), {
+    // Polling events fan out per MCP server, so the live UI tails them
+    // grouped by source. A polling event with no `source` is a bug —
+    // reject it at the schema boundary so the bug fails loudly instead
+    // of silently rendering as "(unknown source)" in the UI.
+    message: 'source is required when phase is "polling"',
+    path: ['source'],
+  });
 export type RecordAuditProgressArgs = z.infer<typeof RecordAuditProgressArgs>;
 
 export const RecordAuditProgressResult = z

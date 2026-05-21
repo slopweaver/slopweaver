@@ -10,6 +10,7 @@
  * inline the returned instructions.
  */
 
+import { randomUUID } from 'node:crypto';
 import { StartMegaAuditArgs, StartMegaAuditResult } from '@slopweaver/contracts';
 import { ok } from '@slopweaver/errors';
 import { defineTool, type Tool } from '../../registry.ts';
@@ -53,8 +54,14 @@ export function createStartMegaAuditTool(args: CreateStartMegaAuditToolArgs = {}
 }
 
 function defaultGenerator(nowMs: number): string {
+  // The date prefix keeps audit_ids sortable on disk + greppable in
+  // logs. The UUID v4 suffix gives 122 bits of unguessable entropy —
+  // `Math.random()` is neither cryptographically random nor collision-
+  // resistant across rapid concurrent calls. Strip the dashes so the
+  // id is safe as a filename segment (the record_audit_progress
+  // handler validates `[A-Za-z0-9._-]` anyway).
   const datePart = formatDate(new Date(nowMs)).replaceAll('-', '');
-  const randomPart = Math.random().toString(36).slice(2, 8);
+  const randomPart = randomUUID().replaceAll('-', '');
   return `audit_${datePart}_${randomPart}`;
 }
 

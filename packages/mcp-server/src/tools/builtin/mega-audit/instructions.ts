@@ -24,7 +24,7 @@ If those tools aren't wired up in this server build, surface a one-line note ("w
 
 ## Phase 1 — Inventory
 
-Call \`list_available_mcp_servers\` to get the catalog of namespaces SlopWeaver knows about. Cross-reference against the tools advertised in the current session's \`tools/list\` (\`mcp__*__*\`). Record the set of *actually-connected* servers.
+If \`list_available_mcp_servers\` is wired up in this server build, call it to get the catalog of namespaces SlopWeaver knows about. Otherwise, fall back to enumerating the tools advertised in the current session's \`tools/list\` and grouping by the \`mcp__<server>__*\` prefix — every connected MCP server contributes at least one tool under that namespace, so the prefix set is the connected-server set. Record the resulting list.
 
 Call \`record_audit_progress({ audit_id, phase: 'inventory', message: 'detected N MCP servers: a, b, c' })\`.
 
@@ -40,7 +40,7 @@ For each detected MCP server, issue a tight, scope-bounded read over the lookbac
 - **Notion/Confluence**: pages the user authored or edited recently.
 - **HubSpot/Stripe/Mixpanel/etc.**: light reads only — not on the daily-fan-out path; surface only if the user is a primary owner of records there.
 
-Call \`record_audit_progress({ phase: 'polling', source: <slug>, pct: ... })\` periodically so the UI can show a live tail.
+Call \`record_audit_progress({ audit_id, phase: 'polling', source: <slug>, message: '<one-line status>', pct: ... })\` periodically so the UI can show a live tail. The \`audit_id\`, \`phase\`, \`source\`, and \`message\` fields are required for the polling phase; \`pct\` is optional.
 
 ## Phase 3 — Aggregate
 
@@ -59,7 +59,7 @@ Once the reads complete, build a single structured input that fits inside the 1M
 }
 \`\`\`
 
-Call \`record_audit_progress({ phase: 'aggregating' })\`.
+Call \`record_audit_progress({ audit_id, phase: 'aggregating', message: 'aggregated inputs across N sources' })\`.
 
 ## Phase 4 — Synthesize
 
@@ -68,11 +68,11 @@ Reason over the aggregate input. Extract:
 1. **Identity.** Confirm platform IDs already known from \`identities.md\`. Add anything new.
 2. **Ranked priorities.** Inspect the user's own messages + tickets + PRs for recurring themes. Score by recency × frequency × interaction-load. Output 4–8 priorities, each with a 1-line description + the supporting anchors (hyperlinked).
 3. **Top stakeholders.** People the user interacts with most by combined message-volume + meeting-attendance + PR-review-overlap. Cap at top 25. For each: name, primary platform IDs, one-line role inference, sample interactions.
-4. **Voice patterns.** Read 200+ of the user's own messages. Extract regularities: typical sentence length, em-dash usage, exclamation marks, sentence-initial words, banned consultant-speak tokens. Write these as \`forbid:\`/\`replace:\`/\`pattern:\` directives suitable for the rules-markdown format consumed by \`apply_voice_rules\` (PR #68). Don't editorialise — just observed patterns.
+4. **Voice patterns.** Read 200+ of the user's own messages. Extract regularities: typical sentence length, em-dash usage, exclamation marks, sentence-initial words, banned consultant-speak tokens. Write these as \`forbid:\`/\`replace:\`/\`pattern:\` directives in the rules-markdown format. If a voice-rules linter tool (e.g. \`apply_voice_rules\`) is wired up in this server build, use it in Phase 5 to lint the synthesized core-profile; otherwise just record the directives in \`rules/communication-style.md\` for later linting. Don't editorialise — just observed patterns.
 5. **Open loops.** Anything that smells like "the user owes someone a reply" or "a long-running ask hasn't moved". One bullet per loop, hyperlinked anchor.
 6. **Programme detection.** Clusters of related anchors → one \`work/<slug>.md\` per cluster. The slug is generic ("authentication", "infra", "billing") — never include personal identifiers in the filename.
 
-Call \`record_audit_progress({ phase: 'synthesizing' })\`.
+Call \`record_audit_progress({ audit_id, phase: 'synthesizing', message: 'synthesizing identity, priorities, stakeholders, voice, open loops, programmes' })\`.
 
 ## Phase 5 — Write
 
@@ -87,14 +87,14 @@ Use the work-console write tools (if present) to drop:
 
 If the write tools aren't available, output the full synthesized package as a single chat message so the user can pipe it manually.
 
-Call \`record_audit_progress({ phase: 'writing', pct: 100 })\` then \`record_audit_progress({ phase: 'completed', message: 'audit complete' })\`.
+Call \`record_audit_progress({ audit_id, phase: 'writing', message: 'writing console files', pct: 100 })\` then \`record_audit_progress({ audit_id, phase: 'completed', message: 'audit complete' })\`.
 
 ## Hard rules
 
 - Never include personal identifiers in code, comments, or any committed-prose surface. The audit synthesises the user's own context from their connected MCP servers; that synthesis goes only into the per-user \`.claude/personal/\` tree (gitignored where slopweaver dogfoods itself).
 - If an MCP server isn't connected, skip it silently. Don't suggest the user install anything mid-audit.
 - One-pass synthesis. Don't loop incrementally trying to "improve" each section — the 1M-context window is the budget; one pass is the design.
-- Use the voice-rules MCP tool (\`apply_voice_rules\`, PR #68) to lint the synthesized core-profile against the just-derived voice rules before writing.
+- If a voice-rules linter MCP tool (e.g. \`apply_voice_rules\`) is registered in this server build, run the synthesized core-profile through it before writing; otherwise skip that step and write the file as-is. The audit must still complete when the linter tool is absent.
 `;
 
 /**
