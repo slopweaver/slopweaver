@@ -488,6 +488,38 @@ describe('createStartSessionTool', () => {
     expect(parsed.items.map((i) => i.title)).toEqual(['Newer', 'Older']);
   });
 
+  it('filters out `__`-prefixed sentinel integrations from both default-resolved and explicit lists', async () => {
+    // The demo seeder writes an `integration_state` row with
+    // integration = '__demo__' as a profile label. start_session must not
+    // treat it as a real integration in the freshness output, regardless of
+    // whether the caller supplies an explicit integrations list.
+    dbHandle.db
+      .insert(integrationState)
+      .values({
+        integration: '__demo__',
+        cursor: 'demo',
+        lastPollStartedAtMs: FIXED_NOW - FIVE_MIN,
+        lastPollCompletedAtMs: FIXED_NOW - FIVE_MIN,
+        createdAtMs: FIXED_NOW - FIVE_MIN,
+        updatedAtMs: FIXED_NOW - FIVE_MIN,
+      })
+      .run();
+    seedFreshIntegrationState('github');
+    seedEvidence({ integration: 'github', externalId: 'pr-1', title: 'A real PR' });
+
+    const tool = createStartSessionTool({ now: () => FIXED_NOW });
+
+    // Default-resolved path: union of pollers + integration_state rows.
+    const defaultResult = await callHandler(tool, {});
+    const defaultParsed = StartSessionResult.parse(defaultResult);
+    expect(defaultParsed.freshness.map((f) => f.integration)).toEqual(['github']);
+
+    // Explicit list path: caller-supplied integrations are still filtered.
+    const explicitResult = await callHandler(tool, { integrations: ['github', '__demo__'] });
+    const explicitParsed = StartSessionResult.parse(explicitResult);
+    expect(explicitParsed.freshness.map((f) => f.integration)).toEqual(['github']);
+  });
+
   it('breaks remaining ties by id asc — earlier insert first when score and occurredAtMs are equal', async () => {
     const idA = seedEvidence({
       integration: 'github',

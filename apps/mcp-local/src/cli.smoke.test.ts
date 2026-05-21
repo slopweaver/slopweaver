@@ -16,9 +16,9 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -164,6 +164,97 @@ describe('slopweaver bin (compiled CLI)', () => {
     expect(result.stderr).toContain('slopweaver:');
     expect(result.stderr).toContain('XDG_DATA_HOME must be an absolute path');
     expect(result.stderr).not.toMatch(/^\s+at /m);
+  });
+});
+
+describe('slopweaver bin demo mode (end-to-end)', () => {
+  let dataHome: string;
+
+  beforeEach(() => {
+    dataHome = mkdtempSync(resolve(tmpdir(), 'slopweaver-smoke-demo-'));
+  });
+
+  afterEach(() => {
+    rmSync(dataHome, { recursive: true, force: true });
+  });
+
+  it('demo seed populates a demo DB and start_session against it returns >0 evidence rows', async () => {
+    // Step 1: seed the demo DB via `slopweaver demo seed`. The subcommand
+    // is synchronous and exits — no transport plumbing required.
+    const seed = spawnSync(process.execPath, [cliPath, 'demo', 'seed'], {
+      env: {
+        ...process.env,
+        XDG_DATA_HOME: dataHome,
+      },
+      encoding: 'utf-8',
+    });
+    expect(seed.status).toBe(0);
+    expect(seed.stderr).toBe('');
+
+    const expectedDemoDb = join(dataHome, 'slopweaver', 'demo.db');
+    expect(existsSync(expectedDemoDb)).toBe(true);
+    // The real DB must NOT have been created by `demo seed` — the two
+    // files are siblings, not nested, and demo seeding only touches one.
+    const realDb = join(dataHome, 'slopweaver', 'slopweaver.db');
+    expect(existsSync(realDb)).toBe(false);
+
+    // Step 2: drive `start_session` against the demo DB by spawning the
+    // MCP server with --demo. The server resolves the demo DB path via
+    // the same `resolveDemoDbPath()` helper the subcommand used, so the
+    // seeded rows are visible immediately.
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [cliPath, '--demo', '--no-web-ui'],
+      env: {
+        ...process.env,
+        XDG_DATA_HOME: dataHome,
+      },
+      stderr: 'pipe',
+    });
+    const client = new Client({ name: 'slopweaver-smoke-demo', version: '0.0.0' });
+    await client.connect(transport);
+
+    try {
+      const startSession = await client.callTool({ name: 'start_session', arguments: {} });
+      expect(startSession.isError).toBeUndefined();
+      const parsed = StartSessionResult.safeParse(startSession.structuredContent);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        // PR #78 acceptance: a freshly seeded demo DB must produce a
+        // non-empty `start_session` response so a first-time user sees
+        // the real product surface, not an empty cache.
+        expect(parsed.data.items.length).toBeGreaterThan(0);
+        expect(parsed.data.evidence.length).toBeGreaterThan(0);
+        // Both shipped integrations are represented somewhere in the
+        // ranked response (start_session caps at max_items=10 by
+        // default, so we look across items + evidence to be robust to
+        // the ranking heuristic).
+        const integrations = new Set(parsed.data.evidence.map((e) => e.integration));
+        expect(integrations.has('github')).toBe(true);
+        expect(integrations.has('slack')).toBe(true);
+      }
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('demo exit removes the demo DB but leaves the real DB intact', () => {
+    // Seed first.
+    const seed = spawnSync(process.execPath, [cliPath, 'demo', 'seed'], {
+      env: { ...process.env, XDG_DATA_HOME: dataHome },
+      encoding: 'utf-8',
+    });
+    expect(seed.status).toBe(0);
+    const demoDb = join(dataHome, 'slopweaver', 'demo.db');
+    expect(existsSync(demoDb)).toBe(true);
+
+    // Then exit.
+    const exitResult = spawnSync(process.execPath, [cliPath, 'demo', 'exit'], {
+      env: { ...process.env, XDG_DATA_HOME: dataHome },
+      encoding: 'utf-8',
+    });
+    expect(exitResult.status).toBe(0);
+    expect(existsSync(demoDb)).toBe(false);
   });
 });
 
