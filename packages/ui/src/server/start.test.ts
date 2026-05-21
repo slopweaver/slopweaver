@@ -163,40 +163,101 @@ describe('startUiServer', () => {
   });
 
   describe('POST /api/companion/file', () => {
-    it('accepts a request with a cross-origin Origin (extension service worker)', async () => {
+    const EXTENSION_ORIGIN = 'chrome-extension://abcdef1234567890';
+
+    it('accepts a POST from the Chrome extension and echoes the extension Origin', async () => {
       // The Chrome extension's background worker sends Origin:
-      // `chrome-extension://<id>` (or none at all). The same-origin
-      // allow-list would reject that; the companion endpoint must
-      // bypass it. This is the P0 fix from #79.
+      // `chrome-extension://<id>`. The companion endpoint accepts
+      // *only* requests with this Origin prefix — and echoes the
+      // specific origin back, never `*`. This is the P0 fix from #79
+      // (iter-3): iter-1 wildcarded the response, letting any web
+      // page write to the local inbox.
       const h = await start();
       const res = await fetch(`${h.url}/api/companion/file`, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          origin: 'chrome-extension://abcdef1234567890',
-        },
+        headers: { 'content-type': 'application/json', origin: EXTENSION_ORIGIN },
         body: JSON.stringify({ url: 'https://github.com/o/r/pull/1', title: 'PR #1' }),
       });
       expect(res.status).toBe(200);
+      expect(res.headers.get('access-control-allow-origin')).toBe(EXTENSION_ORIGIN);
+      expect(res.headers.get('vary')).toContain('Origin');
       const body = (await res.json()) as { filed: boolean };
       expect(body.filed).toBe(true);
     });
 
-    it('responds to the CORS preflight OPTIONS request', async () => {
+    it('rejects a POST from a foreign web origin with 403', async () => {
+      // Any website the user visits could try `fetch('http://127.0.0.1:60701/api/companion/file', …)`.
+      // The endpoint must reject the request before any inbox write
+      // happens.
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+        body: JSON.stringify({ url: 'https://github.com/o/r/pull/1', title: 'PR #1' }),
+      });
+      expect(res.status).toBe(403);
+      // Critically: no `Access-Control-Allow-Origin` for the foreign
+      // origin — the browser would block the response from being read
+      // anyway, but defense-in-depth.
+      expect(res.headers.get('access-control-allow-origin')).toBe(null);
+    });
+
+    it('rejects a POST from the same loopback origin with 403', async () => {
+      // A page served at `http://localhost:60701` (the Diagnostics UI
+      // itself) must NOT be able to write to the inbox. This endpoint
+      // is for the extension only.
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: `http://localhost:${h.address.port}` },
+        body: JSON.stringify({ url: 'https://github.com/o/r/pull/1', title: 'PR #1' }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('rejects a POST with no Origin header with 403', async () => {
+      // Extensions always send Origin from a service-worker fetch.
+      // A missing Origin is either a curl-style local script or a
+      // browser context that stripped the header — neither is the
+      // companion. Reject.
+      const h = await start();
+      // node-fetch sends no Origin by default. Verify by sending an
+      // explicit empty string is treated the same — easiest to do via
+      // an http.request with no origin header. The default fetch()
+      // call without `headers.origin` already omits it.
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://github.com/o/r/pull/1', title: 'PR #1' }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('responds to the CORS preflight OPTIONS request from the extension', async () => {
       const h = await start();
       const res = await fetch(`${h.url}/api/companion/file`, {
         method: 'OPTIONS',
-        headers: { origin: 'chrome-extension://abcdef1234567890' },
+        headers: { origin: EXTENSION_ORIGIN },
       });
       expect(res.status).toBe(204);
+      expect(res.headers.get('access-control-allow-origin')).toBe(EXTENSION_ORIGIN);
       expect(res.headers.get('access-control-allow-methods')).toContain('POST');
+    });
+
+    it('rejects an OPTIONS preflight from a foreign web origin with 403', async () => {
+      const h = await start();
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        method: 'OPTIONS',
+        headers: { origin: 'https://evil.example' },
+      });
+      expect(res.status).toBe(403);
     });
 
     it('rejects a javascript: URL with 400', async () => {
       const h = await start();
       const res = await fetch(`${h.url}/api/companion/file`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', origin: EXTENSION_ORIGIN },
         body: JSON.stringify({ url: 'javascript:alert(1)', title: 'evil' }),
       });
       expect(res.status).toBe(400);
@@ -209,7 +270,7 @@ describe('startUiServer', () => {
       const h = await start();
       const res = await fetch(`${h.url}/api/companion/file`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', origin: EXTENSION_ORIGIN },
         body: JSON.stringify({ url: 'data:text/html,<script>x</script>', title: 'evil' }),
       });
       expect(res.status).toBe(400);
@@ -219,7 +280,7 @@ describe('startUiServer', () => {
       const h = await start();
       const res = await fetch(`${h.url}/api/companion/file`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', origin: EXTENSION_ORIGIN },
         body: JSON.stringify({ url: 'file:///etc/passwd', title: 'evil' }),
       });
       expect(res.status).toBe(400);
@@ -229,7 +290,7 @@ describe('startUiServer', () => {
       const h = await start();
       const res = await fetch(`${h.url}/api/companion/file`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', origin: EXTENSION_ORIGIN },
         body: 'not json',
       });
       expect(res.status).toBe(400);
@@ -237,7 +298,9 @@ describe('startUiServer', () => {
 
     it('rejects GET with 405 and Allow: POST, OPTIONS', async () => {
       const h = await start();
-      const res = await fetch(`${h.url}/api/companion/file`);
+      const res = await fetch(`${h.url}/api/companion/file`, {
+        headers: { origin: EXTENSION_ORIGIN },
+      });
       expect(res.status).toBe(405);
       expect(res.headers.get('allow')).toContain('POST');
     });

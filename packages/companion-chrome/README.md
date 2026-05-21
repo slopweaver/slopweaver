@@ -45,11 +45,37 @@ DNS-rebinding protection, so a direct content-script POST is
 correctly 403'd on `Origin`.
 
 The extension's background service worker has its own privileged
-fetch context (Chrome strips or sets a `chrome-extension://<id>`
-Origin that no normal allow-list could enumerate). The local server's
-companion endpoint is therefore the **one** route that skips the
-Origin guard — justified because the server is loopback-bound and the
-endpoint is write-only into a per-user inbox file.
+fetch context: every cross-origin request it makes sets `Origin:
+chrome-extension://<id>`. The local server's companion endpoint runs
+its own authentication-by-origin guard tuned for that: it accepts
+*only* requests whose `Origin` header starts with
+`chrome-extension://`, and echoes that specific origin back in
+`Access-Control-Allow-Origin` (never `*`).
+
+## Authentication model
+
+The `/api/companion/file` endpoint is the only route on the local
+SlopWeaver server that accepts writes from outside the Diagnostics
+UI. Its trust model is:
+
+- **Allowed**: `Origin: chrome-extension://<id>` — the extension's
+  background service worker. The exact origin is echoed back in
+  `Access-Control-Allow-Origin`.
+- **Rejected (403)**: every other `Origin` value, including
+  `https://evil.example`, `https://github.com`, and
+  `http://localhost:60701` (the Diagnostics UI itself). Web pages
+  cannot forge `Origin: chrome-extension://…` — the browser stamps
+  it from the request initiator's actual origin.
+- **Rejected (403)**: requests with *no* `Origin` header. The Chrome
+  service worker always sets one for cross-origin fetches to
+  `127.0.0.1`, so a missing Origin is not the companion.
+
+The server is loopback-bound (`127.0.0.1`), so a same-machine attacker
+who can run arbitrary code is already inside the trust boundary —
+that's not the threat model here. The threat model *is* "any
+malicious website the user visits should not be able to write to the
+local inbox," and the `chrome-extension://` Origin check defends
+exactly that.
 
 ## Message contract (content → background)
 

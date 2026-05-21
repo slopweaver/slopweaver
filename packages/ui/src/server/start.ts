@@ -192,17 +192,31 @@ function handleApi({
   companionCwd: string;
 }): void {
   // The companion endpoint is reached from the Chrome extension's
-  // background service worker. That request's Origin is either
-  // `chrome-extension://<id>` or absent (some extension fetches strip
-  // it), neither of which the same-origin allow-list accepts. The
-  // server is loopback-bound (127.0.0.1) so the only attack surface
-  // is malicious code on the same machine — and that's already inside
-  // the trust boundary. Skip the Origin guard for this endpoint and
-  // handle the CORS preflight explicitly.
+  // background service worker. The same-origin allow-list (which
+  // protects `/api/diagnostics`) would reject the extension's
+  // `chrome-extension://<id>` Origin, so this endpoint runs its own
+  // authentication-by-origin guard: it accepts requests *only* when
+  // the `Origin` header starts with `chrome-extension://`, and echoes
+  // that specific origin back (never `*`). A missing Origin header is
+  // rejected — the extension's service worker fetch always sends one.
+  //
+  // This is the authentication boundary for the companion: the
+  // server is loopback-bound, so a same-machine attacker is already
+  // inside the trust boundary, but *any web origin in the user's
+  // browser* must NOT be able to forge writes to the local inbox.
+  // That includes both same-origin (`http://localhost:60701`) and
+  // foreign (`https://evil.example`) browser pages — only the
+  // extension context is allowed.
   if (pathname === '/api/companion/file') {
+    if (!isCompanionOriginAllowed({ req })) {
+      writeText({ res, status: 403, body: 'forbidden origin\n' });
+      return;
+    }
+    const allowedOrigin = req.headers.origin as string;
     if (method === 'OPTIONS') {
       res.writeHead(204, {
-        'access-control-allow-origin': '*',
+        'access-control-allow-origin': allowedOrigin,
+        vary: 'Origin',
         'access-control-allow-methods': 'POST, OPTIONS',
         'access-control-allow-headers': 'content-type',
         'access-control-max-age': '600',
@@ -215,7 +229,7 @@ function handleApi({
       res.end('method not allowed\n');
       return;
     }
-    handleCompanionFile({ req, res, companionCwd }).catch((e: unknown) => {
+    handleCompanionFile({ req, res, companionCwd, allowedOrigin }).catch((e: unknown) => {
       writeText({ res, status: 500, body: `internal error: ${e instanceof Error ? e.message : String(e)}\n` });
     });
     return;
@@ -245,10 +259,12 @@ async function handleCompanionFile({
   req,
   res,
   companionCwd,
+  allowedOrigin,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
   companionCwd: string;
+  allowedOrigin: string;
 }): Promise<void> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
@@ -257,22 +273,55 @@ async function handleCompanionFile({
   try {
     payload = JSON.parse(raw);
   } catch {
-    writeJson({ res, status: 400, body: { filed: false, error: 'invalid JSON' } });
+    writeJson({ res, status: 400, body: { filed: false, error: 'invalid JSON' }, allowedOrigin });
     return;
   }
   const result = await buildCompanionFileResponse({ cwd: companionCwd, payload });
-  writeJson({ res, status: result.filed ? 200 : 400, body: result });
+  writeJson({ res, status: result.filed ? 200 : 400, body: result, allowedOrigin });
 }
 
-function writeJson({ res, status, body }: { res: ServerResponse; status: number; body: unknown }): void {
+function writeJson({
+  res,
+  status,
+  body,
+  allowedOrigin,
+}: {
+  res: ServerResponse;
+  status: number;
+  body: unknown;
+  allowedOrigin: string;
+}): void {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
-    // Same rationale as the OPTIONS preflight above: the companion's
-    // background worker calls this from the extension origin, which
-    // is not the bound localhost origin.
-    'access-control-allow-origin': '*',
+    // Echo the specific verified extension origin — never `*`. This
+    // is what makes `chrome-extension://` the authentication boundary:
+    // only the request that passed `isCompanionOriginAllowed` reaches
+    // this response, and the same origin is echoed back. Web pages
+    // calling this URL are rejected with 403 long before they reach
+    // here.
+    'access-control-allow-origin': allowedOrigin,
+    vary: 'Origin',
   });
   res.end(JSON.stringify(body));
+}
+
+/**
+ * The companion endpoint accepts requests *only* from the Chrome
+ * extension's background service worker, identified by an `Origin`
+ * header beginning with `chrome-extension://`. Missing Origin and any
+ * other scheme (`http://`, `https://`, `file://`, etc.) are rejected.
+ *
+ * The Chromium service worker `fetch()` always sets `Origin:
+ * chrome-extension://<id>` when issuing a cross-origin request to
+ * `http://127.0.0.1:60701`, so this check is reliable. A web page that
+ * tries to call this URL will send its own origin (e.g.
+ * `https://evil.example` or `http://localhost:60701`), which fails the
+ * prefix check.
+ */
+function isCompanionOriginAllowed({ req }: { req: IncomingMessage }): boolean {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string') return false;
+  return origin.startsWith('chrome-extension://');
 }
 
 function isOriginAllowed({
