@@ -52,14 +52,21 @@ export function createGetFreshnessTool(args: CreateGetFreshnessToolArgs = {}): T
         .orderBy(asc(integrationState.integration))
         .all();
 
-      const freshness: Freshness[] = rows.map((row) => {
-        const last = row.lastPollCompletedAtMs;
-        return {
-          integration: row.integration,
-          last_polled_at: last != null ? new Date(last).toISOString() : null,
-          stale: last == null || nowMs - last > staleThresholdMs,
-        };
-      });
+      // `__`-prefixed integration slugs are reserved sentinels (e.g. the
+      // `__demo__` label written by `slopweaver demo seed`) — they live in
+      // `integration_state` to mark the DB profile but are not real
+      // integrations, so they must not appear in the freshness wire
+      // response.
+      const freshness: Freshness[] = rows
+        .filter((row) => !row.integration.startsWith('__'))
+        .map((row) => {
+          const last = row.lastPollCompletedAtMs;
+          return {
+            integration: row.integration,
+            last_polled_at: last != null ? new Date(last).toISOString() : null,
+            stale: last == null || nowMs - last > staleThresholdMs,
+          };
+        });
 
       return ok({
         freshness,

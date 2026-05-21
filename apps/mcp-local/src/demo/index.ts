@@ -131,8 +131,11 @@ export type DemoExitDeps = {
 };
 
 /**
- * Remove the demo DB file. The real DB (`slopweaver.db`) is untouched
- * — future `slopweaver` invocations without `--demo` already use it.
+ * Remove the demo DB file. This does NOT change the MCP client config or
+ * the `SLOPWEAVER_DEMO` env var — if either of those still points the
+ * server at demo mode, the next launch will open an empty demo DB. The
+ * stdout copy reflects that: to actually return to real mode the user
+ * has to restart the server without `--demo` (and clear the env var).
  * Idempotent: succeeds silently if the demo DB doesn't exist.
  */
 export async function runDemoExit(deps: DemoExitDeps): Promise<number> {
@@ -146,7 +149,9 @@ export async function runDemoExit(deps: DemoExitDeps): Promise<number> {
   } else {
     deps.stdout.write('slopweaver: no demo DB present; nothing to remove.\n');
   }
-  deps.stdout.write('slopweaver: start the server without --demo to use your real DB.\n');
+  deps.stdout.write(
+    'slopweaver: exit removes the demo DB. To return to real mode, restart the server without --demo (or unset SLOPWEAVER_DEMO).\n',
+  );
   return 0;
 }
 

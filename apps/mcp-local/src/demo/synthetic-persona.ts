@@ -340,7 +340,7 @@ Acceptance rate this week: **78%** (up from 64% last week). Top friction tag: \`
 > 1. \`slopweaver demo seed\` — populate a demo DB with synthetic evidence.
 > 2. Add slopweaver to your MCP client in demo mode (or set \`SLOPWEAVER_DEMO=1\` on the slopweaver process).
 > 3. Ask your MCP client to call the \`start_session\` tool — it serves real evidence rows from the demo DB.
-> 4. \`slopweaver demo exit\` switches your client back to the real DB.
+> 4. \`slopweaver demo exit\` removes the demo DB. To return to real mode, restart the server without \`--demo\` (or unset \`SLOPWEAVER_DEMO\`).
 >
 > _To leave the demo and connect your own data, run \`claude mcp add slopweaver\` then \`slopweaver init\` for the interactive setup._
 `;

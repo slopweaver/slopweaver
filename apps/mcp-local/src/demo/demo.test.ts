@@ -222,7 +222,7 @@ describe('runDemoExit / dropDemoDbFile', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('removes a seeded demo DB', async () => {
+  it('removes a seeded demo DB and prints accurate copy about returning to real mode', async () => {
     await seedDemoDb({ demoDbPath, now: 1_700_000_000_000 });
     expect(existsSync(demoDbPath)).toBe(true);
 
@@ -231,9 +231,21 @@ describe('runDemoExit / dropDemoDbFile', () => {
     const code = await runDemoExit({ demoDbPath, stdout, stderr });
     expect(code).toBe(0);
     expect(existsSync(demoDbPath)).toBe(false);
+
+    // The exit command only deletes the demo DB file. It does not modify
+    // the MCP client config or the SLOPWEAVER_DEMO env var, so the copy
+    // must tell the user how to actually return to real mode.
+    const combined = stdout.write.mock.calls.map((c) => c[0]).join('');
+    expect(combined).toContain('exit removes the demo DB');
+    expect(combined).toContain('restart the server without --demo');
+    expect(combined).toContain('unset SLOPWEAVER_DEMO');
+    // Earlier copy falsely claimed exit "switches back to the real DB" —
+    // it doesn't. Make sure that misleading phrase is gone.
+    expect(combined).not.toContain('switch back to the real DB');
+    expect(combined).not.toContain('use your real DB');
   });
 
-  it('succeeds silently when no demo DB is present', async () => {
+  it('succeeds silently when no demo DB is present and still surfaces the return-to-real-mode copy', async () => {
     const stdout = { write: vi.fn() };
     const stderr = { write: vi.fn() };
     const code = await runDemoExit({ demoDbPath, stdout, stderr });
@@ -241,6 +253,8 @@ describe('runDemoExit / dropDemoDbFile', () => {
     expect(stderr.write).not.toHaveBeenCalled();
     const combined = stdout.write.mock.calls.map((c) => c[0]).join('');
     expect(combined).toContain('no demo DB present');
+    expect(combined).toContain('restart the server without --demo');
+    expect(combined).toContain('unset SLOPWEAVER_DEMO');
   });
 
   it('dropDemoDbFile returns removed:false when nothing exists', async () => {

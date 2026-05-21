@@ -472,7 +472,9 @@ cli
   .example('  slopweaver demo           # print synthetic snapshot to stdout')
   .example('  slopweaver demo seed      # populate a demo DB so start_session returns synthetic evidence')
   .example('  slopweaver demo reset     # drop the demo DB and re-seed')
-  .example('  slopweaver demo exit      # remove the demo DB and switch back to the real DB')
+  .example(
+    '  slopweaver demo exit      # remove the demo DB (restart without --demo / unset SLOPWEAVER_DEMO to return to real mode)',
+  )
   .action(async (action: string | undefined) => {
     try {
       const code = await dispatchDemoAction({ action });

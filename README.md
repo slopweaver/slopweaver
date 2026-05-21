@@ -98,7 +98,8 @@ slopweaver demo seed     # populates ~/.slopweaver/demo.db with ~22 synthetic ro
 slopweaver --demo        # runs the MCP server against demo.db instead of slopweaver.db
                          # (equivalent to SLOPWEAVER_DEMO=1)
 slopweaver demo reset    # drop + re-seed if the timestamps have drifted
-slopweaver demo exit     # remove demo.db when you're done
+slopweaver demo exit     # remove demo.db (restart the server without --demo,
+                         # or unset SLOPWEAVER_DEMO, to return to real mode)
 ```
 
 Once the server is running in demo mode, ask your MCP client to call the `start_session` tool — it serves the synthetic rows exactly the same way it would serve your real data. Only GitHub and Slack are covered (those are the integrations v1.0 actually ships); Linear / Gmail / Calendar are planned for v1.1+ and are intentionally absent from the demo so the snapshot can't claim a richer product than the binary delivers.
