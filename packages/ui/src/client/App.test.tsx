@@ -6,9 +6,13 @@ import { App } from './App.tsx';
 describe('App (tab navigation)', () => {
   beforeEach(() => {
     // jsdom doesn't define fetch — stub it to return empty payloads so
-    // the polling effects in both tabs complete cleanly.
-    Object.defineProperty(globalThis, 'fetch', {
-      value: vi.fn(async (url: string) => {
+    // the polling effects in both tabs complete cleanly. Use
+    // `vi.stubGlobal` so `vi.unstubAllGlobals()` in afterEach restores
+    // the original (undefined) value and doesn't leak the stub into
+    // subsequent test files. Matches the pattern in Diagnostics.test.tsx.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
         if (url.includes('/api/evidence')) {
           return {
             ok: true,
@@ -31,13 +35,13 @@ describe('App (tab navigation)', () => {
           }),
         } as unknown as Response;
       }),
-      writable: true,
-    });
+    );
   });
 
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it('renders the Diagnostics tab by default', async () => {

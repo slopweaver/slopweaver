@@ -75,4 +75,41 @@ describe('buildEvidenceTailResponse', () => {
     expect(r.rows[0]?.title).toBe('(no title)');
     expect(r.rows[0]?.kind).toBe('mention');
   });
+
+  it('returns the limit when the newest rows are unrenderable (both title and kind empty)', () => {
+    // Seed `limit` (=3) renderable rows below several unrenderable ones
+    // at the very top of the tail. With pre-filter limiting, the tail
+    // would return < 3 rows because the unrenderable rows would be
+    // dropped after the SQL LIMIT. Push the predicate into SQL and
+    // the tail returns exactly `limit` usable rows.
+    seed({ title: '', kind: '', occurredAtMs: FIXED_NOW }); // newest, unrenderable
+    seed({ title: '', kind: '', occurredAtMs: FIXED_NOW - ONE_MIN }); // unrenderable
+    seed({ title: 'a', occurredAtMs: FIXED_NOW - 2 * ONE_MIN });
+    seed({ title: 'b', occurredAtMs: FIXED_NOW - 3 * ONE_MIN });
+    seed({ title: 'c', occurredAtMs: FIXED_NOW - 4 * ONE_MIN });
+    const r = buildEvidenceTailResponse({ db: dbHandle.db, limit: 3, nowMs: FIXED_NOW });
+    expect(r.rows.length).toBe(3);
+    expect(r.rows.map((row) => row.title)).toEqual(['a', 'b', 'c']);
+    // `total_in_db` reflects renderable rows only — same population as
+    // the tail.
+    expect(r.total_in_db).toBe(3);
+  });
+
+  it('nulls citation_url when the stored value is not a valid URL', () => {
+    seed({ title: 'malformed', citationUrl: 'not a url', occurredAtMs: FIXED_NOW });
+    const r = buildEvidenceTailResponse({ db: dbHandle.db, nowMs: FIXED_NOW });
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0]?.citation_url).toBe(null);
+    expect(r.rows[0]?.title).toBe('malformed');
+  });
+
+  it('preserves citation_url when the stored value is a valid URL', () => {
+    seed({
+      title: 'good link',
+      citationUrl: 'https://example.com/foo',
+      occurredAtMs: FIXED_NOW,
+    });
+    const r = buildEvidenceTailResponse({ db: dbHandle.db, nowMs: FIXED_NOW });
+    expect(r.rows[0]?.citation_url).toBe('https://example.com/foo');
+  });
 });
