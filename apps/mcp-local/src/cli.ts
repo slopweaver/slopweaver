@@ -477,6 +477,20 @@ cli
   });
 
 cli
+  .command('walk', 'Print the ranked /lock-in walk queue from the local reconciliation file')
+  .example('  slopweaver walk')
+  .action(async () => {
+    try {
+      const { runWalk } = await import('./walk/index.ts');
+      const code = await runWalk({ cwd: processCwd(), stdout, stderr });
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
+  });
+
+cli
   .command(
     'demo [action]',
     'Demo mode (zero-friction try-before-BYOK). Actions: seed | reset | exit. With no action, prints a static snapshot.',
@@ -500,7 +514,7 @@ cli
 /**
  * Resolve `slopweaver demo [action]` to an exit code. Pulled out of
  * the cac action callback so TypeScript's narrowing doesn't have to
- * fight `process.exit`'s `never` return — every branch here returns a
+ * fight `process.exit`'s `never` return: every branch here returns a
  * concrete `number` that the action wraps in `exit()`.
  */
 async function dispatchDemoAction({ action }: { action: string | undefined }): Promise<number> {
