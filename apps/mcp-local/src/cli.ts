@@ -51,6 +51,7 @@ import {
   createRecordAuditProgressTool,
   createSearchWorkContextTool,
   createSnapshotProfileTool,
+  createStartDraftTool,
   createStartMegaAuditTool,
   createStartRetroTool,
   createStartSessionTool,
@@ -205,6 +206,7 @@ async function runMcpServer({ uiEnabled, demo }: { uiEnabled: boolean; demo: boo
       createRecordAuditProgressTool(),
       createStartRetroTool(),
       createSnapshotProfileTool(),
+      createStartDraftTool(),
     ],
   });
 

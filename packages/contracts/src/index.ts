@@ -144,6 +144,33 @@ export const SearchWorkContextResult = z
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
 
+// --- Draft generator -------------------------------------------------
+
+export const StartDraftArgs = z
+  .object({
+    /** Permalink to the thread / PR / ticket / email being replied to. */
+    thread_ref: NonEmptyStringSchema,
+    /** Optional one-line intent (e.g. "apologize for late chase", "request scope clarification"). */
+    intent: z.string().optional(),
+    /** Recipient identifier, used to pull stakeholder history via `recall` (when available). */
+    stakeholder: z.string().optional(),
+  })
+  .strict();
+export type StartDraftArgs = z.infer<typeof StartDraftArgs>;
+
+export const StartDraftResult = z
+  .object({
+    /** Stable id the caller passes back into record-style tools. */
+    draft_id: NonEmptyStringSchema,
+    /** Slugified filename the draft will be saved under, e.g. "drafts/pr-12345-deploy-review.md". */
+    suggested_path: NonEmptyStringSchema,
+    /** Instructional body the model follows to draft the reply. */
+    instructions: NonEmptyStringSchema,
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type StartDraftResult = z.infer<typeof StartDraftResult>;
+
 // --- Weekly retro ----------------------------------------------------
 
 export const StartRetroArgs = z

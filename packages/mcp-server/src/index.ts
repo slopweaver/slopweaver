@@ -40,6 +40,8 @@ export type {
 } from './tools/builtin/mega-audit/index.ts';
 export { createStartRetroTool, createSnapshotProfileTool } from './tools/builtin/retro/index.ts';
 export type { CreateStartRetroToolArgs, CreateSnapshotProfileToolArgs } from './tools/builtin/retro/index.ts';
+export { createStartDraftTool } from './tools/builtin/draft/index.ts';
+export type { CreateStartDraftToolArgs } from './tools/builtin/draft/index.ts';
 export { createStartSessionTool } from './tools/composite/start-session.ts';
 export type {
   CreateStartSessionToolArgs,
