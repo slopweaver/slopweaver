@@ -6,6 +6,9 @@
  * shape without spawning a process. The interactive loop (a v1.2
  * follow-up using `ink` or `node:readline`) consumes the same data
  * structure.
+ *
+ * Display numbering (1-based) is derived here from the array index —
+ * it's a presentation concern, not a property of the parsed model.
  */
 
 import type { WalkItem } from './parse-walk-order.ts';
@@ -24,6 +27,7 @@ export function renderWalkQueue(items: ReadonlyArray<WalkItem>): string {
     ].join('\n');
   }
 
+  const totalDigits = String(items.length).length;
   const lines: string[] = [];
   lines.push('slopweaver walk');
   lines.push('');
@@ -33,11 +37,14 @@ export function renderWalkQueue(items: ReadonlyArray<WalkItem>): string {
   lines.push('(Interactive loop ships in a follow-up PR — for now this is read-only.)');
   lines.push('');
 
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
+    const displayIndex = index + 1;
     const anchorBit = item.anchor != null ? `[${item.anchor}] ` : '';
     const priorityBit = item.priority != null ? `\`${item.priority}\` ` : '';
     const sourceBit = item.source_bucket != null ? ` (${item.source_bucket})` : '';
-    lines.push(`${pad(item.index)}. ${anchorBit}${priorityBit}${item.description}${sourceBit}`);
+    lines.push(
+      `${pad({ n: displayIndex, width: totalDigits })}. ${anchorBit}${priorityBit}${item.description}${sourceBit}`,
+    );
     if (item.anchor_url != null) {
       lines.push(`    ${item.anchor_url}`);
     }
@@ -46,6 +53,6 @@ export function renderWalkQueue(items: ReadonlyArray<WalkItem>): string {
   return lines.join('\n');
 }
 
-function pad(n: number): string {
-  return n < 10 ? ` ${n}` : `${n}`;
+function pad({ n, width }: { n: number; width: number }): string {
+  return String(n).padStart(width, ' ');
 }

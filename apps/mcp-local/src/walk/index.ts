@@ -36,8 +36,12 @@ export async function runWalk(deps: RunWalkDeps): Promise<number> {
     deps.stdout.write(`slopweaver walk: failed to read ${path}: ${e instanceof Error ? e.message : String(e)}\n`);
     return 1;
   }
-  const items = parseWalkOrder(content);
-  deps.stdout.write(renderWalkQueue(items));
+  const result = parseWalkOrder(content);
+  if (result.isErr()) {
+    deps.stdout.write(`slopweaver walk: ${result.error.message}\n`);
+    return 1;
+  }
+  deps.stdout.write(renderWalkQueue(result.value));
   return 0;
 }
 
