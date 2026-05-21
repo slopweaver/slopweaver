@@ -484,6 +484,57 @@ cli
 
 cli
   .command(
+    'add-voice-rule',
+    'Append a voice-rule directive (forbid/replace/pattern) to a markdown rules file. Powers the /correct skill.',
+  )
+  .option(
+    '--rules-file <path>',
+    'Path to the voice-rules markdown file. Created if missing. Falls back to $SLOPWEAVER_VOICE_RULES_PATH.',
+  )
+  .option('--forbid <token>', 'Add a `- forbid: <token>` directive. Repeatable.', { type: [] })
+  .option('--replace <from=>to>', 'Add a `- replace: <from> => <to>` directive. Repeatable.', { type: [] })
+  .option('--pattern <regex>', 'Add a `- pattern: <regex>` directive. Repeatable.', { type: [] })
+  .example('  slopweaver add-voice-rule --rules-file ./rules/communication-style.md --forbid delve')
+  .example('  slopweaver add-voice-rule --forbid notably --replace "utilize => use"')
+  .action(
+    async (opts: {
+      rulesFile?: string;
+      forbid?: string | ReadonlyArray<string>;
+      replace?: string | ReadonlyArray<string>;
+      pattern?: string | ReadonlyArray<string>;
+    }) => {
+      try {
+        const rulesFile = opts.rulesFile ?? env['SLOPWEAVER_VOICE_RULES_PATH'];
+        if (rulesFile === undefined || rulesFile.length === 0) {
+          stderr.write(
+            'add-voice-rule: pass --rules-file or set SLOPWEAVER_VOICE_RULES_PATH so the directive has somewhere to land.\n',
+          );
+          exit(2);
+        }
+        const toArray = (v: string | ReadonlyArray<string> | undefined): ReadonlyArray<string> => {
+          if (v === undefined) return [];
+          return Array.isArray(v) ? v : [v as string];
+        };
+        const { runAddVoiceRule } = await import('./voice-rule/cli-action.ts');
+        const code = await runAddVoiceRule({
+          flags: {
+            rulesFile,
+            forbid: toArray(opts.forbid),
+            replace: toArray(opts.replace),
+            pattern: toArray(opts.pattern),
+          },
+          io: { stdout, stderr },
+        });
+        exit(code);
+      } catch (error: unknown) {
+        stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+        exit(1);
+      }
+    },
+  );
+
+cli
+  .command(
     'slack-extract-xoxc',
     'Find the user xoxc token in a Slack localStorage dump read from stdin. Pairs with the slack-extract-token skill.',
   )
