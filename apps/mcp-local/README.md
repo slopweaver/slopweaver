@@ -67,5 +67,7 @@ over stdio.
 
 In: stdio MCP server, `ping` tool, `--version` / `--help` / `--no-web-ui`,
 the local Diagnostics web UI on `127.0.0.1:60701`, the `init` first-run
-wizard, and the `connect <integration>` subcommands. Out: `doctor`. That
-ships in a follow-up issue.
+wizard, the `connect <integration>` subcommands, and the `walk` subcommand
+(read-only: prints the ranked `/lock-in` queue from
+`.claude/personal/state/reconciliation.md`; the interactive TUI verb-loop
+ships in a follow-up PR). Out: `doctor`. That ships in a follow-up issue.
