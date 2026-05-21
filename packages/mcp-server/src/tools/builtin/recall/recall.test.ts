@@ -58,7 +58,7 @@ describe('createRecallTool', () => {
     if (result.isOk()) {
       const parsed = RecallResult.parse(result.value);
       expect(parsed.hits.length).toBe(2); // the auth rows; not the typos row
-      expect(parsed.embedder).toBe('hash-bag-256');
+      expect(parsed.embedder).toBe('hash-bag-4096');
       expect(parsed.hits[0]?.score).toBeGreaterThan(parsed.hits[1]?.score ?? 1.1);
     }
   });

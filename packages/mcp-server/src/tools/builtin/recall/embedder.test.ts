@@ -10,7 +10,7 @@ describe('createHashBagEmbedder', () => {
 
   it('produces a normalized vector of the configured dimensions', async () => {
     const v = await embedder.embed('hello world');
-    expect(v.length).toBe(256);
+    expect(v.length).toBe(4096);
     let norm = 0;
     for (const x of v) norm += x * x;
     expect(Math.sqrt(norm)).toBeCloseTo(1, 5);
@@ -36,8 +36,8 @@ describe('createHashBagEmbedder', () => {
   });
 
   it('exposes a stable name + dimensions', () => {
-    expect(embedder.name).toBe('hash-bag-256');
-    expect(embedder.dimensions).toBe(256);
+    expect(embedder.name).toBe('hash-bag-4096');
+    expect(embedder.dimensions).toBe(4096);
   });
 
   it('produces signed components (not just non-negative counts)', async () => {
@@ -86,8 +86,14 @@ describe('cosineSimilarity', () => {
   it('keeps known unsigned-hashing collision pairs near zero', async () => {
     // The unsigned bag-of-buckets variant scored these greek-letter pairs
     // at 1.0 because their sha1-mod-256 buckets happened to collide. The
-    // signed variant has the same bucket collision but an opposing sign
-    // bit, so the dot product drops back to the disjoint-vocab baseline.
+    // single-hash signed variant fixed bucket-only collisions but still
+    // pinned to +1.0 when the sign bit also matched (e.g. `epsilon`/`chi`).
+    // Multi-hash sketching (k=3, 4096 buckets) drops the all-buckets-
+    // collide probability to ~1e-12; single-bucket collisions can still
+    // contribute 1/k = ~0.333 to cosine when the sign matches, so the
+    // threshold is set to 0.5 for the worst-case single-token regime.
+    // Multi-token corpora cancel collisions in expectation — see the
+    // multi-token disjoint-corpus test below for the tighter bound.
     const pairs: ReadonlyArray<readonly [string, string]> = [
       ['theta', 'tau'],
       ['epsilon', 'omega'],
@@ -95,9 +101,53 @@ describe('cosineSimilarity', () => {
     for (const [left, right] of pairs) {
       const a = await embedder.embed(left);
       const b = await embedder.embed(right);
-      // Single-token collisions can still spike +/-1 on the few buckets
-      // they occupy. The point is that they're no longer pinned to +1.
-      expect(cosineSimilarity(a, b)).toBeLessThan(0.999);
+      expect(Math.abs(cosineSimilarity(a, b))).toBeLessThan(0.5);
+    }
+  });
+
+  it('keeps disjoint single-token pairs from collapsing to +1.0 (multi-hash regression)', async () => {
+    // Iter-2 of PR #70 found that signed feature hashing with a single
+    // (bucket, sign) pair per token still produced false +1.0 scores
+    // when two unrelated tokens collided on BOTH bucket AND sign — e.g.
+    // `epsilon`/`chi` and `xi`/`phi` under the 256-bucket variant. The
+    // fix is multi-hash sketching (k=3 independent bucket+sign pairs
+    // per token), which drops all-pairs-collide probability to ~1e-12
+    // at 4096 buckets. This test sweeps a broad set of disjoint Greek
+    // and Latin token pairs and asserts NONE score above 0.3 (loose
+    // upper bound — actual scores cluster near zero, often exactly 0
+    // when no bucket overlap occurs at all).
+    const pairs: ReadonlyArray<readonly [string, string]> = [
+      // Pairs observed to false-positive in iter-2:
+      ['epsilon', 'chi'],
+      ['xi', 'phi'],
+      // Other Greek letters paired arbitrarily:
+      ['alpha', 'beta'],
+      ['gamma', 'delta'],
+      ['zeta', 'eta'],
+      ['theta', 'iota'],
+      ['kappa', 'lambda'],
+      ['mu', 'nu'],
+      ['omicron', 'rho'],
+      ['sigma', 'upsilon'],
+      ['psi', 'omega'],
+      // Latin/English pairs across unrelated domains:
+      ['payment', 'compiler'],
+      ['invoice', 'lexer'],
+      ['customer', 'parser'],
+      ['subscription', 'grammar'],
+      ['renewal', 'token'],
+      ['billing', 'production'],
+      ['refund', 'syntax'],
+      ['dashboard', 'inference'],
+      ['analytics', 'gradient'],
+      ['warehouse', 'neuron'],
+      ['router', 'embedding'],
+    ];
+    for (const [left, right] of pairs) {
+      const a = await embedder.embed(left);
+      const b = await embedder.embed(right);
+      const score = cosineSimilarity(a, b);
+      expect(Math.abs(score)).toBeLessThan(0.3);
     }
   });
 

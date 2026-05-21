@@ -24,7 +24,19 @@
  * corpora score near zero rather than near one. Reference: Weinberger
  * et al., "Feature Hashing for Large Scale Multitask Learning" (2009).
  *
- * The 256-dimensional fingerprint gives reasonable substring-overlap
+ * **Why multi-hash sketching.** Single-hash signed feature hashing
+ * still pins unrelated single-token inputs to +1.0 cosine when their
+ * one (bucket, sign) pair happens to collide — for the previous
+ * 256-bucket variant `epsilon`/`chi` and `xi`/`phi` both did this.
+ * We map each token into k=3 (bucket, sign) pairs derived from
+ * independent slices of the same sha1 digest; vectors accumulate
+ * `(1/sqrt(k)) * sign` into each of the k buckets. The probability
+ * that two unrelated tokens collide on ALL k bucket-sign pairs is
+ * `(1 / (2 * bucket_count))^k`, which for 4096 buckets and k=3 is
+ * ~1.8e-12 — vanishingly small. The `1/sqrt(k)` scaling keeps each
+ * token's contribution unit-norm regardless of k.
+ *
+ * The 4096-dimensional fingerprint gives reasonable substring-overlap
  * similarity at low cost. Cosine similarity of two embeddings is what
  * `recall` ranks on. Vectors are L2-normalized inside `embed`, so the
  * similarity helper is a plain dot product in [-1, 1].
@@ -45,7 +57,18 @@ export type Embedder = {
   readonly embed: (text: string) => Promise<Float32Array>;
 };
 
-const DEFAULT_DIMENSIONS = 256;
+const DEFAULT_DIMENSIONS = 4096;
+
+/**
+ * Number of independent (bucket, sign) pairs each token contributes
+ * to. With k=3 and 4096 buckets the all-pairs-collide probability
+ * between two distinct tokens is ~1.8e-12, which moves false-positive
+ * +1.0 cosine scores from "observed in practice" to "won't happen in
+ * any realistic test or corpus." sha1 produces 20 bytes; each
+ * (bucket, sign) pair consumes 5 (4 for bucket + 1 for sign), so k=3
+ * fits in one digest with bytes 0..14.
+ */
+const HASH_COPIES = 3;
 
 /** Tokenize: lowercase, split on non-word, strip 1-char tokens + stopwords. */
 const STOPWORDS = new Set([
@@ -86,26 +109,36 @@ function tokenize(text: string): string[] {
 }
 
 /**
- * Hash a token to (bucket, sign). Both come from the same sha1
- * digest but use independent byte ranges so they're statistically
- * uncorrelated:
- *  - bucket: first 4 bytes → uint32 → modulo dimensions
- *  - sign:   byte 4, low bit → -1 or +1
+ * Hash a token to k independent (bucket, sign) pairs. All k pairs
+ * come from the same sha1 digest but use disjoint byte ranges so
+ * they're statistically uncorrelated. For each copy i in 0..k-1:
+ *  - bucket: bytes (5*i)..(5*i+3) as uint32 BE → modulo dimensions
+ *  - sign:   byte (5*i+4), low bit → -1 or +1
+ *
+ * sha1 produces 20 bytes; HASH_COPIES=3 uses bytes 0..14.
  */
-function hashTokenSigned({ token, dimensions }: { token: string; dimensions: number }): {
+function hashTokenSigned({ token, dimensions }: { token: string; dimensions: number }): ReadonlyArray<{
   bucket: number;
   sign: 1 | -1;
-} {
+}> {
   const digest = createHash('sha1').update(token).digest();
-  const first = digest.readUInt32BE(0);
-  const bucket = first % dimensions;
-  const signByte = digest[4] ?? 0;
-  const sign: 1 | -1 = (signByte & 1) === 0 ? 1 : -1;
-  return { bucket, sign };
+  const pairs: Array<{ bucket: number; sign: 1 | -1 }> = [];
+  for (let i = 0; i < HASH_COPIES; i += 1) {
+    const offset = i * 5;
+    const bucket = digest.readUInt32BE(offset) % dimensions;
+    const signByte = digest[offset + 4] ?? 0;
+    const sign: 1 | -1 = (signByte & 1) === 0 ? 1 : -1;
+    pairs.push({ bucket, sign });
+  }
+  return pairs;
 }
 
 export function createHashBagEmbedder(args: { dimensions?: number } = {}): Embedder {
   const dimensions = args.dimensions ?? DEFAULT_DIMENSIONS;
+  // Per-copy scaling so each token's combined contribution across the
+  // k buckets has L2 norm 1, matching the single-hash variant's
+  // behavior. Independent of token vocabulary or token count.
+  const perCopyWeight = 1 / Math.sqrt(HASH_COPIES);
   return {
     name: `hash-bag-${dimensions}`,
     dimensions,
@@ -113,8 +146,10 @@ export function createHashBagEmbedder(args: { dimensions?: number } = {}): Embed
       const vec = new Float32Array(dimensions);
       const tokens = tokenize(text);
       for (const token of tokens) {
-        const { bucket, sign } = hashTokenSigned({ token, dimensions });
-        vec[bucket] = (vec[bucket] ?? 0) + sign;
+        const pairs = hashTokenSigned({ token, dimensions });
+        for (const { bucket, sign } of pairs) {
+          vec[bucket] = (vec[bucket] ?? 0) + sign * perCopyWeight;
+        }
       }
       // L2-normalize so cosine similarity = dot product.
       let norm = 0;
