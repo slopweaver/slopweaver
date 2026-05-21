@@ -13,12 +13,19 @@
  */
 
 /**
- * Returns the input URL if it parses as an absolute URL, else `null`.
- * Treats empty / null inputs as null so callers don't need to pre-check.
- * Uses Node 22's `URL.canParse` so we don't pay the cost of a thrown
- * Error for malformed inputs.
+ * Returns the input URL if it parses as an absolute `http(s):` URL, else
+ * `null`. Treats empty / null inputs as null so callers don't need to
+ * pre-check. Rejects every other URL scheme (`javascript:`, `data:`,
+ * `file:`, `chrome:`, `ftp:`, etc.) so that the value, when rendered
+ * into a clickable `<a href>` in the client, can't be used as an XSS
+ * vector. `URL.canParse('javascript:alert(1)')` returns `true`, so a
+ * `canParse` check alone is not sufficient — we parse and then assert
+ * the protocol explicitly.
  */
 export function safeCitationUrl(url: string | null): string | null {
   if (url === null || url.length === 0) return null;
-  return URL.canParse(url) ? url : null;
+  if (!URL.canParse(url)) return null;
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  return url;
 }
