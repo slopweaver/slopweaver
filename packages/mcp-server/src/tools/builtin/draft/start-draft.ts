@@ -33,7 +33,10 @@ export function createStartDraftTool(args: CreateStartDraftToolArgs = {}): Tool 
     handler: async ({ input }) => {
       const nowMs = now();
       const draftId = generateDraftId(nowMs);
-      const suggestedPath = `drafts/${slugifyAnchor(input.thread_ref)}.md`;
+      // Include `draft_id` so calling `/draft` twice for the same thread
+      // doesn't overwrite the first draft. The slug stays as the
+      // human-readable anchor; the id is the uniqueness guarantee.
+      const suggestedPath = `drafts/${slugifyAnchor(input.thread_ref)}-${draftId}.md`;
       return ok({
         draft_id: draftId,
         suggested_path: suggestedPath,

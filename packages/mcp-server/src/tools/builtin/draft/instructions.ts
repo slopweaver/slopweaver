@@ -33,6 +33,14 @@ The user reviews, edits if needed, then triggers \`send_via_source\`
    full conversation, not just the last message — the user's reply
    needs to address the actual ask.
 
+   **Failure mode — missing source MCP.** If the MCP server hosting
+   the thread is not connected (no Slack MCP for a \`slack:\` ref, no
+   GitHub MCP / \`gh\` CLI for a \`github:\` ref, no Gmail MCP for a
+   \`gmail:\` ref), **fail closed**. Stop and return an error to chat:
+   "Cannot draft: source thread MCP for <platform> is not connected.
+   Install/authenticate the relevant MCP server, then retry." Do not
+   guess at the thread contents from the ref alone.
+
 2. **Pull stakeholder history.** If \`recall\` is available (PR #57)
    and \`stakeholder\` is supplied, call:
 
@@ -47,6 +55,13 @@ The user reviews, edits if needed, then triggers \`send_via_source\`
    The hits surface the user's last 10–15 interactions with this
    stakeholder. Use them to calibrate tone — formal vs casual, prior
    in-jokes, recurring topics, response cadence.
+
+   **Failure mode — \`recall\` not available.** If PR #57 hasn't
+   merged yet (or the \`recall\` tool isn't registered for any other
+   reason), **continue without it**. Add a note to the chat output:
+   "Historical stakeholder context unavailable (recall tool not
+   registered); calibrating tone from the thread alone." Do not block
+   the draft on this.
 
 3. **Pull voice rules.** Read \`.claude/personal/rules/communication-style.md\`
    via \`read_console_file\` (PR #54) — or, if the work-console tools
@@ -63,6 +78,12 @@ The user reviews, edits if needed, then triggers \`send_via_source\`
    phrases per voice rules"). Use the rewritten string as the final
    draft.
 
+   **Failure mode — \`apply_voice_rules\` not available.** If PR #68
+   hasn't merged yet (or the tool isn't registered), **continue
+   without the lint pass**. Add a warning to the chat output: "Voice
+   lint skipped (apply_voice_rules tool not registered); review the
+   draft manually for tone." Do not block the draft on this.
+
 6. **Save.** Use \`write_console_file\` (PR #54) to drop the draft at
    the \`suggested_path\` returned by this tool. Include frontmatter:
 
@@ -70,7 +91,7 @@ The user reviews, edits if needed, then triggers \`send_via_source\`
    ---
    draft_id: <id>
    thread_ref: <ref>
-   target: <slack:C123/thread:1234.5678 | github:owner/repo/pulls/456 | ...>
+   target: <see "Supported target shapes" below>
    status: pending
    ---
    \`\`\`
@@ -78,17 +99,43 @@ The user reviews, edits if needed, then triggers \`send_via_source\`
    The \`target:\` field is what \`send_via_source\` (PR #59) parses
    later to route the send. Build it from the \`thread_ref\`.
 
+   **Failure mode — \`write_console_file\` not available.** If the
+   work-console tools aren't registered, **do not block the draft**.
+   Instead, return the full draft body (frontmatter + content) inline
+   in the chat output, and tell the user: "Could not write to
+   \`<suggested_path>\` (write_console_file not registered); the full
+   draft is above — copy it into your console manually."
+
 7. **Surface.** Print the draft to chat. End with one line:
    \`Draft saved to <path>. Reply with \\\`send\\\` to deliver via <platform>, or edit + re-save.\`
+
+## Supported \`target:\` shapes
+
+The \`target:\` field in the frontmatter is what \`send_via_source\`
+(PR #59) parses. Use exactly one of these forms — \`parse-target.ts\`
+will reject anything else:
+
+- \`slack:<channel_id>/thread:<thread_ts>\` (e.g.
+  \`slack:C1234567/thread:1700000000.123456\`)
+- \`gmail:<thread_id>\` (e.g. \`gmail:18f3c2a9b1e4d5f6\`)
+- \`github:<owner>/<repo>/pull/<number>\` (e.g.
+  \`github:slopweaver/slopweaver/pull/71\`) — note: \`pull\`, not
+  \`pulls\`.
+- \`github:<owner>/<repo>/issue/<number>\` (e.g.
+  \`github:slopweaver/slopweaver/issue/42\`) — note: \`issue\`, not
+  \`issues\`.
 
 ## Hard rules
 
 - **Never send.** This tool drafts; \`send_via_source\` sends. The
   user is the final gate.
-- **Apply voice rules.** Always pass through \`apply_voice_rules\`
-  before saving. The post-processor is the last-mile safety net.
+- **Apply voice rules when available.** Pass through
+  \`apply_voice_rules\` before saving when the tool is registered;
+  surface a warning in chat when it isn't (see step 5).
 - **One draft per call.** If the user wants alternatives, they can
-  call \`/draft\` again with a different \`intent\`.
+  call \`/draft\` again with a different \`intent\`. The
+  \`suggested_path\` includes the \`draft_id\`, so repeat calls don't
+  overwrite earlier drafts.
 - **No personal data hardcoded in the output.** Pull all
   identifiers from the source thread + stakeholder lookup — never
   guess names or contexts.

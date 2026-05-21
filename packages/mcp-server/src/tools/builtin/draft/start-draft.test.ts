@@ -57,12 +57,84 @@ describe('createStartDraftTool', () => {
     if (result.isOk()) {
       const parsed = StartDraftResult.parse(result.value);
       expect(parsed.draft_id).toBe('draft_fixed');
-      expect(parsed.suggested_path).toBe('drafts/https-github-com-owner-repo-pull-123.md');
+      expect(parsed.suggested_path).toBe('drafts/https-github-com-owner-repo-pull-123-draft_fixed.md');
       expect(parsed.instructions).toContain('Draft a reply');
       expect(parsed.instructions).toContain('apply_voice_rules');
       expect(parsed.instructions).toContain('recall');
       expect(parsed.instructions).not.toContain('@everlab');
       expect(parsed.generated_at).toBe(new Date(FIXED_NOW).toISOString());
+    }
+  });
+
+  it('includes draft_id in the suggested_path so repeat calls do not collide', async () => {
+    let counter = 0;
+    const tool = createStartDraftTool({
+      now: () => FIXED_NOW,
+      generateDraftId: () => `draft_${++counter}`,
+    });
+    const a = await tool.handler({
+      input: StartDraftArgs.parse({ thread_ref: 'slack:C123/thread:1.2' }),
+      ctx: { db: dbHandle.db },
+    });
+    const b = await tool.handler({
+      input: StartDraftArgs.parse({ thread_ref: 'slack:C123/thread:1.2' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(a.isOk()).toBe(true);
+    expect(b.isOk()).toBe(true);
+    if (a.isOk() && b.isOk()) {
+      const pa = StartDraftResult.parse(a.value);
+      const pb = StartDraftResult.parse(b.value);
+      // The slug anchor is identical (same thread_ref) but the draft_id
+      // suffix differs, so the two paths can't collide on disk.
+      expect(pa.suggested_path).toBe('drafts/slack-c123-thread-1-2-draft_1.md');
+      expect(pb.suggested_path).toBe('drafts/slack-c123-thread-1-2-draft_2.md');
+      expect(pa.suggested_path).not.toBe(pb.suggested_path);
+      expect(pa.suggested_path).toContain(pa.draft_id);
+      expect(pb.suggested_path).toContain(pb.draft_id);
+    }
+  });
+
+  it('enumerates the supported target: shapes (pull, not pulls)', async () => {
+    const tool = createStartDraftTool({ now: () => FIXED_NOW });
+    const result = await tool.handler({
+      input: StartDraftArgs.parse({ thread_ref: 'x' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const parsed = StartDraftResult.parse(result.value);
+      // Must match send_via_source's parse-target.ts shape (PR #72).
+      expect(parsed.instructions).toContain('github:<owner>/<repo>/pull/<number>');
+      expect(parsed.instructions).toContain('github:<owner>/<repo>/issue/<number>');
+      expect(parsed.instructions).toContain('slack:<channel_id>/thread:<thread_ts>');
+      expect(parsed.instructions).toContain('gmail:<thread_id>');
+      // The wrong shape must NOT appear in the canonical enumeration.
+      expect(parsed.instructions).not.toContain('github:owner/repo/pulls/');
+    }
+  });
+
+  it('documents fail-closed / continue-with-warning failure modes', async () => {
+    const tool = createStartDraftTool({ now: () => FIXED_NOW });
+    const result = await tool.handler({
+      input: StartDraftArgs.parse({ thread_ref: 'x' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const body = StartDraftResult.parse(result.value).instructions;
+      // Source thread MCP missing → fail closed.
+      expect(body).toContain('Failure mode — missing source MCP');
+      expect(body).toContain('fail closed');
+      // recall missing → continue with note.
+      expect(body).toContain('Failure mode — `recall` not available');
+      expect(body).toContain('continue without it');
+      // apply_voice_rules missing → continue with warning.
+      expect(body).toContain('Failure mode — `apply_voice_rules` not available');
+      expect(body).toContain('lint skipped');
+      // write_console_file missing → return inline.
+      expect(body).toContain('Failure mode — `write_console_file` not available');
+      expect(body).toContain('return the full draft body');
     }
   });
 
@@ -81,7 +153,9 @@ describe('createStartDraftTool', () => {
     expect(a.isOk()).toBe(true);
     expect(b.isOk()).toBe(true);
     if (a.isOk() && b.isOk()) {
-      expect(a.value.instructions).toBe(b.value.instructions);
+      const pa = StartDraftResult.parse(a.value);
+      const pb = StartDraftResult.parse(b.value);
+      expect(pa.instructions).toBe(pb.instructions);
     }
   });
 
@@ -98,7 +172,9 @@ describe('createStartDraftTool', () => {
     expect(a.isOk()).toBe(true);
     expect(b.isOk()).toBe(true);
     if (a.isOk() && b.isOk()) {
-      expect(a.value.draft_id).not.toBe(b.value.draft_id);
+      const pa = StartDraftResult.parse(a.value);
+      const pb = StartDraftResult.parse(b.value);
+      expect(pa.draft_id).not.toBe(pb.draft_id);
     }
   });
 });
