@@ -210,7 +210,6 @@ export type RecordAuditProgressArgs = z.infer<typeof RecordAuditProgressArgs>;
 export const RecordAuditProgressResult = z
   .object({
     log_path: NonEmptyStringSchema,
-    line_number: z.number().int().positive(),
     bytes_appended: z.number().int().nonnegative(),
   })
   .strict();

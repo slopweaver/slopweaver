@@ -109,13 +109,16 @@ export function createRecordAuditProgressTool(args: CreateRecordAuditProgressToo
       // are tens of bytes, so a single write is atomic and lock-free
       // against concurrent appenders to the same file. Combined with
       // the per-audit_id filename, this is race-free across concurrent
-      // audits too.
+      // audits too — and crucially, same-audit parallel callers also
+      // appear in arbitrary order without corrupting each other's bytes.
       //
-      // O_RDWR (not O_WRONLY) so we can read back the file on the same
-      // descriptor to derive `line_number`. O_APPEND still forces every
-      // write to land at end-of-file regardless of the read offset, so
-      // the read side doesn't perturb the append semantics.
-      const fh = await open(logPath, fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_CREAT, 0o644).catch(
+      // We deliberately do not derive a `line_number` after the write.
+      // A read-then-count from the same descriptor would observe other
+      // concurrent appenders' lines, so two parallel callers could see
+      // the same final length and report the same line number — the
+      // returned value would no longer identify the caller's own event.
+      // The caller doesn't need it; the live UI tails the file directly.
+      const fh = await open(logPath, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT, 0o644).catch(
         (e: unknown) => {
           return new Error(`failed to open ${logPath}: ${e instanceof Error ? e.message : String(e)}`);
         },
@@ -135,36 +138,8 @@ export function createRecordAuditProgressTool(args: CreateRecordAuditProgressToo
             ),
           );
         }
-        // Now stat the file to derive line_number. Counting bytes
-        // ÷ "lines" doesn't work because event sizes vary; instead,
-        // re-read the file and count newlines. The per-audit_id
-        // layout means this read is bounded to one audit's events
-        // (tens to low hundreds in practice), and the file handle is
-        // still open so any other appenders won't shrink it under us.
-        const stat = await fh.stat();
-        if (stat.size === 0) {
-          // Shouldn't happen — we just wrote — but treat as a defensive guard.
-          return err(
-            McpErrors.unexpected('record_audit_progress', undefined, `unexpected empty log after write: ${logPath}`),
-          );
-        }
-        const buf = Buffer.alloc(stat.size);
-        const readResult = await fh.read(buf, 0, stat.size, 0);
-        if (readResult.bytesRead !== stat.size) {
-          return err(
-            McpErrors.unexpected(
-              'record_audit_progress',
-              undefined,
-              `short read of ${logPath}: read ${readResult.bytesRead} of ${stat.size} bytes`,
-            ),
-          );
-        }
-        const content = buf.toString('utf-8');
-        const lineNumber = content.split('\n').filter((l) => l.trim().length > 0).length;
-
         return ok({
           log_path: logPath,
-          line_number: lineNumber,
           bytes_appended: encodedBytes.length,
         });
       } finally {
