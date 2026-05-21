@@ -175,8 +175,20 @@ export const SnapshotProfileArgs = z
      * Override the snapshot filename. Defaults to a sortable
      * `<YYYY-MM-DDTHHMMSSZ>-<source-basename>` so same-day re-runs
      * produce distinct files rather than silently overwriting.
+     *
+     * Must be a single filename — no path separators (`/` or `\`), no
+     * `..` segments, and not an absolute path. `snapshot_profile`
+     * rejects anything that would resolve outside the
+     * `<source-dir>/profile-snapshots/` directory.
      */
     snapshot_name: NonEmptyStringSchema.optional(),
+    /**
+     * When `true`, replace an existing snapshot at the resolved
+     * destination. Defaults to `false`: `snapshot_profile` refuses to
+     * write over an existing file so retros never silently destroy a
+     * prior baseline.
+     */
+    overwrite: z.boolean().optional(),
   })
   .strict();
 export type SnapshotProfileArgs = z.infer<typeof SnapshotProfileArgs>;

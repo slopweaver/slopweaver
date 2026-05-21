@@ -30,7 +30,9 @@ and points you at it, call \`snapshot_profile\` with that path as
 working directory — \`snapshot_profile\` resolves relative paths via
 \`process.cwd()\`. The tool writes a sortable, timestamped copy under
 \`<source-dir>/profile-snapshots/\` so the next retro has a baseline
-to diff against.
+to diff against. The tool refuses to overwrite an existing snapshot
+file by default; if the user explicitly asks you to replace one, pass
+\`overwrite: true\`.
 
 If no profile file is in play, skip this phase.
 

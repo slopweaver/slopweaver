@@ -106,4 +106,98 @@ describe('createSnapshotProfileTool', () => {
     expect(result.isErr()).toBe(true);
     if (result.isErr()) expect(result.error.message).toContain('failed to read');
   });
+
+  it('refuses to overwrite an existing snapshot at the same target path', async () => {
+    const tool = createSnapshotProfileTool({ now: () => FIXED_NOW });
+    const firstResult = await tool.handler({
+      input: SnapshotProfileArgs.parse({ source_path: sourcePath, snapshot_name: 'baseline.md' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(firstResult.isOk()).toBe(true);
+
+    writeFileSync(sourcePath, '# updated content\n');
+    const secondResult = await tool.handler({
+      input: SnapshotProfileArgs.parse({ source_path: sourcePath, snapshot_name: 'baseline.md' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(secondResult.isErr()).toBe(true);
+    if (secondResult.isErr()) {
+      expect(secondResult.error.code).toBe('MCP_SNAPSHOT_EXISTS');
+    }
+    // Original snapshot is untouched.
+    expect(readFileSync(join(tempDir, 'profile-snapshots', 'baseline.md'), 'utf-8')).toBe('# profile content\n');
+  });
+
+  it('overwrites an existing snapshot when overwrite: true is set', async () => {
+    const tool = createSnapshotProfileTool({ now: () => FIXED_NOW });
+    const firstResult = await tool.handler({
+      input: SnapshotProfileArgs.parse({ source_path: sourcePath, snapshot_name: 'baseline.md' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(firstResult.isOk()).toBe(true);
+
+    writeFileSync(sourcePath, '# updated content\n');
+    const secondResult = await tool.handler({
+      input: SnapshotProfileArgs.parse({
+        source_path: sourcePath,
+        snapshot_name: 'baseline.md',
+        overwrite: true,
+      }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(secondResult.isOk()).toBe(true);
+    expect(readFileSync(join(tempDir, 'profile-snapshots', 'baseline.md'), 'utf-8')).toBe('# updated content\n');
+  });
+
+  describe('snapshot_name path-escape protection', () => {
+    it('rejects snapshot_name with `..` (traversal back to source dir)', async () => {
+      const tool = createSnapshotProfileTool({ now: () => FIXED_NOW });
+      const result = await tool.handler({
+        input: SnapshotProfileArgs.parse({ source_path: sourcePath, snapshot_name: '../core-profile.md' }),
+        ctx: { db: dbHandle.db },
+      });
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.code).toBe('MCP_SNAPSHOT_NAME_INVALID');
+      }
+      // Crucially, the source profile is not mutated.
+      expect(readFileSync(sourcePath, 'utf-8')).toBe('# profile content\n');
+    });
+
+    it('rejects snapshot_name with a forward slash', async () => {
+      const tool = createSnapshotProfileTool({ now: () => FIXED_NOW });
+      const result = await tool.handler({
+        input: SnapshotProfileArgs.parse({ source_path: sourcePath, snapshot_name: 'sub/baseline.md' }),
+        ctx: { db: dbHandle.db },
+      });
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.code).toBe('MCP_SNAPSHOT_NAME_INVALID');
+      }
+    });
+
+    it('rejects snapshot_name with a backslash', async () => {
+      const tool = createSnapshotProfileTool({ now: () => FIXED_NOW });
+      const result = await tool.handler({
+        input: SnapshotProfileArgs.parse({ source_path: sourcePath, snapshot_name: 'sub\\baseline.md' }),
+        ctx: { db: dbHandle.db },
+      });
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.code).toBe('MCP_SNAPSHOT_NAME_INVALID');
+      }
+    });
+
+    it('rejects an absolute snapshot_name path', async () => {
+      const tool = createSnapshotProfileTool({ now: () => FIXED_NOW });
+      const result = await tool.handler({
+        input: SnapshotProfileArgs.parse({ source_path: sourcePath, snapshot_name: '/tmp/leak.md' }),
+        ctx: { db: dbHandle.db },
+      });
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.code).toBe('MCP_SNAPSHOT_NAME_INVALID');
+      }
+    });
+  });
 });
