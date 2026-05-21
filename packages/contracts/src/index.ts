@@ -146,10 +146,24 @@ export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
 
 // --- Send-via-source (one-tap reply) ----------------------------------
 
+/**
+ * `prepare_send` is a two-step tool. The model calls it first without
+ * `confirmed` (or with `confirmed: false`) to get the parsed routing
+ * payload plus a `confirmation_token`. After the user OKs the 5-second
+ * undo gate, the model re-invokes `prepare_send` with `confirmed: true`
+ * and the matching token; only then does the response include the
+ * executable `tool_args` for the downstream MCP send tool. This makes
+ * "never auto-send without confirmation" a structural property of the
+ * contract, not just prose in the instructions string.
+ */
 export const PrepareSendArgs = z
   .object({
     /** Absolute path to the draft file (frontmatter + body markdown). */
     draft_path: NonEmptyStringSchema,
+    /** Set to `true` on the second call to release executable `tool_args`. */
+    confirmed: z.boolean().optional(),
+    /** Echo back the token returned on the first (unconfirmed) call. */
+    confirmation_token: z.string().optional(),
   })
   .strict();
 export type PrepareSendArgs = z.infer<typeof PrepareSendArgs>;
@@ -190,29 +204,145 @@ export const PrepareSendResult = z
     draft_id: z.string().optional(),
     target: SendTargetSchema,
     body: NonEmptyStringSchema,
+    /**
+     * Identifier of the downstream MCP server that hosts the send tool
+     * (e.g. `"slack"`, `"github"`, `"gmail"`, `"linear"`). The model uses
+     * this together with `tool_name` to pick the right `mcp__<server>__*`
+     * tool to invoke.
+     */
+    server: NonEmptyStringSchema,
+    /** Fully-qualified MCP tool name (e.g. `"slack_send_message"`). */
+    tool_name: NonEmptyStringSchema,
+    /**
+     * Machine-readable args for `tool_name`. **Only populated on a
+     * confirmed call** (`confirmed: true` + matching token). On the first
+     * (unconfirmed) call this is omitted and `requires_confirmation` is
+     * `true` — the model must surface the undo gate, await user OK, then
+     * re-call `prepare_send` with the token to obtain executable args.
+     */
+    tool_args: z.record(z.string(), JsonValueSchema).optional(),
+    /**
+     * `true` when the response is the first-pass routing summary (no
+     * executable args). `false` once the model has supplied a valid
+     * `confirmation_token` and `tool_args` is populated.
+     */
+    requires_confirmation: z.boolean(),
+    /**
+     * Opaque token that the model must echo back as
+     * `confirmation_token` on the second call. Present on both passes
+     * (so the second-pass response can self-attest which token it
+     * resolved). Tied to the draft's `frontmatter_hash` — re-issuing
+     * `prepare_send` after the draft mutates produces a new token and
+     * invalidates any previously-issued one.
+     */
+    confirmation_token: NonEmptyStringSchema,
+    /**
+     * Stable hash of the draft's frontmatter (sorted-key
+     * `key: value\n` body). `record_send_outcome` requires the model to
+     * echo this back; mismatch means the draft was edited between
+     * `prepare_send` and `record_send_outcome` and the outcome is
+     * rejected as drift.
+     */
+    frontmatter_hash: NonEmptyStringSchema,
     instructions: NonEmptyStringSchema,
     generated_at: IsoDatetimeSchema,
   })
   .strict();
 export type PrepareSendResult = z.infer<typeof PrepareSendResult>;
 
+/**
+ * `record_send_outcome` enforces shape correlation per `status` via
+ * `.superRefine`:
+ *  - `sent` → `sent_url` is required (the source platform's
+ *    permalink), `error` must be absent.
+ *  - `failed` → `error` is required, `sent_url` must be absent.
+ *  - `cancelled` → neither `sent_url` nor `error`.
+ *
+ * Every variant requires `draft_id` and `frontmatter_hash`. The tool
+ * reads the draft from disk, validates the frontmatter still matches
+ * (same `draft_id`, same hash), refuses to overwrite a terminal status
+ * with a different terminal status, and atomically rewrites the
+ * draft's `status:` field via temp-file + rename before appending to
+ * the JSONL log.
+ *
+ * Implemented as a single `ZodObject` + `.superRefine` rather than a
+ * `z.discriminatedUnion` because the MCP tool registry (see
+ * `packages/mcp-server/src/tools/registry.ts`) constrains
+ * `inputSchema` to `z.ZodObject` so the JSON-Schema export round-trips
+ * cleanly through `tools/list`.
+ */
 export const RecordSendOutcomeArgs = z
   .object({
     /** Same draft_path that was passed to `prepare_send`. */
     draft_path: NonEmptyStringSchema,
+    /** Echoed from the draft's frontmatter. Must match what's on disk. */
+    draft_id: NonEmptyStringSchema,
+    /** Echoed from the `PrepareSendResult.frontmatter_hash` field. */
+    frontmatter_hash: NonEmptyStringSchema,
     status: z.enum(['sent', 'failed', 'cancelled']),
     /** Required when status='sent'. Source platform's permalink to the posted message. */
     sent_url: z.url().optional(),
     /** Required when status='failed'. */
-    error: z.string().optional(),
+    error: NonEmptyStringSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === 'sent') {
+      if (value.sent_url == null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sent_url'],
+          message: '`sent_url` is required when status="sent"',
+        });
+      }
+      if (value.error != null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['error'],
+          message: '`error` must be absent when status="sent"',
+        });
+      }
+    } else if (value.status === 'failed') {
+      if (value.error == null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['error'],
+          message: '`error` is required when status="failed"',
+        });
+      }
+      if (value.sent_url != null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sent_url'],
+          message: '`sent_url` must be absent when status="failed"',
+        });
+      }
+    } else {
+      // status === 'cancelled'
+      if (value.sent_url != null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sent_url'],
+          message: '`sent_url` must be absent when status="cancelled"',
+        });
+      }
+      if (value.error != null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['error'],
+          message: '`error` must be absent when status="cancelled"',
+        });
+      }
+    }
+  });
 export type RecordSendOutcomeArgs = z.infer<typeof RecordSendOutcomeArgs>;
 
 export const RecordSendOutcomeResult = z
   .object({
     log_path: NonEmptyStringSchema,
     line_number: z.number().int().positive(),
+    /** Final value written to the draft frontmatter's `status:` field. */
+    draft_status: z.enum(['sent', 'failed', 'cancelled']),
   })
   .strict();
 export type RecordSendOutcomeResult = z.infer<typeof RecordSendOutcomeResult>;

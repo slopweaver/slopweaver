@@ -5,16 +5,18 @@
  * deterministic, and we want zero deps for the send pipeline.
  *
  * Supports: top-level string values only. No nested objects, no
- * arrays, no quoting. The `target:` and `draft_id:` fields are the
- * only ones currently consumed.
+ * arrays, no quoting. The `target:`, `draft_id:`, and `status:` fields
+ * are the only ones consumed today.
  */
+
+import { createHash } from 'node:crypto';
 
 export type ParsedDraft = {
   readonly frontmatter: Readonly<Record<string, string>>;
   readonly body: string;
 };
 
-export function parseFrontmatter(input: string): ParsedDraft | null {
+export function parseFrontmatter({ input }: { input: string }): ParsedDraft | null {
   if (!input.startsWith('---\n') && !input.startsWith('---\r\n')) {
     return null;
   }
@@ -36,4 +38,41 @@ export function parseFrontmatter(input: string): ParsedDraft | null {
     frontmatter[key] = value;
   }
   return { frontmatter, body };
+}
+
+/**
+ * Stable, order-independent hash of a frontmatter record. Keys are
+ * sorted before hashing so adding/removing the `status:` field (which
+ * `record_send_outcome` rewrites) doesn't perturb it — the hash
+ * intentionally excludes `status` so the model can be told "this hash
+ * pins the draft target+body+id between prepare_send and
+ * record_send_outcome" without having to re-issue the hash on every
+ * status transition.
+ */
+export function hashFrontmatter({ frontmatter }: { frontmatter: Readonly<Record<string, string>> }): string {
+  const entries = Object.entries(frontmatter)
+    .filter(([k]) => k !== 'status')
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+  return createHash('sha256').update(entries, 'utf-8').digest('hex').slice(0, 16);
+}
+
+/**
+ * Serialise a frontmatter record back into the `---\n<lines>\n---\n<body>`
+ * shape this parser consumes. Used by `record_send_outcome` to rewrite
+ * the `status:` field while preserving every other key and the body.
+ * Keys are emitted in sorted order to keep the output deterministic
+ * (mirrors `hashFrontmatter`'s sort).
+ */
+export function serializeDraft({
+  frontmatter,
+  body,
+}: {
+  frontmatter: Readonly<Record<string, string>>;
+  body: string;
+}): string {
+  const sortedEntries = Object.entries(frontmatter).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const fmLines = sortedEntries.map(([k, v]) => `${k}: ${v}`).join('\n');
+  return `---\n${fmLines}\n---\n${body}`;
 }

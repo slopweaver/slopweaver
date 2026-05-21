@@ -25,7 +25,7 @@ describe('createPrepareSendTool', () => {
     return async () => content;
   }
 
-  it('returns the parsed Slack target + body + instructions', async () => {
+  it('returns routing metadata + token but NO tool_args on the unconfirmed first call', async () => {
     const draft = '---\ndraft_id: d1\ntarget: slack:C123/thread:1234.5678\n---\nHey, picking this back up.\n';
     const tool = createPrepareSendTool({ now: () => FIXED_NOW, readFileImpl: makeReader(draft) });
     const result = await tool.handler({
@@ -42,10 +42,95 @@ describe('createPrepareSendTool', () => {
         thread_ts: '1234.5678',
       });
       expect(parsed.body).toBe('Hey, picking this back up.');
+      expect(parsed.server).toBe('slack');
+      expect(parsed.tool_name).toBe('slack_send_message');
+      expect(parsed.requires_confirmation).toBe(true);
+      expect(parsed.tool_args).toBeUndefined();
+      expect(parsed.confirmation_token.length).toBeGreaterThan(0);
+      expect(parsed.frontmatter_hash.length).toBeGreaterThan(0);
       expect(parsed.instructions).toContain('5 seconds');
       expect(parsed.instructions).toContain('undo');
-      expect(parsed.instructions).toContain('record_send_outcome');
+      expect(parsed.instructions).toContain('confirmed: true');
     }
+  });
+
+  it('returns tool_args on the confirmed second call when the token matches', async () => {
+    const draft = '---\ndraft_id: d1\ntarget: slack:C123/thread:1234.5678\n---\nHey, picking this back up.\n';
+    const tool = createPrepareSendTool({ now: () => FIXED_NOW, readFileImpl: makeReader(draft) });
+    const first = await tool.handler({
+      input: PrepareSendArgs.parse({ draft_path: '/tmp/drafts/d1.md' }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(first.isOk()).toBe(true);
+    if (!first.isOk()) return;
+    const firstParsed = PrepareSendResult.parse(first.value);
+
+    const second = await tool.handler({
+      input: PrepareSendArgs.parse({
+        draft_path: '/tmp/drafts/d1.md',
+        confirmed: true,
+        confirmation_token: firstParsed.confirmation_token,
+      }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(second.isOk()).toBe(true);
+    if (second.isOk()) {
+      const parsed = PrepareSendResult.parse(second.value);
+      expect(parsed.requires_confirmation).toBe(false);
+      expect(parsed.tool_args).toEqual({
+        channel_id: 'C123',
+        thread_ts: '1234.5678',
+        text: 'Hey, picking this back up.',
+      });
+      expect(parsed.instructions).toContain('mcp__slack__slack_send_message');
+      expect(parsed.instructions).toContain('record_send_outcome');
+      expect(parsed.instructions).toContain(parsed.frontmatter_hash);
+    }
+  });
+
+  it('rejects a confirmed call with a mismatching token', async () => {
+    const draft = '---\ndraft_id: d1\ntarget: slack:C123\n---\nbody\n';
+    const tool = createPrepareSendTool({ now: () => FIXED_NOW, readFileImpl: makeReader(draft) });
+    const result = await tool.handler({
+      input: PrepareSendArgs.parse({
+        draft_path: '/tmp/d.md',
+        confirmed: true,
+        confirmation_token: 'not-the-real-token',
+      }),
+      ctx: { db: dbHandle.db },
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) expect(result.error.message).toContain('confirmation_token mismatch');
+  });
+
+  it('uses MCP routing (not gh api) for a GitHub PR target', async () => {
+    const draft = '---\ndraft_id: d2\ntarget: github:acme/widgets/pulls/9\n---\nLGTM modulo lint.\n';
+    const tool = createPrepareSendTool({ now: () => FIXED_NOW, readFileImpl: makeReader(draft) });
+    const first = await tool.handler({
+      input: PrepareSendArgs.parse({ draft_path: '/tmp/d.md' }),
+      ctx: { db: dbHandle.db },
+    });
+    if (!first.isOk()) throw new Error('unexpected error');
+    const firstParsed = PrepareSendResult.parse(first.value);
+    expect(firstParsed.server).toBe('github');
+    expect(firstParsed.tool_name).toBe('add_issue_comment');
+
+    const second = await tool.handler({
+      input: PrepareSendArgs.parse({
+        draft_path: '/tmp/d.md',
+        confirmed: true,
+        confirmation_token: firstParsed.confirmation_token,
+      }),
+      ctx: { db: dbHandle.db },
+    });
+    if (!second.isOk()) throw new Error('unexpected error');
+    const secondParsed = PrepareSendResult.parse(second.value);
+    expect(secondParsed.tool_args).toEqual({
+      owner: 'acme',
+      repo: 'widgets',
+      issue_number: 9,
+      body: 'LGTM modulo lint.',
+    });
   });
 
   it('errors when target frontmatter is missing', async () => {
