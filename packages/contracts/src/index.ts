@@ -173,3 +173,50 @@ export const ApplyVoiceRulesResult = z
   })
   .strict();
 export type ApplyVoiceRulesResult = z.infer<typeof ApplyVoiceRulesResult>;
+
+// --- Semantic recall over the evidence_log ---------------------------
+
+export const RecallArgs = z
+  .object({
+    /** The natural-language query to match against evidence titles + bodies. */
+    query: NonEmptyStringSchema,
+    /** Max rows to return. 1-25; defaults to 10. */
+    limit: z.number().int().positive().max(25).optional(),
+    /** Optional filters; same shape as `search_work_context`. */
+    filters: z
+      .object({
+        integration: NonEmptyStringSchema.optional(),
+        kind: NonEmptyStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type RecallArgs = z.infer<typeof RecallArgs>;
+
+const RecallHitSchema = z
+  .object({
+    evidence: EvidenceLogEntry,
+    /**
+     * Cosine similarity of query + evidence embeddings. The embedder
+     * is contracted to return L2-normalized vectors, so this is the
+     * true dot product in `[-1, 1]`, not a remapped/clamped variant.
+     * The `recall` tool itself filters non-positive scores out before
+     * returning, so in practice values are `(0, 1]`, but the wire
+     * contract preserves the underlying range so a future embedder
+     * that wants to expose anti-correlated hits doesn't need a
+     * breaking schema change.
+     */
+    score: z.number().min(-1).max(1),
+  })
+  .strict();
+
+export const RecallResult = z
+  .object({
+    hits: z.array(RecallHitSchema),
+    generated_at: IsoDatetimeSchema,
+    /** Marker for which embedder produced the scores. */
+    embedder: NonEmptyStringSchema,
+  })
+  .strict();
+export type RecallResult = z.infer<typeof RecallResult>;
