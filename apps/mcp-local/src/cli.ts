@@ -448,7 +448,7 @@ cli
   .action(async () => {
     try {
       const { runWalk } = await import('./walk/index.ts');
-      const code = await runWalk({ cwd: processCwd(), stdout });
+      const code = await runWalk({ cwd: processCwd(), stdout, stderr });
       exit(code);
     } catch (error: unknown) {
       stderr.write(`slopweaver: ${asMessage({ error })}\n`);

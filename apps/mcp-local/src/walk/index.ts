@@ -5,6 +5,11 @@
  * the interactive verb-loop (do / agent / handoff / etc) lands in a
  * follow-up PR.
  *
+ * Parse warnings (e.g. numbered rows with empty descriptions) are
+ * emitted to stderr so the upstream malformation doesn't disappear
+ * silently from the queue — see parse-walk-order.ts for the warning
+ * shapes.
+ *
  * Every side effect is injected so the runner is fully testable
  * without a real filesystem.
  */
@@ -20,10 +25,12 @@ export type RunWalkDeps = {
   cwd: string;
   readFile?: (absPath: string) => Promise<string>;
   stdout: { write: (s: string) => void };
+  stderr?: { write: (s: string) => void };
 };
 
 export async function runWalk(deps: RunWalkDeps): Promise<number> {
   const reader = deps.readFile ?? ((p) => readFile(p, 'utf-8'));
+  const stderr = deps.stderr ?? { write: () => {} };
   const path = join(deps.cwd, DEFAULT_REL_PATH);
   let content: string;
   try {
@@ -41,7 +48,10 @@ export async function runWalk(deps: RunWalkDeps): Promise<number> {
     deps.stdout.write(`slopweaver walk: ${result.error.message}\n`);
     return 1;
   }
-  deps.stdout.write(renderWalkQueue(result.value));
+  for (const warning of result.value.warnings) {
+    stderr.write(`slopweaver walk: warning: ${warning}\n`);
+  }
+  deps.stdout.write(renderWalkQueue(result.value.items));
   return 0;
 }
 

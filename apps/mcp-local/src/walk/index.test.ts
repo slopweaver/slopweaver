@@ -30,7 +30,7 @@ describe('renderWalkQueue', () => {
     );
     expect(result.isOk()).toBe(true);
     if (!result.isOk()) return;
-    const out = renderWalkQueue(result.value);
+    const out = renderWalkQueue(result.value.items);
     expect(out).toContain('Walking 1 item(s)');
     expect(out).toContain('[PR-1]');
     expect(out).toContain('priority-0-LIVE');
@@ -40,9 +40,9 @@ describe('renderWalkQueue', () => {
 
   it('renders exact 1-digit numbering for a queue of ≤9 items', () => {
     const items: WalkItem[] = [
-      makeItem({ id: '3', anchor: 'A', description: 'first' }),
-      makeItem({ id: '4', anchor: 'B', description: 'second' }),
-      makeItem({ id: '5', anchor: 'C', description: 'third' }),
+      makeItem({ id: 'aaaaaaaa', anchor: 'A', description: 'first' }),
+      makeItem({ id: 'bbbbbbbb', anchor: 'B', description: 'second' }),
+      makeItem({ id: 'cccccccc', anchor: 'C', description: 'third' }),
     ];
     const out = renderWalkQueue(items);
     expect(out).toBe(
@@ -67,7 +67,7 @@ describe('renderWalkQueue', () => {
 
   it('renders exact 2-digit padding for a queue of 10+ items', () => {
     const items: WalkItem[] = Array.from({ length: 10 }, (_, i) =>
-      makeItem({ id: String(i + 3), anchor: `A${i + 1}`, description: `item ${i + 1}` }),
+      makeItem({ id: `id${i + 1}`.padStart(8, '0'), anchor: `A${i + 1}`, description: `item ${i + 1}` }),
     );
     const out = renderWalkQueue(items);
     const expected = [
@@ -159,5 +159,40 @@ describe('runWalk', () => {
     expect(code).toBe(1);
     const payload = stdout.write.mock.calls[0]?.[0] ?? '';
     expect(payload).toContain('duplicate');
+  });
+
+  it('forwards parse warnings to stderr while still printing the queue', async () => {
+    const stdout = { write: vi.fn() };
+    const stderr = { write: vi.fn() };
+    const code = await runWalk({
+      cwd: '/tmp/repo',
+      readFile: async () =>
+        ['## Walk order', '', '1. ', '2. **[X](https://x/)** real item', '3. **[Y](https://y/)**'].join('\n'),
+      stdout,
+      stderr,
+    });
+    expect(code).toBe(0);
+    const stdoutPayload = stdout.write.mock.calls[0]?.[0] ?? '';
+    expect(stdoutPayload).toContain('real item');
+    // Two malformed numbered rows (the bare `1.` and the anchor-only
+    // `3. **[Y](https://y/)**`) each produce a warning.
+    expect(stderr.write).toHaveBeenCalledTimes(2);
+    const warnings = stderr.write.mock.calls.map((call) => call[0]);
+    expect(warnings[0]).toContain('line 3');
+    expect(warnings[0]).toContain('no description after stripping metadata');
+    expect(warnings[1]).toContain('line 5');
+  });
+
+  it('does not emit anything to stderr when there are no warnings', async () => {
+    const stdout = { write: vi.fn() };
+    const stderr = { write: vi.fn() };
+    const code = await runWalk({
+      cwd: '/tmp/repo',
+      readFile: async () => '## Walk order\n\n1. **[X](https://x/)** clean item',
+      stdout,
+      stderr,
+    });
+    expect(code).toBe(0);
+    expect(stderr.write).not.toHaveBeenCalled();
   });
 });

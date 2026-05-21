@@ -1,5 +1,10 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { parseWalkOrder } from './parse-walk-order.ts';
+
+function expectedId(seed: string): string {
+  return createHash('sha1').update(seed).digest('hex').slice(0, 8);
+}
 
 describe('parseWalkOrder', () => {
   it('returns empty when the section is absent', () => {
@@ -7,7 +12,8 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual([]);
+      expect(result.value.items).toEqual([]);
+      expect(result.value.warnings).toEqual([]);
     }
   });
 
@@ -20,9 +26,9 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.length).toBe(1);
-      expect(result.value[0]).toEqual({
-        id: '3',
+      expect(result.value.items.length).toBe(1);
+      expect(result.value.items[0]).toEqual({
+        id: expectedId('https://example.com/123'),
         anchor: 'PR-123',
         anchor_url: 'https://example.com/123',
         priority: 'priority-2',
@@ -37,13 +43,13 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value[0]?.priority).toBe(null);
-      expect(result.value[0]?.source_bucket).toBe(null);
-      expect(result.value[0]?.description).toBe('needs a poke.');
+      expect(result.value.items[0]?.priority).toBe(null);
+      expect(result.value.items[0]?.source_bucket).toBe(null);
+      expect(result.value.items[0]?.description).toBe('needs a poke.');
     }
   });
 
-  it('assigns ids from the source-line numbers (1-based)', () => {
+  it('derives item ids from content (anchor_url > anchor > description) so they survive input reformatting', () => {
     const md = [
       '## Walk order',
       '',
@@ -54,8 +60,50 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.map((i) => i.id)).toEqual(['3', '4', '5']);
-      expect(result.value.map((i) => i.description)).toEqual(['one', 'two', 'seven (renumbered)']);
+      expect(result.value.items.map((i) => i.id)).toEqual([
+        expectedId('https://a/'),
+        expectedId('https://b/'),
+        expectedId('https://c/'),
+      ]);
+      expect(result.value.items.map((i) => i.description)).toEqual(['one', 'two', 'seven (renumbered)']);
+    }
+  });
+
+  it('keeps ids stable when blank lines are inserted above an item', () => {
+    const compact = ['## Walk order', '', '1. **[A](https://a/)** one', '2. **[B](https://b/)** two'].join('\n');
+    const reformatted = [
+      '## Walk order',
+      '',
+      '',
+      '',
+      '> a comment',
+      '',
+      '1. **[A](https://a/)** one',
+      '',
+      '2. **[B](https://b/)** two',
+    ].join('\n');
+    const compactResult = parseWalkOrder(compact);
+    const reformattedResult = parseWalkOrder(reformatted);
+    expect(compactResult.isOk()).toBe(true);
+    expect(reformattedResult.isOk()).toBe(true);
+    if (compactResult.isOk() && reformattedResult.isOk()) {
+      expect(compactResult.value.items.map((i) => i.id)).toEqual(reformattedResult.value.items.map((i) => i.id));
+    }
+  });
+
+  it('falls back to description text for the id when no URL/anchor is parsed', () => {
+    const md = ['## Walk order', '', '1. **[Topic]** explore the thing'].join('\n');
+    const result = parseWalkOrder(md);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      // ANCHOR_RE requires `(url)`, so `**[Topic]**` is a non-match —
+      // anchor + anchor_url are both null. The row's full body
+      // (including the unparsed `**[Topic]**`) becomes the description,
+      // and that's what seeds the id.
+      expect(result.value.items[0]?.anchor).toBe(null);
+      expect(result.value.items[0]?.anchor_url).toBe(null);
+      expect(result.value.items[0]?.description).toBe('**[Topic]** explore the thing');
+      expect(result.value.items[0]?.id).toBe(expectedId('**[Topic]** explore the thing'));
     }
   });
 
@@ -72,7 +120,7 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.length).toBe(1);
+      expect(result.value.items.length).toBe(1);
     }
   });
 
@@ -87,7 +135,7 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.length).toBe(1);
+      expect(result.value.items.length).toBe(1);
     }
   });
 
@@ -103,7 +151,10 @@ describe('parseWalkOrder', () => {
     if (result.isErr()) {
       expect(result.error.code).toBe('WALK_ORDER_DUPLICATE');
       expect(result.error.duplicates.length).toBe(2);
-      expect(result.error.duplicates.map((d) => d.id)).toEqual(['3', '4']);
+      expect(result.error.duplicates.map((d) => d.id)).toEqual([
+        expectedId('https://example.com/1'),
+        expectedId('https://example.com/1'),
+      ]);
     }
   });
 
@@ -121,26 +172,31 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.length).toBe(2);
+      expect(result.value.items.length).toBe(2);
     }
   });
 
-  it('skips rows whose stripped description is empty', () => {
+  it('skips rows whose stripped description is empty AND surfaces a warning for each', () => {
     const md = ['## Walk order', '', '1. ', '2. **[X](https://x/)** real item', '3.   '].join('\n');
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.length).toBe(1);
-      expect(result.value[0]?.description).toBe('real item');
+      expect(result.value.items.length).toBe(1);
+      expect(result.value.items[0]?.description).toBe('real item');
+      expect(result.value.warnings).toEqual([
+        'line 3: numbered row had no description after stripping metadata',
+        'line 5: numbered row had no description after stripping metadata',
+      ]);
     }
   });
 
-  it('skips rows that are only an anchor with no description payload', () => {
+  it('skips rows that are only an anchor with no description payload AND warns', () => {
     const md = ['## Walk order', '', '1. **[X](https://x/)**'].join('\n');
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.length).toBe(0);
+      expect(result.value.items.length).toBe(0);
+      expect(result.value.warnings).toEqual(['line 3: numbered row had no description after stripping metadata']);
     }
   });
 
@@ -163,9 +219,9 @@ describe('parseWalkOrder', () => {
     const result = parseWalkOrder(md);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value.length).toBe(1);
-      expect(result.value[0]?.anchor).toBe('شكرا 🙏');
-      expect(result.value[0]?.description).toBe('review الترجمة 🎉.');
+      expect(result.value.items.length).toBe(1);
+      expect(result.value.items[0]?.anchor).toBe('شكرا 🙏');
+      expect(result.value.items[0]?.description).toBe('review الترجمة 🎉.');
     }
   });
 });

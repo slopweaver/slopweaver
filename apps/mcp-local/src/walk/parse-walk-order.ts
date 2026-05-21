@@ -16,8 +16,10 @@
  * Anything outside the `## Walk order` section is ignored. Stops at
  * the next `##` heading.
  *
- * Items with an empty stripped description are skipped — a bare `1.`
- * with no payload is not a queue entry.
+ * Items with an empty stripped description are skipped AND surfaced
+ * as a parse warning so the upstream malformation isn't invisible
+ * (a bare `1.` or `1. **[X](https://x/)**` with no payload would
+ * otherwise vanish silently from the queue).
  *
  * Duplicate logical items (same `anchor_url`, or same `anchor` text
  * when no URL is present) cause the parser to return an `Err` with
@@ -26,6 +28,7 @@
  * reconciliation pipeline produced a malformed file.
  */
 
+import { createHash } from 'node:crypto';
 import { type Result, err, ok } from '@slopweaver/errors';
 
 export type WalkItem = {
@@ -35,6 +38,11 @@ export type WalkItem = {
   readonly priority: string | null;
   readonly description: string;
   readonly source_bucket: string | null;
+};
+
+export type WalkParseSuccess = {
+  readonly items: ReadonlyArray<WalkItem>;
+  readonly warnings: ReadonlyArray<string>;
 };
 
 export interface WalkOrderDuplicateError {
@@ -63,14 +71,24 @@ const SOURCE_BUCKET_RE = /\*\(([^)]+)\)\*\s*$/;
 /**
  * Parse a reconciliation.md body into the ranked WalkItem list.
  *
+ * Item ids are content-derived: a short sha1 hash of
+ * `anchor_url || anchor || description`. This makes ids stable across
+ * input reformats (inserting / deleting blank lines or comments above
+ * a row does not churn its id), but ids do change when the item's
+ * content changes — that's the intended semantics for a `/lock-in`
+ * state machine that wants to detect "this item is no longer the same
+ * piece of work."
+ *
  * @param markdown the raw file contents (CRLF and LF both accepted)
- * @returns the parsed queue, or an `Err` if duplicates are detected
+ * @returns the parsed queue plus any parse warnings, or an `Err` if
+ *   duplicates are detected
  */
-export function parseWalkOrder(markdown: string): Result<ReadonlyArray<WalkItem>, WalkParseError> {
+export function parseWalkOrder(markdown: string): Result<WalkParseSuccess, WalkParseError> {
   // Normalise CRLF / CR line endings so the line-by-line walk is
   // platform-independent.
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
   const items: WalkItem[] = [];
+  const warnings: string[] = [];
   let inSection = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -97,12 +115,17 @@ export function parseWalkOrder(markdown: string): Result<ReadonlyArray<WalkItem>
       .replace(/^[\s—\-:]+|[\s—\-:]+$/g, '')
       .trim();
 
-    if (description.length === 0) continue;
+    if (description.length === 0) {
+      warnings.push(`line ${lineNumber}: numbered row had no description after stripping metadata`);
+      continue;
+    }
 
+    const anchor = anchorMatch?.[1] ?? null;
+    const anchorUrl = anchorMatch?.[2] ?? null;
     items.push({
-      id: String(lineNumber),
-      anchor: anchorMatch?.[1] ?? null,
-      anchor_url: anchorMatch?.[2] ?? null,
+      id: deriveId({ anchorUrl, anchor, description }),
+      anchor,
+      anchor_url: anchorUrl,
       priority: priorityMatch?.[1] ?? null,
       description,
       source_bucket: sourceMatch?.[1] ?? null,
@@ -114,7 +137,26 @@ export function parseWalkOrder(markdown: string): Result<ReadonlyArray<WalkItem>
     return err(WalkErrors.duplicate(duplicates));
   }
 
-  return ok(items);
+  return ok({ items, warnings });
+}
+
+/**
+ * Derive a stable 8-char id from item content. Precedence:
+ * `anchor_url` (most stable) → `anchor` text → `description`. The
+ * description fallback is always available because rows with empty
+ * descriptions are filtered upstream.
+ */
+function deriveId({
+  anchorUrl,
+  anchor,
+  description,
+}: {
+  anchorUrl: string | null;
+  anchor: string | null;
+  description: string;
+}): string {
+  const seed = anchorUrl ?? anchor ?? description;
+  return createHash('sha1').update(seed).digest('hex').slice(0, 8);
 }
 
 /**
