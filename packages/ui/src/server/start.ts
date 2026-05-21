@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import { runStaticEnvChecks, type StaticEnvChecks } from './checks.ts';
+import { buildCalibrationResponse, resolveCalibrationLogPath } from './calibration.ts';
 import { buildDiagnosticsResponse } from './diagnostics.ts';
 import { buildEvidenceTailResponse } from './evidence.ts';
 import { CLIENT_ASSETS_DIR } from './static-dir.ts';
@@ -17,6 +18,12 @@ export type StartUiServerOptions = {
   clientAssetsDir?: string;
   /** Override env checks (tests). */
   staticChecks?: StaticEnvChecks;
+  /**
+   * Explicit walk-feedback JSONL path. Takes precedence over
+   * `SLOPWEAVER_FEEDBACK_LOG` and the cwd-relative default. Mainly
+   * useful for tests; production callers can rely on the env var.
+   */
+  feedbackLogPath?: string;
 };
 
 export type UiServerHandle = {
@@ -84,13 +91,23 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   const requestedPort = opts.port ?? DEFAULT_PORT;
   const clientAssetsDir = resolve(opts.clientAssetsDir ?? CLIENT_ASSETS_DIR);
   const staticChecks = opts.staticChecks ?? runStaticEnvChecks({ dataDir: opts.dataDir });
+  // Resolved once at startup so a later env-var change doesn't surprise
+  // a running server. Env-var override beats the cwd default; an
+  // explicit `feedbackLogPath` beats both.
+  const feedbackLogPath = resolveCalibrationLogPath({
+    feedbackLogPath: opts.feedbackLogPath,
+    env: process.env,
+    cwd: process.cwd(),
+  });
 
   // The bound port is only known after listen() resolves. Hold a mutable ref
   // and capture it by closure so the response can report the actual address
   // when callers pass `port: 0` (tests).
   const bindAddress = { host: requestedHost, port: requestedPort };
 
-  const server = createServer(createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress }));
+  const server = createServer(
+    createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress, feedbackLogPath }),
+  );
 
   await listen({ server, port: requestedPort, host: requestedHost });
 
@@ -134,6 +151,7 @@ type HandlerArgs = {
   staticChecks: StaticEnvChecks;
   clientAssetsDir: string;
   bindAddress: { host: string; port: number };
+  feedbackLogPath: string;
 };
 
 function createHandler({
@@ -141,6 +159,7 @@ function createHandler({
   staticChecks,
   clientAssetsDir,
   bindAddress,
+  feedbackLogPath,
 }: HandlerArgs): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
     const method = req.method ?? 'GET';
@@ -154,7 +173,7 @@ function createHandler({
     }
 
     if (pathname.startsWith('/api/')) {
-      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress });
+      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress, feedbackLogPath });
       return;
     }
 
@@ -175,6 +194,7 @@ function handleApi({
   db,
   staticChecks,
   bindAddress,
+  feedbackLogPath,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -183,6 +203,7 @@ function handleApi({
   db: SlopweaverDatabase;
   staticChecks: StaticEnvChecks;
   bindAddress: { host: string; port: number };
+  feedbackLogPath: string;
 }): void {
   if (method !== 'GET' && method !== 'HEAD') {
     res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET, HEAD' });
@@ -204,6 +225,15 @@ function handleApi({
   }
   if (pathname === '/api/evidence') {
     const body = JSON.stringify(buildEvidenceTailResponse({ db }));
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(method === 'HEAD' ? undefined : body);
+    return;
+  }
+  if (pathname === '/api/calibration') {
+    const body = JSON.stringify(buildCalibrationResponse({ logPath: feedbackLogPath }));
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',

@@ -142,6 +142,98 @@ code {
   font-size: 0.9em;
 }
 
+/* --- Calibration --------------------------------------------------- */
+
+.calibration-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.calibration-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: #f3f4f6;
+}
+
+.calibration-tile--ok { background: #ecfdf5; }
+.calibration-tile--warn { background: #fefce8; }
+.calibration-tile--fail { background: #fef2f2; }
+
+.calibration-tile__label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.calibration-tile__value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-chart {
+  width: 100%;
+  height: auto;
+  max-width: 480px;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.friction-tags {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.friction-tags li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.friction-tags__count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-breakdown {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.calibration-breakdown th,
+.calibration-breakdown td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.calibration-breakdown thead th {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+}
+
+.calibration-breakdown td,
+.calibration-breakdown thead th + th {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- Flight-deck tab navigation ------------------------------------ */
 
 .flight-deck__tabs {
