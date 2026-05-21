@@ -83,11 +83,100 @@ describe('parseVoiceRules', () => {
     }
   });
 
-  it('returns an error on an unknown directive', () => {
+  it('returns an error on an unknown directive (typoed keyword)', () => {
+    // A bullet that opens `<keyword>:` and doesn't match a known
+    // directive is treated as a typoed directive, not prose — a silent
+    // no-op here would let `- replcae: foo => bar` ship as a dead rule.
     const r = parseVoiceRules('- enforce: please');
-    // The DIRECTIVE_RE only matches forbid/replace/pattern; everything
-    // else is prose. So an unknown directive falls through silently.
-    // That's the documented behavior (parser is forgiving).
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.code).toBe('VOICE_RULES_PARSE_FAILED');
+  });
+
+  it('returns an error on a typoed directive keyword (replcae)', () => {
+    const r = parseVoiceRules('- replcae: foo => bar');
+    expect(r.isErr()).toBe(true);
+    if (r.isErr()) expect(r.error.code).toBe('VOICE_RULES_PARSE_FAILED');
+  });
+
+  it('still allows plain prose bullets without a leading `<keyword>:` shape', () => {
+    const md = [
+      '## Defaults',
+      '',
+      '- Honest hedges over false confidence.',
+      '- Plain prose with: a mid-sentence colon is fine.',
+      '- forbid: very',
+    ].join('\n');
+    const r = parseVoiceRules(md);
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) {
+      expect(r.value.length).toBe(1);
+      expect(r.value[0]?.kind).toBe('forbid_token');
+    }
+  });
+
+  it('preserves the comma-space replacement verbatim', () => {
+    const r = parseVoiceRules('- replace: -- => , ');
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) {
+      const rule = r.value[0];
+      expect(rule?.kind).toBe('replace');
+      if (rule?.kind === 'replace') {
+        expect(rule.pattern).toBe('--');
+        expect(rule.replacement).toBe(', ');
+      }
+    }
+  });
+
+  it('preserves a single-space-only replacement verbatim', () => {
+    // Two spaces after `=>`: one consumes the delimiter, the second is
+    // the replacement (collapse `--` to a single space).
+    const r = parseVoiceRules('- replace: --  =>  ');
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) {
+      const rule = r.value[0];
+      expect(rule?.kind).toBe('replace');
+      if (rule?.kind === 'replace') {
+        expect(rule.pattern).toBe('--');
+        expect(rule.replacement).toBe(' ');
+      }
+    }
+  });
+
+  it('ignores directive bullets inside an Examples section', () => {
+    const md = [
+      '# Communication style',
+      '',
+      '## Hard rules',
+      '',
+      '- forbid: delve',
+      '',
+      '## Examples',
+      '',
+      '- forbid: NOT_A_REAL_RULE',
+      "- replace: this should not fire => '",
+      '',
+      '## Notes',
+      '',
+      '- forbid: also-not-a-rule',
+    ].join('\n');
+    const r = parseVoiceRules(md);
+    expect(r.isOk()).toBe(true);
+    if (r.isOk()) {
+      expect(r.value.length).toBe(1);
+      const rule = r.value[0];
+      expect(rule?.kind).toBe('forbid_token');
+      if (rule?.kind === 'forbid_token') {
+        expect(rule.token).toBe('delve');
+      }
+    }
+  });
+
+  it('ignores typoed-directive bullets inside an Examples section', () => {
+    // Regression check: the Examples-section gate must run *before* the
+    // typoed-directive check, so a `- replcae: …` bullet quoted as an
+    // illustration in Examples doesn't surface as a parse error.
+    const md = ['## Examples', '', '- replcae: foo => bar'].join('\n');
+    const r = parseVoiceRules(md);
     expect(r.isOk()).toBe(true);
     if (r.isOk()) expect(r.value).toEqual([]);
   });
