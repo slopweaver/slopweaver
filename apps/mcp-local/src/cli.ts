@@ -484,6 +484,41 @@ cli
 
 cli
   .command(
+    'annotate-image',
+    'Composite an annotation overlay (boxes, arrows, text) onto an image. Spec is JSON; output is PNG.',
+  )
+  .option('--input <path>', 'Source image (PNG or JPEG). Required.')
+  .option('--output <path>', 'Output PNG path. Required.')
+  .option('--spec-json <json>', 'Inline JSON spec. Mutually exclusive with --spec-file.')
+  .option('--spec-file <path>', 'Path to a JSON file containing the spec.')
+  .example(
+    `  slopweaver annotate-image --input /tmp/in.png --output /tmp/out.png --spec-json '{"shapes":[{"type":"rect","x":10,"y":10,"width":120,"height":40}]}'`,
+  )
+  .action(async (opts: { input?: string; output?: string; specJson?: string; specFile?: string }) => {
+    try {
+      if (opts.input === undefined || opts.output === undefined) {
+        stderr.write('annotate-image: --input and --output are required.\n');
+        exit(2);
+      }
+      const { runAnnotateImage } = await import('./annotate-image/cli-action.ts');
+      const code = await runAnnotateImage({
+        flags: {
+          input: opts.input,
+          output: opts.output,
+          ...(opts.specJson !== undefined ? { specJson: opts.specJson } : {}),
+          ...(opts.specFile !== undefined ? { specFile: opts.specFile } : {}),
+        },
+        io: { stdout, stderr },
+      });
+      exit(code);
+    } catch (error: unknown) {
+      stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+      exit(1);
+    }
+  });
+
+cli
+  .command(
     'slack-send-image',
     'Share an image into a Slack channel or thread via the user web-API (4-call sequence). Requires xoxc + workspace URL.',
   )

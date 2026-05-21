@@ -1,9 +1,9 @@
 ---
 description: Draft a Slack message in the user's voice with an inline image, then (after human ack) send via the same 4-call web-API sequence the Slack web client uses. Requires the user's own xoxc token. No bot token, no MCP for the upload itself.
-argument-hint: <channel-id-or-channel/thread_ts> | <message-text> | <image-path>
+argument-hint: <channel-id-or-channel/thread_ts> | <message-text> | <image-path> [-- annotation prompt]
 ---
 
-This skill exists to make "1 link + 1 image" Slack messages fast while keeping a human-review gate before send. It splits into two phases so the user reviews the text before any image lands publicly.
+This skill exists to make "1 link + 1 image" Slack messages fast while keeping a human-review gate before send. It splits into two phases so the user reviews the text before any image lands publicly. An optional annotation phase runs first when the input includes a `-- "<prompt>"` suffix, so the sent image carries arrows / boxes / labels that point at the relevant pixels.
 
 ## Why this exists
 
@@ -34,13 +34,39 @@ These tokens cycle on the order of 60-90 seconds on enterprise grid. Re-extract 
 
 ## Inputs
 
-`$ARGUMENTS` parsed as `<channel-or-channel/thread_ts> | <message-text> | <image-path>`.
+`$ARGUMENTS` parsed as `<channel-or-channel/thread_ts> | <message-text> | <image-path> [-- <annotation prompt>]`.
 
 - **`<channel>`**: a Slack channel id (`C…`) or DM id (`D…`). For thread replies, append `/<thread_ts>`.
 - **`<message-text>`**: the message body. Will be voice-linted before drafting.
 - **`<image-path>`**: absolute or repo-relative. PNG or JPEG.
+- **`-- <annotation prompt>`** (optional): if present, the image is annotated first via `slopweaver annotate-image`. The annotated copy (suffixed `.annot.png`) is what gets sent.
 
 ## Steps
+
+### 0. Annotate the image (only when `-- <prompt>` is present)
+
+Inspect the source image's pixel dimensions first (any image library is fine; the PNG header is enough). Build an `AnnotationSpec` from the prompt: pick shape coordinates against the actual dimensions you observed, choose `rect` / `arrow` / `text` to match the prompt. Then run:
+
+```bash
+slopweaver annotate-image \
+  --input "<image-path>" \
+  --output "<image-path>.annot.png" \
+  --spec-json '<json-spec>'
+```
+
+The spec shape is:
+
+```json
+{
+  "shapes": [
+    { "type": "rect",  "x": 320, "y": 180, "width": 240, "height": 120, "color": "#ef4444", "strokeWidth": 4 },
+    { "type": "arrow", "x1": 100, "y1": 100, "x2": 320, "y2": 200 },
+    { "type": "text",  "x": 340, "y": 120, "text": "post-fix", "background": "#fff" }
+  ]
+}
+```
+
+Defaults are red stroke / 4px / 24px sans-serif. Coordinates are pixel-space, top-left origin. Use `<image-path>.annot.png` for the send. Always derive coordinates from the actual image dimensions you observed; do not guess.
 
 ### 1. Voice-lint the text
 
