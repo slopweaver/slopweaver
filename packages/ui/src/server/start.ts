@@ -4,6 +4,7 @@ import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { SlopweaverDatabase } from '@slopweaver/db';
 import { runStaticEnvChecks, type StaticEnvChecks } from './checks.ts';
 import { buildCalibrationResponse, resolveCalibrationLogPath } from './calibration.ts';
+import { buildCompanionFileResponse } from './companion.ts';
 import { buildDiagnosticsResponse } from './diagnostics.ts';
 import { buildEvidenceTailResponse } from './evidence.ts';
 import { buildStakeholdersResponse } from './stakeholders.ts';
@@ -19,6 +20,8 @@ export type StartUiServerOptions = {
   clientAssetsDir?: string;
   /** Override env checks (tests). */
   staticChecks?: StaticEnvChecks;
+  /** Override cwd used by the companion endpoint (tests). Defaults to `process.cwd()`. */
+  companionCwd?: string;
   /**
    * Explicit walk-feedback JSONL path. Takes precedence over
    * `SLOPWEAVER_FEEDBACK_LOG` and the cwd-relative default. Mainly
@@ -106,8 +109,9 @@ export async function startUiServer(opts: StartUiServerOptions): Promise<UiServe
   // when callers pass `port: 0` (tests).
   const bindAddress = { host: requestedHost, port: requestedPort };
 
+  const companionCwd = opts.companionCwd ?? process.cwd();
   const server = createServer(
-    createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress, feedbackLogPath }),
+    createHandler({ db: opts.db, staticChecks, clientAssetsDir, bindAddress, companionCwd, feedbackLogPath }),
   );
 
   await listen({ server, port: requestedPort, host: requestedHost });
@@ -152,6 +156,7 @@ type HandlerArgs = {
   staticChecks: StaticEnvChecks;
   clientAssetsDir: string;
   bindAddress: { host: string; port: number };
+  companionCwd: string;
   feedbackLogPath: string;
 };
 
@@ -160,6 +165,7 @@ function createHandler({
   staticChecks,
   clientAssetsDir,
   bindAddress,
+  companionCwd,
   feedbackLogPath,
 }: HandlerArgs): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
@@ -174,7 +180,7 @@ function createHandler({
     }
 
     if (pathname.startsWith('/api/')) {
-      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress, feedbackLogPath });
+      handleApi({ req, res, method, pathname, db, staticChecks, bindAddress, companionCwd, feedbackLogPath });
       return;
     }
 
@@ -195,6 +201,7 @@ function handleApi({
   db,
   staticChecks,
   bindAddress,
+  companionCwd,
   feedbackLogPath,
 }: {
   req: IncomingMessage;
@@ -204,15 +211,59 @@ function handleApi({
   db: SlopweaverDatabase;
   staticChecks: StaticEnvChecks;
   bindAddress: { host: string; port: number };
+  companionCwd: string;
   feedbackLogPath: string;
 }): void {
-  if (method !== 'GET' && method !== 'HEAD') {
-    res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET, HEAD' });
-    res.end('method not allowed\n');
+  // The companion endpoint is reached from the Chrome extension's
+  // background service worker. The same-origin allow-list (which
+  // protects `/api/diagnostics`) would reject the extension's
+  // `chrome-extension://<id>` Origin, so this endpoint runs its own
+  // authentication-by-origin guard: it accepts requests *only* when
+  // the `Origin` header starts with `chrome-extension://`, and echoes
+  // that specific origin back (never `*`). A missing Origin header is
+  // rejected — the extension's service worker fetch always sends one.
+  //
+  // This is the authentication boundary for the companion: the
+  // server is loopback-bound, so a same-machine attacker is already
+  // inside the trust boundary, but *any web origin in the user's
+  // browser* must NOT be able to forge writes to the local inbox.
+  // That includes both same-origin (`http://localhost:60701`) and
+  // foreign (`https://evil.example`) browser pages — only the
+  // extension context is allowed.
+  if (pathname === '/api/companion/file') {
+    if (!isCompanionOriginAllowed({ req })) {
+      writeText({ res, status: 403, body: 'forbidden origin\n' });
+      return;
+    }
+    const allowedOrigin = req.headers.origin as string;
+    if (method === 'OPTIONS') {
+      res.writeHead(204, {
+        'access-control-allow-origin': allowedOrigin,
+        vary: 'Origin',
+        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-headers': 'content-type',
+        'access-control-max-age': '600',
+      });
+      res.end();
+      return;
+    }
+    if (method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'text/plain', allow: 'POST, OPTIONS' });
+      res.end('method not allowed\n');
+      return;
+    }
+    handleCompanionFile({ req, res, companionCwd, allowedOrigin }).catch((e: unknown) => {
+      writeText({ res, status: 500, body: `internal error: ${e instanceof Error ? e.message : String(e)}\n` });
+    });
     return;
   }
   if (!isOriginAllowed({ req, bindAddress })) {
     writeText({ res, status: 403, body: 'forbidden origin\n' });
+    return;
+  }
+  if (method !== 'GET' && method !== 'HEAD') {
+    res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET, HEAD' });
+    res.end('method not allowed\n');
     return;
   }
   if (pathname === '/api/diagnostics') {
@@ -252,6 +303,75 @@ function handleApi({
     return;
   }
   writeText({ res, status: 404, body: 'not found\n' });
+}
+
+async function handleCompanionFile({
+  req,
+  res,
+  companionCwd,
+  allowedOrigin,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  companionCwd: string;
+  allowedOrigin: string;
+}): Promise<void> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const raw = Buffer.concat(chunks).toString('utf-8');
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    writeJson({ res, status: 400, body: { filed: false, error: 'invalid JSON' }, allowedOrigin });
+    return;
+  }
+  const result = await buildCompanionFileResponse({ cwd: companionCwd, payload });
+  writeJson({ res, status: result.filed ? 200 : 400, body: result, allowedOrigin });
+}
+
+function writeJson({
+  res,
+  status,
+  body,
+  allowedOrigin,
+}: {
+  res: ServerResponse;
+  status: number;
+  body: unknown;
+  allowedOrigin: string;
+}): void {
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    // Echo the specific verified extension origin — never `*`. This
+    // is what makes `chrome-extension://` the authentication boundary:
+    // only the request that passed `isCompanionOriginAllowed` reaches
+    // this response, and the same origin is echoed back. Web pages
+    // calling this URL are rejected with 403 long before they reach
+    // here.
+    'access-control-allow-origin': allowedOrigin,
+    vary: 'Origin',
+  });
+  res.end(JSON.stringify(body));
+}
+
+/**
+ * The companion endpoint accepts requests *only* from the Chrome
+ * extension's background service worker, identified by an `Origin`
+ * header beginning with `chrome-extension://`. Missing Origin and any
+ * other scheme (`http://`, `https://`, `file://`, etc.) are rejected.
+ *
+ * The Chromium service worker `fetch()` always sets `Origin:
+ * chrome-extension://<id>` when issuing a cross-origin request to
+ * `http://127.0.0.1:60701`, so this check is reliable. A web page that
+ * tries to call this URL will send its own origin (e.g.
+ * `https://evil.example` or `http://localhost:60701`), which fails the
+ * prefix check.
+ */
+function isCompanionOriginAllowed({ req }: { req: IncomingMessage }): boolean {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string') return false;
+  return origin.startsWith('chrome-extension://');
 }
 
 function isOriginAllowed({

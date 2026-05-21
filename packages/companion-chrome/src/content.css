@@ -1,0 +1,31 @@
+.slopweaver-companion-host {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
+.slopweaver-companion-button {
+  pointer-events: auto;
+  appearance: none;
+  background: #1f2937;
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: ui-sans-serif, -apple-system, system-ui, sans-serif;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+
+.slopweaver-companion-button:hover {
+  background: #111827;
+}
+
+.slopweaver-companion-button:disabled {
+  background: #6b7280;
+  cursor: progress;
+}
