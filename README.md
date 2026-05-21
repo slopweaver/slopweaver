@@ -89,6 +89,22 @@ Then ask your client: *"What should I work on next?"* If anything fails, [open a
 
 > **Note:** Connecting SlopWeaver to GitHub (so it can poll your PRs and mentions) uses GitHub's own OAuth or a personal access token — that's separate from the MCP transport between your client and SlopWeaver. The MCP layer itself has no auth in v1; stdio inherits the user's trust context.
 
+### Try it without connecting anything (demo mode)
+
+If you want to feel the cold-start moment before bringing your own tokens, SlopWeaver ships a demo profile that seeds a separate SQLite database with synthetic GitHub + Slack evidence:
+
+```bash
+slopweaver demo seed     # populates ~/.slopweaver/demo.db with ~22 synthetic rows
+slopweaver --demo        # runs the MCP server against demo.db instead of slopweaver.db
+                         # (equivalent to SLOPWEAVER_DEMO=1)
+slopweaver demo reset    # drop + re-seed if the timestamps have drifted
+slopweaver demo exit     # remove demo.db when you're done
+```
+
+Once the server is running in demo mode, ask your MCP client to call the `start_session` tool — it serves the synthetic rows exactly the same way it would serve your real data. Only GitHub and Slack are covered (those are the integrations v1.0 actually ships); Linear / Gmail / Calendar are planned for v1.1+ and are intentionally absent from the demo so the snapshot can't claim a richer product than the binary delivers.
+
+The bare `slopweaver demo` command (with no subcommand) prints a static markdown snapshot to stdout for screenshotting or sharing.
+
 ---
 
 ## Why local-first

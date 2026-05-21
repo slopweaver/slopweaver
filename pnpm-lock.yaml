@@ -70,6 +70,9 @@ importers:
       '@slopweaver/errors':
         specifier: workspace:*
         version: link:../../packages/errors
+      '@slopweaver/integrations-core':
+        specifier: workspace:*
+        version: link:../../packages/integrations/core
       '@slopweaver/integrations-github':
         specifier: workspace:*
         version: link:../../packages/integrations/github
@@ -85,6 +88,9 @@ importers:
       cac:
         specifier: 7.0.0
         version: 7.0.0
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@types/better-sqlite3@7.6.13)(better-sqlite3@12.2.0)
     devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
