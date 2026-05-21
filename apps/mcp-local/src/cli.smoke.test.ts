@@ -74,6 +74,8 @@ describe('slopweaver bin (compiled CLI)', () => {
       expect(names).toContain('recall');
       expect(names).toContain('start_mega_audit');
       expect(names).toContain('record_audit_progress');
+      expect(names).toContain('start_retro');
+      expect(names).toContain('snapshot_profile');
 
       const ping = list.tools.find((t) => t.name === 'ping');
       expect(ping?.inputSchema.type).toBe('object');

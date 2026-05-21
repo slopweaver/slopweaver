@@ -144,6 +144,64 @@ export const SearchWorkContextResult = z
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
 
+// --- Weekly retro ----------------------------------------------------
+
+export const StartRetroArgs = z
+  .object({
+    /** ISO date for the start of the retro window. Defaults to today minus 7 days. */
+    since: z.iso.date().optional(),
+  })
+  .strict();
+export type StartRetroArgs = z.infer<typeof StartRetroArgs>;
+
+export const StartRetroResult = z
+  .object({
+    retro_id: NonEmptyStringSchema,
+    since: z.iso.date(),
+    instructions: NonEmptyStringSchema,
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type StartRetroResult = z.infer<typeof StartRetroResult>;
+
+export const SnapshotProfileArgs = z
+  .object({
+    /**
+     * Path to the source file. May be absolute or relative; relative
+     * paths are resolved against `process.cwd()` by `snapshot_profile`.
+     */
+    source_path: NonEmptyStringSchema,
+    /**
+     * Override the snapshot filename. Defaults to a sortable
+     * `<YYYY-MM-DDTHHMMSSZ>-<source-basename>` so same-day re-runs
+     * produce distinct files rather than silently overwriting.
+     *
+     * Must be a single filename — no path separators (`/` or `\`), no
+     * `..` segments, and not an absolute path. `snapshot_profile`
+     * rejects anything that would resolve outside the
+     * `<source-dir>/profile-snapshots/` directory.
+     */
+    snapshot_name: NonEmptyStringSchema.optional(),
+    /**
+     * When `true`, replace an existing snapshot at the resolved
+     * destination. Defaults to `false`: `snapshot_profile` refuses to
+     * write over an existing file so retros never silently destroy a
+     * prior baseline.
+     */
+    overwrite: z.boolean().optional(),
+  })
+  .strict();
+export type SnapshotProfileArgs = z.infer<typeof SnapshotProfileArgs>;
+
+export const SnapshotProfileResult = z
+  .object({
+    snapshot_path: NonEmptyStringSchema,
+    bytes_written: z.number().int().nonnegative(),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type SnapshotProfileResult = z.infer<typeof SnapshotProfileResult>;
+
 // --- Mega-audit ------------------------------------------------------
 
 export const StartMegaAuditArgs = z
