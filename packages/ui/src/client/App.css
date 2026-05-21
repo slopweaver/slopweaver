@@ -207,6 +207,33 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+.calibration-breakdown {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.calibration-breakdown th,
+.calibration-breakdown td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.calibration-breakdown thead th {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+}
+
+.calibration-breakdown td,
+.calibration-breakdown thead th + th {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- Flight-deck tab navigation ------------------------------------ */
 /* Same shell as PR #61 — if both PRs merge, this block is the
  * dedupe target. Identical CSS in both PRs by design.

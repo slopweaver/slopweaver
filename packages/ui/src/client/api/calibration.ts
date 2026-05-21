@@ -10,4 +10,9 @@ export async function fetchCalibration(): Promise<CalibrationResponse> {
   return (await res.json()) as CalibrationResponse;
 }
 
-export type { CalibrationResponse, CalibrationPoint, FrictionTagTally } from '../../server/calibration.ts';
+export type {
+  CalibrationResponse,
+  CalibrationPoint,
+  CalibrationBreakdown,
+  FrictionTagTally,
+} from '../../server/calibration.ts';

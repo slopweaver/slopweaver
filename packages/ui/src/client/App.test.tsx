@@ -20,9 +20,12 @@ describe('App (tab navigation)', () => {
               edit_rate: 0,
               rejection_rate: 0,
               daily: [],
+              by_integration: [],
+              by_kind: [],
               top_friction_tags: [],
               source_path: '/tmp/log.jsonl',
               source_present: false,
+              empty: true,
               generated_at: '2026-05-21T00:00:00.000Z',
             }),
           } as unknown as Response;
@@ -69,7 +72,7 @@ describe('App (tab navigation)', () => {
   it('shows the empty-state copy when the log source is missing', async () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: 'Calibration' }));
-    const emptyState = await waitFor(() => screen.getByText(/No walk-feedback log/));
+    const emptyState = await waitFor(() => screen.getByText(/No walks recorded/));
     expect(emptyState).toBeTruthy();
   });
 });
