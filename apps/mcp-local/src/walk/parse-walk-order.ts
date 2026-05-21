@@ -71,13 +71,13 @@ const SOURCE_BUCKET_RE = /\*\(([^)]+)\)\*\s*$/;
 /**
  * Parse a reconciliation.md body into the ranked WalkItem list.
  *
- * Item ids are content-derived: a short sha1 hash of
- * `anchor_url || anchor || description`. This makes ids stable across
- * input reformats (inserting / deleting blank lines or comments above
- * a row does not churn its id), but ids do change when the item's
- * content changes — that's the intended semantics for a `/lock-in`
- * state machine that wants to detect "this item is no longer the same
- * piece of work."
+ * Item ids are content-derived from the highest-priority available
+ * field: a short sha1 hash of `anchor_url || anchor || description`.
+ * That makes ids stable across input reformats (inserting or deleting
+ * blank lines or comments above a row does not churn its id). For an
+ * anchored row, the URL is the canonical identity, so a
+ * description-only edit keeps the same id. See `deriveId()` for the
+ * full per-field rules.
  *
  * @param markdown the raw file contents (CRLF and LF both accepted)
  * @returns the parsed queue plus any parse warnings, or an `Err` if
