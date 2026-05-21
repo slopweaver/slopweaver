@@ -112,6 +112,30 @@ describe('slopweaver bin (compiled CLI)', () => {
     }
   });
 
+  it('slack-send-image: exits 2 with a clear stderr line when --channel/--text/--image are missing', () => {
+    const result = spawnSync(process.execPath, [cliPath, 'slack-send-image'], {
+      env: { PATH: process.env['PATH'] ?? '', XDG_DATA_HOME: dataHome },
+      encoding: 'utf-8',
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('slack-send-image');
+    expect(result.stderr).toContain('--channel');
+    expect(result.stdout).toBe('');
+  });
+
+  it('slack-send-image: exits 2 when --xoxc / SLACK_XOXC is absent', () => {
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, 'slack-send-image', '--channel', 'C0', '--text', 'hi', '--image', '/tmp/x.png'],
+      {
+        env: { PATH: process.env['PATH'] ?? '', XDG_DATA_HOME: dataHome },
+        encoding: 'utf-8',
+      },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('xoxc');
+  });
+
   it('exits non-zero with a clean stderr message when env is invalid', () => {
     const result = spawnSync(process.execPath, [cliPath], {
       env: {

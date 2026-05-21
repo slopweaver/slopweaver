@@ -483,6 +483,58 @@ cli
   });
 
 cli
+  .command(
+    'slack-send-image',
+    'Share an image into a Slack channel or thread via the user web-API (4-call sequence). Requires xoxc + workspace URL.',
+  )
+  .option('--channel <id>', 'Slack channel id (C…) or DM id (D…). Required.')
+  .option('--text <body>', 'Message text. Pre-lint with apply_voice_rules. Required.')
+  .option('--image <path>', 'Absolute path to a PNG or JPEG. Required.')
+  .option('--thread <ts>', 'Optional thread root timestamp to reply into.')
+  .option('--xoxc <token>', 'xoxc user token. Falls back to SLACK_XOXC.')
+  .option(
+    '--workspace-url <url>',
+    'Workspace API base URL (e.g. https://acme.slack.com). Falls back to SLOPWEAVER_SLACK_WORKSPACE_URL.',
+  )
+  .option('--slack-route <route>', 'Enterprise grid slack_route (e.g. E…:T…). Falls back to SLOPWEAVER_SLACK_ROUTE.')
+  .example('  slopweaver slack-send-image --channel C0123 --text "hi" --image /tmp/a.png')
+  .action(
+    async (opts: {
+      channel?: string;
+      text?: string;
+      image?: string;
+      thread?: string;
+      xoxc?: string;
+      workspaceUrl?: string;
+      slackRoute?: string;
+    }) => {
+      try {
+        if (opts.channel === undefined || opts.text === undefined || opts.image === undefined) {
+          stderr.write('slack-send-image: --channel, --text, and --image are all required.\n');
+          exit(2);
+        }
+        const { runSlackSendImage } = await import('./send-image/cli-action.ts');
+        const code = await runSlackSendImage({
+          flags: {
+            channel: opts.channel,
+            text: opts.text,
+            image: opts.image,
+            ...(opts.thread !== undefined ? { thread: opts.thread } : {}),
+            ...(opts.xoxc !== undefined ? { xoxc: opts.xoxc } : {}),
+            ...(opts.workspaceUrl !== undefined ? { workspaceUrl: opts.workspaceUrl } : {}),
+            ...(opts.slackRoute !== undefined ? { slackRoute: opts.slackRoute } : {}),
+          },
+          io: { stdout, stderr, env: process.env },
+        });
+        exit(code);
+      } catch (error: unknown) {
+        stderr.write(`slopweaver: ${asMessage({ error })}\n`);
+        exit(1);
+      }
+    },
+  );
+
+cli
   .command('walk', 'Print the ranked /lock-in walk queue from the local reconciliation file')
   .example('  slopweaver walk')
   .action(async () => {

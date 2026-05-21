@@ -67,7 +67,29 @@ over stdio.
 
 In: stdio MCP server, `ping` tool, `--version` / `--help` / `--no-web-ui`,
 the local Diagnostics web UI on `127.0.0.1:60701`, the `init` first-run
-wizard, the `connect <integration>` subcommands, and the `walk` subcommand
+wizard, the `connect <integration>` subcommands, the `walk` subcommand
 (read-only: prints the ranked `/lock-in` queue from
 `.claude/personal/state/reconciliation.md`; the interactive TUI verb-loop
-ships in a follow-up PR). Out: `doctor`. That ships in a follow-up issue.
+ships in a follow-up PR), and the `slack-send-image` subcommand
+(human-acked Slack image send via the same 4-call web-API sequence the
+Slack web client uses; requires a user `xoxc` token and a workspace URL;
+the `.claude/commands/slack-image-draft.md` skill is the recommended
+front end). Out: `doctor`. That ships in a follow-up issue.
+
+## `slack-send-image` subcommand
+
+```bash
+slopweaver slack-send-image \
+  --channel "C0123456789" \
+  --text "deployment landed, p95 dropped from 4.9s to 667ms" \
+  --image "/tmp/dd-after.png" \
+  [--thread "1779326689.858299"]
+```
+
+Env vars:
+
+- `SLACK_XOXC` (required if `--xoxc` is omitted): the user's xoxc token. Extract from a logged-in Slack browser tab. Tokens cycle on the order of 60-90 seconds on enterprise grid; re-extract immediately before each send.
+- `SLOPWEAVER_SLACK_WORKSPACE_URL` (required if `--workspace-url` is omitted): the API base URL for the workspace, e.g. `https://acme.slack.com` or `https://acme.enterprise.slack.com`.
+- `SLOPWEAVER_SLACK_ROUTE` (enterprise grid only): the `<enterprise_id>:<team_id>` route. Standard workspaces leave this unset.
+
+The 4-call sequence runs `files.getUploadURL`, a binary POST of the image bytes, `files.completeUpload`, and `files.share`. Step 4 is the actual send (Slack has no draft-with-attachment path). The recommended flow is to draft the text via the Slack MCP for human review first, then run this command once the user acks. The `.claude/commands/slack-image-draft.md` skill drives that flow.
