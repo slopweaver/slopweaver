@@ -47,8 +47,10 @@ import {
   createGetFreshnessTool,
   createMcpServer,
   createPingTool,
+  createPrepareSendTool,
   createRecallTool,
   createRecordAuditProgressTool,
+  createRecordSendOutcomeTool,
   createSearchWorkContextTool,
   createSnapshotProfileTool,
   createStartDraftTool,
@@ -207,6 +209,8 @@ async function runMcpServer({ uiEnabled, demo }: { uiEnabled: boolean; demo: boo
       createStartRetroTool(),
       createSnapshotProfileTool(),
       createStartDraftTool(),
+      createPrepareSendTool(),
+      createRecordSendOutcomeTool(),
     ],
   });
 

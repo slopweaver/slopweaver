@@ -42,6 +42,18 @@ export { createStartRetroTool, createSnapshotProfileTool } from './tools/builtin
 export type { CreateStartRetroToolArgs, CreateSnapshotProfileToolArgs } from './tools/builtin/retro/index.ts';
 export { createStartDraftTool } from './tools/builtin/draft/index.ts';
 export type { CreateStartDraftToolArgs } from './tools/builtin/draft/index.ts';
+export {
+  createPrepareSendTool,
+  createRecordSendOutcomeTool,
+  parseTarget,
+  parseFrontmatter,
+} from './tools/builtin/send/index.ts';
+export type {
+  CreatePrepareSendToolArgs,
+  CreateRecordSendOutcomeToolArgs,
+  ParsedTarget,
+  ParsedDraft,
+} from './tools/builtin/send/index.ts';
 export { createStartSessionTool } from './tools/composite/start-session.ts';
 export type {
   CreateStartSessionToolArgs,
