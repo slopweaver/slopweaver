@@ -24,6 +24,8 @@ export { createGetFreshnessTool } from './tools/builtin/get-freshness.ts';
 export type { CreateGetFreshnessToolArgs } from './tools/builtin/get-freshness.ts';
 export { createSearchWorkContextTool } from './tools/builtin/search-work-context.ts';
 export type { CreateSearchWorkContextToolArgs } from './tools/builtin/search-work-context.ts';
+export { createApplyVoiceRulesTool } from './tools/builtin/apply-voice-rules.ts';
+export type { CreateApplyVoiceRulesToolArgs } from './tools/builtin/apply-voice-rules.ts';
 export { createRecallTool, createHashBagEmbedder, cosineSimilarity } from './tools/builtin/recall/index.ts';
 export type { CreateRecallToolArgs, Embedder } from './tools/builtin/recall/index.ts';
 export { createStartSessionTool } from './tools/composite/start-session.ts';

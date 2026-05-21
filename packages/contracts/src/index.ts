@@ -144,13 +144,43 @@ export const SearchWorkContextResult = z
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
 
+// --- Voice rules post-processor ---------------------------------------
+
+const VoiceRuleEditSchema = z
+  .object({
+    rule_line: z.number().int().positive(),
+    kind: z.enum(['forbid_token', 'replace', 'disallow_pattern']),
+    description: NonEmptyStringSchema,
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ApplyVoiceRulesArgs = z
+  .object({
+    /** The draft to rewrite. */
+    draft: z.string(),
+    /** The contents of `rules/communication-style.md` (or equivalent). Parsed in-tool. */
+    rules_markdown: z.string(),
+  })
+  .strict();
+export type ApplyVoiceRulesArgs = z.infer<typeof ApplyVoiceRulesArgs>;
+
+export const ApplyVoiceRulesResult = z
+  .object({
+    rewritten: z.string(),
+    edits: z.array(VoiceRuleEditSchema),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type ApplyVoiceRulesResult = z.infer<typeof ApplyVoiceRulesResult>;
+
 // --- Semantic recall over the evidence_log ---------------------------
 
 export const RecallArgs = z
   .object({
     /** The natural-language query to match against evidence titles + bodies. */
     query: NonEmptyStringSchema,
-    /** Max rows to return. 1–25; defaults to 10. */
+    /** Max rows to return. 1-25; defaults to 10. */
     limit: z.number().int().positive().max(25).optional(),
     /** Optional filters; same shape as `search_work_context`. */
     filters: z
@@ -170,7 +200,7 @@ const RecallHitSchema = z
     /**
      * Cosine similarity of query + evidence embeddings. The embedder
      * is contracted to return L2-normalized vectors, so this is the
-     * true dot product in `[-1, 1]` — not a remapped/clamped variant.
+     * true dot product in `[-1, 1]`, not a remapped/clamped variant.
      * The `recall` tool itself filters non-positive scores out before
      * returning, so in practice values are `(0, 1]`, but the wire
      * contract preserves the underlying range so a future embedder
@@ -185,7 +215,7 @@ export const RecallResult = z
   .object({
     hits: z.array(RecallHitSchema),
     generated_at: IsoDatetimeSchema,
-    /** Marker for which embedder produced the scores — lets the live UI label the tab honestly. */
+    /** Marker for which embedder produced the scores. */
     embedder: NonEmptyStringSchema,
   })
   .strict();
