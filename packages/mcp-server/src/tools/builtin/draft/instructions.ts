@@ -34,10 +34,11 @@ The user reviews, edits if needed, then triggers \`send_via_source\`
    needs to address the actual ask.
 
    **Failure mode — missing source MCP.** If the MCP server hosting
-   the thread is not connected (no Slack MCP for a \`slack:\` ref, no
-   GitHub MCP / \`gh\` CLI for a \`github:\` ref, no Gmail MCP for a
-   \`gmail:\` ref), **fail closed**. Stop and return an error to chat:
-   "Cannot draft: source thread MCP for <platform> is not connected.
+   the thread is not connected (no Slack MCP for a \`slack:\` ref,
+   no GitHub MCP / \`gh\` CLI for a \`github:\` ref, no Gmail MCP for
+   a \`gmail:\` ref, no Linear MCP for a \`linear:\` ref),
+   **fail closed**. Stop and return an error to chat: "Cannot draft:
+   source thread MCP for <platform> is not connected.
    Install/authenticate the relevant MCP server, then retry." Do not
    guess at the thread contents from the ref alone.
 
@@ -124,6 +125,7 @@ will reject anything else:
 - \`github:<owner>/<repo>/issue/<number>\` (e.g.
   \`github:slopweaver/slopweaver/issue/42\`) — note: \`issue\`, not
   \`issues\`.
+- \`linear:<issue_id>\` (e.g. \`linear:PLT-583\`)
 
 ## Hard rules
 

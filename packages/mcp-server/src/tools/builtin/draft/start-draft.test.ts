@@ -109,6 +109,9 @@ describe('createStartDraftTool', () => {
       expect(parsed.instructions).toContain('github:<owner>/<repo>/issue/<number>');
       expect(parsed.instructions).toContain('slack:<channel_id>/thread:<thread_ts>');
       expect(parsed.instructions).toContain('gmail:<thread_id>');
+      // Linear support landed in PR #72's parse-target.ts; the draft
+      // instructions must enumerate it so the model knows to emit it.
+      expect(parsed.instructions).toContain('linear:<issue_id>');
       // The wrong shape must NOT appear in the canonical enumeration.
       expect(parsed.instructions).not.toContain('github:owner/repo/pulls/');
     }
@@ -159,7 +162,7 @@ describe('createStartDraftTool', () => {
     }
   });
 
-  it('generates distinct draft_ids by default', async () => {
+  it('generates distinct draft_ids by default using crypto.randomUUID (no collisions)', async () => {
     const tool = createStartDraftTool({ now: () => FIXED_NOW });
     const a = await tool.handler({
       input: StartDraftArgs.parse({ thread_ref: 'x' }),
@@ -175,6 +178,32 @@ describe('createStartDraftTool', () => {
       const pa = StartDraftResult.parse(a.value);
       const pb = StartDraftResult.parse(b.value);
       expect(pa.draft_id).not.toBe(pb.draft_id);
+      // RFC 4122 v4 — `draft_<8>-<4>-<4>-<4>-<12>` hex with version
+      // nibble `4` and variant nibble `8/9/a/b`. Pin the shape so a
+      // future regression to `Math.random()` (which gave only ~36 bits
+      // of entropy and allowed collisions) is caught here.
+      const uuidV4Re = /^draft_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      expect(pa.draft_id).toMatch(uuidV4Re);
+      expect(pb.draft_id).toMatch(uuidV4Re);
     }
+  });
+
+  it('large batch of default draft_ids has zero collisions (UUID v4 entropy)', async () => {
+    // With Math.random() at 6 base36 chars (~36 bits), birthday-paradox
+    // collisions show up in the low-thousands range. UUID v4 has ~122
+    // bits, so 1000 generations should still be entirely distinct.
+    const tool = createStartDraftTool({ now: () => FIXED_NOW });
+    const ids = new Set<string>();
+    for (let i = 0; i < 1000; i += 1) {
+      const r = await tool.handler({
+        input: StartDraftArgs.parse({ thread_ref: 'x' }),
+        ctx: { db: dbHandle.db },
+      });
+      expect(r.isOk()).toBe(true);
+      if (r.isOk()) {
+        ids.add(StartDraftResult.parse(r.value).draft_id);
+      }
+    }
+    expect(ids.size).toBe(1000);
   });
 });

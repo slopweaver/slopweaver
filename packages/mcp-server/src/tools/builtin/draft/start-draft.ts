@@ -8,6 +8,7 @@
  * command shim lands once #54 merges.
  */
 
+import { randomUUID } from 'node:crypto';
 import { StartDraftArgs, StartDraftResult } from '@slopweaver/contracts';
 import { ok } from '@slopweaver/errors';
 import { defineTool, type Tool } from '../../registry.ts';
@@ -16,8 +17,12 @@ import { DRAFT_INSTRUCTIONS } from './instructions.ts';
 export type CreateStartDraftToolArgs = {
   /** Clock injection for tests. Defaults to `Date.now`. */
   now?: () => number;
-  /** ID generator for tests. Defaults to a date + shortid. */
-  generateDraftId?: (nowMs: number) => string;
+  /**
+   * ID generator for tests. Defaults to `crypto.randomUUID()` (RFC 4122
+   * v4 — ~122 bits of entropy), which makes collisions across repeat
+   * `/draft` calls effectively impossible.
+   */
+  generateDraftId?: () => string;
 };
 
 export function createStartDraftTool(args: CreateStartDraftToolArgs = {}): Tool {
@@ -32,7 +37,7 @@ export function createStartDraftTool(args: CreateStartDraftToolArgs = {}): Tool 
     outputSchema: StartDraftResult,
     handler: async ({ input }) => {
       const nowMs = now();
-      const draftId = generateDraftId(nowMs);
+      const draftId = generateDraftId();
       // Include `draft_id` so calling `/draft` twice for the same thread
       // doesn't overwrite the first draft. The slug stays as the
       // human-readable anchor; the id is the uniqueness guarantee.
@@ -62,8 +67,13 @@ export function slugifyAnchor(input: string): string {
   );
 }
 
-function defaultGenerator(nowMs: number): string {
-  const datePart = new Date(nowMs).toISOString().slice(0, 10).replaceAll('-', '');
-  const randomPart = Math.random().toString(36).slice(2, 8);
-  return `draft_${datePart}_${randomPart}`;
+/**
+ * `crypto.randomUUID()` is RFC 4122 v4 — ~122 bits of entropy — so two
+ * concurrent `/draft` calls (or two within the same millisecond) can
+ * never collide on `draft_id`. The `draft_` prefix preserves the
+ * "this looks like a draft anchor" affordance the previous date-coded
+ * format had without leaking any clock state into the identifier.
+ */
+function defaultGenerator(): string {
+  return `draft_${randomUUID()}`;
 }
