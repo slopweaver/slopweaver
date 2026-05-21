@@ -48,7 +48,9 @@ import {
   createMcpServer,
   createPingTool,
   createRecallTool,
+  createRecordAuditProgressTool,
   createSearchWorkContextTool,
+  createStartMegaAuditTool,
   createStartSessionTool,
   type StartSessionPoller,
   startStdio,
@@ -175,6 +177,8 @@ async function runMcpServer({ uiEnabled }: { uiEnabled: boolean }): Promise<void
       createSearchWorkContextTool(),
       createApplyVoiceRulesTool(),
       createRecallTool(),
+      createStartMegaAuditTool(),
+      createRecordAuditProgressTool(),
     ],
   });
 

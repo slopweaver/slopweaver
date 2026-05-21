@@ -144,6 +144,77 @@ export const SearchWorkContextResult = z
   .strict();
 export type SearchWorkContextResult = z.infer<typeof SearchWorkContextResult>;
 
+// --- Mega-audit ------------------------------------------------------
+
+export const StartMegaAuditArgs = z
+  .object({
+    /** ISO date — start of the lookback window. Defaults to today minus 90 days. */
+    since: z.iso.date().optional(),
+    /** Override the per-source token budget for the aggregate context. Default: 90_000 tokens per source. */
+    per_source_token_budget: z.number().int().positive().max(200_000).optional(),
+  })
+  .strict();
+export type StartMegaAuditArgs = z.infer<typeof StartMegaAuditArgs>;
+
+export const StartMegaAuditResult = z
+  .object({
+    /** Stable id the caller should pass to every `record_audit_progress` call during this run. */
+    audit_id: NonEmptyStringSchema,
+    /** Instructional body the model should follow to execute the audit. */
+    instructions: NonEmptyStringSchema,
+    /** Effective lookback window in ISO date. */
+    since: z.iso.date(),
+    /** Effective per-source token budget the model should respect when batching. */
+    per_source_token_budget: z.number().int().positive(),
+    generated_at: IsoDatetimeSchema,
+  })
+  .strict();
+export type StartMegaAuditResult = z.infer<typeof StartMegaAuditResult>;
+
+// --- Mega-audit progress streaming -----------------------------------
+
+const AuditPhaseSchema = z.enum([
+  'starting',
+  'inventory',
+  'polling',
+  'aggregating',
+  'synthesizing',
+  'writing',
+  'completed',
+  'failed',
+]);
+
+export const RecordAuditProgressArgs = z
+  .object({
+    /** Audit run identifier. Generate once at the top of the audit; reuse for every progress event. */
+    audit_id: NonEmptyStringSchema,
+    phase: AuditPhaseSchema,
+    /** MCP-server slug (e.g. "slack", "github") associated with this event. Required when `phase === 'polling'` — every polling event must name the source it polled. */
+    source: NonEmptyStringSchema.optional(),
+    /** Free-form human-readable message. Surfaced verbatim in the UI tail. */
+    message: NonEmptyStringSchema,
+    /** Optional 0-100 progress hint for the current phase. */
+    pct: z.number().int().min(0).max(100).optional(),
+  })
+  .strict()
+  .refine((value) => value.phase !== 'polling' || (value.source !== undefined && value.source.length > 0), {
+    // Polling events fan out per MCP server, so the live UI tails them
+    // grouped by source. A polling event with no `source` is a bug —
+    // reject it at the schema boundary so the bug fails loudly instead
+    // of silently rendering as "(unknown source)" in the UI.
+    message: 'source is required when phase is "polling"',
+    path: ['source'],
+  });
+export type RecordAuditProgressArgs = z.infer<typeof RecordAuditProgressArgs>;
+
+export const RecordAuditProgressResult = z
+  .object({
+    log_path: NonEmptyStringSchema,
+    bytes_appended: z.number().int().nonnegative(),
+  })
+  .strict();
+export type RecordAuditProgressResult = z.infer<typeof RecordAuditProgressResult>;
+
 // --- Voice rules post-processor ---------------------------------------
 
 const VoiceRuleEditSchema = z
