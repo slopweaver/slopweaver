@@ -145,6 +145,16 @@ export function parseWalkOrder(markdown: string): Result<WalkParseSuccess, WalkP
  * `anchor_url` (most stable) → `anchor` text → `description`. The
  * description fallback is always available because rows with empty
  * descriptions are filtered upstream.
+ *
+ * Identity semantics: the id is stable as long as the highest-priority
+ * available field is unchanged. For anchored rows that means the URL is
+ * canonical identity — a description-only edit on a row that has an
+ * `anchor_url` keeps the id (the URL still wins the precedence chain).
+ * This is the right semantic for a state machine that treats the URL as
+ * the row's identity: the user is editing prose, not pointing at a
+ * different thing. For rows with no `anchor_url`, the anchor text plays
+ * that role; for rows with neither, the description does, so any edit
+ * changes the id.
  */
 function deriveId({
   anchorUrl,

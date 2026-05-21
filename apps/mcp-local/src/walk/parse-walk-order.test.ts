@@ -69,6 +69,26 @@ describe('parseWalkOrder', () => {
     }
   });
 
+  it('keeps the id stable when only the description changes on a row that has an anchor_url', () => {
+    // URL is canonical identity for anchored rows — editing prose around
+    // the same URL should NOT shift the id (the state machine treats the
+    // URL as the row's identity).
+    const before = ['## Walk order', '', '1. **[PR-1](https://example.com/1)** — reply to thread.'].join('\n');
+    const after = ['## Walk order', '', '1. **[PR-1](https://example.com/1)** — actually, draft a reply tonight.'].join(
+      '\n',
+    );
+    const beforeResult = parseWalkOrder(before);
+    const afterResult = parseWalkOrder(after);
+    expect(beforeResult.isOk()).toBe(true);
+    expect(afterResult.isOk()).toBe(true);
+    if (beforeResult.isOk() && afterResult.isOk()) {
+      expect(beforeResult.value.items[0]?.id).toBe(expectedId('https://example.com/1'));
+      expect(afterResult.value.items[0]?.id).toBe(expectedId('https://example.com/1'));
+      expect(beforeResult.value.items[0]?.id).toBe(afterResult.value.items[0]?.id);
+      expect(beforeResult.value.items[0]?.description).not.toBe(afterResult.value.items[0]?.description);
+    }
+  });
+
   it('keeps ids stable when blank lines are inserted above an item', () => {
     const compact = ['## Walk order', '', '1. **[A](https://a/)** one', '2. **[B](https://b/)** two'].join('\n');
     const reformatted = [
