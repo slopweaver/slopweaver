@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Portable `slopweaver` launcher (on the plugin's bin/ PATH). Resolves config env, then runs the
+# in-repo CLI (repo root) via tsx. For a cache install with no node_modules, links to the deps lazily
+# installed into the persistent plugin-data dir.
+set -euo pipefail
+
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/slopweaver/env"
+if [ -f "$CFG" ]; then
+  while IFS='=' read -r k v; do
+    case "$k" in ''|\#*) continue ;; esac
+    if [ -z "${!k:-}" ]; then export "$k=$v"; fi
+  done < "$CFG"
+fi
+: "${SLOPWEAVER_HOME:=${CLAUDE_PLUGIN_OPTION_SLOPWEAVER_HOME:-}}"
+: "${GITHUB_TOKEN:=${CLAUDE_PLUGIN_OPTION_GITHUB_TOKEN:-}}"
+export SLOPWEAVER_HOME GITHUB_TOKEN
+
+SELF="${BASH_SOURCE[0]:-$0}"
+HERE="$(cd "$(dirname "$SELF")" && pwd)"
+DIR="${SLOPWEAVER_CLI_DIR:-${CLAUDE_PLUGIN_ROOT:-$HERE/..}}"
+DATA="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/slopweaver}/cli-deps"
+
+# Prefer a WORKING in-repo node_modules (dev). Else link to the data-dir deps (cache install).
+# Verify tsx is executable — not just that a dir exists — so a stale/broken node_modules (incomplete
+# cleanup, a concurrent run) can't wedge the launcher.
+if [ ! -x "$DIR/node_modules/.bin/tsx" ]; then
+  if [ -x "$DATA/node_modules/.bin/tsx" ]; then
+    rm -rf "$DIR/node_modules" 2>/dev/null || true   # clear stale dir / broken symlink (only when its tsx is absent)
+    ln -s "$DATA/node_modules" "$DIR/node_modules" 2>/dev/null || true
+  fi
+fi
+TSX="$DIR/node_modules/.bin/tsx"
+[ -x "$TSX" ] || TSX="$DATA/node_modules/.bin/tsx"   # last resort: run straight from the data dir
+exec "$TSX" "$DIR/src/cli/index.ts" "$@"

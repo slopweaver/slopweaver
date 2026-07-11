@@ -1,57 +1,18 @@
-# Dependencies
+# Deps + build output — installed/built, never committed
 node_modules/
-.pnpm-store/
-
-# Build output
 dist/
-build/
-.next/
-.turbo/
-*.tsbuildinfo
+**/*.tsbuildinfo
 
-# Local data
-.slopweaver/
-# Per-user work-console state (companion inbox, journals, etc.). Public
-# repo: must never be committed — may contain URLs, page titles, and
-# other personal context from the user's browsing session.
-.claude/personal/
-*.db
-*.db-journal
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite-journal
-*.sqlite-shm
-*.sqlite-wal
-*.sqlite3
-*.sqlite3-journal
-*.sqlite3-shm
-*.sqlite3-wal
-.env
-.env.local
-.env.*.local
+# Yarn 4 (Berry) — commit yarn.lock + .yarnrc.yml only; the version is resolved by Corepack/proto
+.yarn/*
+!.yarn/patches
+.pnp.*
 
-# OS
+# Local world-model artifacts (live under $SLOPWEAVER_HOME; never committed)
+.cache/
+warehouse/
+
+# Claude Code plugin data
+.claude/plugins/
+
 .DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Testing
-coverage/
-*.har
-# Allow committed Polly cassettes (scrubbed) for github integration tests
-!packages/integrations/github/**/__recordings__/**/*.har
-# Allow committed Polly cassettes (scrubbed) for slack integration tests
-!packages/integrations/slack/**/__recordings__/**/*.har
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
