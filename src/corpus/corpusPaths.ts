@@ -4,6 +4,11 @@
  *
  *   $SLOPWEAVER_HOME/warehouse/
  *   ├── bronze/<source>/<since>_<until>.jsonl   # CorpusRecord lines
+ *   ├── silver/index/{directory,opportunities,identities}.json
+ *   ├── silver/graph/graph.json
+ *   ├── silver/digests/<source>.json            # distilled per-source digests
+ *   ├── gold/{overview,where-to-look}.md + gold/by-source/<source>.md
+ *   ├── .cache/distil/batches.json              # content-hash digest cache (rebuildable)
  *   └── .watermark.json                         # per-source resume cursor
  */
 import { join } from 'node:path'
@@ -60,4 +65,54 @@ export function bronzeFile(
  */
 export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {}): string {
   return join(warehouseDir({ home }), '.watermark.json')
+}
+
+/**
+ * The silver index dir (directory / opportunities / identities JSON).
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute silver index directory path
+ */
+export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(warehouseDir({ home }), 'silver', 'index')
+}
+
+/**
+ * The silver graph dir.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute silver graph directory path
+ */
+export function silverGraphDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(warehouseDir({ home }), 'silver', 'graph')
+}
+
+/**
+ * The silver digests dir (per-source distilled digests).
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute silver digests directory path
+ */
+export function silverDigestsDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(warehouseDir({ home }), 'silver', 'digests')
+}
+
+/**
+ * The gold markdown dir.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute gold directory path
+ */
+export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(warehouseDir({ home }), 'gold')
+}
+
+/**
+ * The distil batch-cache file (content-hash → digest; rebuildable, gitignored).
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute distil cache file path
+ */
+export function distilCachePath({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(warehouseDir({ home }), '.cache', 'distil', 'batches.json')
 }
