@@ -21,8 +21,11 @@ export interface DiscoveredCommand {
 /**
  * Enumerate every registered noun/verb in the registry, attaching metadata where present. Sorted by
  * noun then verb for stable catalog/help output.
+ *
+ * @param groups the noun registry
+ * @returns the flat, sorted list of discovered commands
  */
-export function discoverCommands(groups: NounGroups): readonly DiscoveredCommand[] {
+export function discoverCommands({ groups }: { groups: NounGroups }): readonly DiscoveredCommand[] {
   const commands: DiscoveredCommand[] = []
   for (const noun of Object.keys(groups)) {
     const verbs = groups[noun] ?? {}
@@ -45,10 +48,15 @@ export function discoverCommands(groups: NounGroups): readonly DiscoveredCommand
   return commands.sort((a, b) => (a.noun === b.noun ? a.verb.localeCompare(b.verb) : a.noun.localeCompare(b.noun)))
 }
 
-/** The subset of discovered commands that carry metadata. */
-export function migratedCommands(groups: NounGroups): readonly Required<DiscoveredCommand>[] {
+/**
+ * The subset of discovered commands that carry metadata.
+ *
+ * @param groups the noun registry
+ * @returns the discovered commands that have `meta`
+ */
+export function migratedCommands({ groups }: { groups: NounGroups }): readonly Required<DiscoveredCommand>[] {
   const migrated: Required<DiscoveredCommand>[] = []
-  for (const command of discoverCommands(groups)) {
+  for (const command of discoverCommands({ groups })) {
     if (command.meta !== undefined) {
       migrated.push({ noun: command.noun, verb: command.verb, meta: command.meta })
     }

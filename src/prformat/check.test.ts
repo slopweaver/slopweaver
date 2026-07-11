@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { countWords, MAX_WORDS, validatePrBody } from './check.js'
 
-const badges = '![CI](https://img.shields.io/badge/CI-passing-2ea44f?style=flat) ![proof](https://img.shields.io/badge/proof-bronze-cd7f32?style=flat)'
+const badges = '![CI](https://img.shields.io/badge/CI-passing-2ea44f) ![proof](https://img.shields.io/badge/proof-silver-9ea7ad)'
 
+/** Build a canonical HTML-table PR body. */
 function body({ problem, solution, proof = 'ok', withBadges = true }: {
   problem: string
   solution: string
@@ -12,52 +13,62 @@ function body({ problem, solution, proof = 'ok', withBadges = true }: {
   return [
     withBadges ? badges : '(no badges)',
     '',
-    '| | |',
-    '|---|---|',
-    `| **Problem** | ${problem} |`,
-    `| **Solution** | ${solution} |`,
-    `| **Proof** | ${proof} |`,
+    '<table>',
+    `<tr><td><strong>Problem</strong></td><td>${problem}</td></tr>`,
+    `<tr><td><strong>Solution</strong></td><td>${solution}</td></tr>`,
+    `<tr><td><strong>Proof</strong></td><td>${proof}</td></tr>`,
+    '</table>',
   ].join('\n')
 }
 
 const words = (n: number): string => Array.from({ length: n }, (_, i) => `w${String(i)}`).join(' ')
 
 describe('countWords', () => {
-  it('ignores <br>, link URLs, inline code and markdown noise', () => {
-    expect(countWords('• **Strip** the prototype<br>`argv → exit-code` [run](https://x.y/z)')).toBe(6)
+  it('ignores HTML tags, <br>, link URLs, inline code and markdown noise', () => {
+    expect(countWords({ cell: '• <strong>Strip</strong> the prototype<br><img src="x.png"> `argv` [run](https://x.y/z)' })).toBe(5)
   })
 })
 
 describe('validatePrBody', () => {
-  it('accepts a conforming body', () => {
-    expect(validatePrBody(body({ problem: words(10), solution: words(40) }))).toEqual({ ok: true, errors: [] })
+  it('accepts a conforming HTML body', () => {
+    expect(validatePrBody({ body: body({ problem: words(10), solution: words(40) }) })).toEqual({ ok: true, errors: [] })
+  })
+
+  it('accepts an image embedded in the Proof cell without counting it as words', () => {
+    const proof = 'ran it <img src="https://user-images.githubusercontent.com/x.png">'
+    expect(validatePrBody({ body: body({ problem: words(3), solution: words(3), proof }) }).ok).toBe(true)
   })
 
   it('accepts exactly MAX_WORDS', () => {
-    expect(validatePrBody(body({ problem: words(MAX_WORDS), solution: words(1) })).ok).toBe(true)
+    expect(validatePrBody({ body: body({ problem: words(MAX_WORDS), solution: words(1) }) }).ok).toBe(true)
   })
 
   it('rejects a Problem over the word cap', () => {
-    const result = validatePrBody(body({ problem: words(MAX_WORDS + 1), solution: words(1) }))
+    const result = validatePrBody({ body: body({ problem: words(MAX_WORDS + 1), solution: words(1) }) })
     expect(result.ok).toBe(false)
     expect(result.errors.some((e) => e.includes('Problem') && e.includes('max'))).toBe(true)
   })
 
   it('rejects a missing badge row', () => {
-    const result = validatePrBody(body({ problem: words(2), solution: words(2), withBadges: false }))
+    const result = validatePrBody({ body: body({ problem: words(2), solution: words(2), withBadges: false }) })
     expect(result.ok).toBe(false)
     expect(result.errors.some((e) => e.includes('badge'))).toBe(true)
   })
 
   it('rejects a missing Solution row', () => {
-    const noSolution = `${badges}\n\n| **Problem** | ${words(3)} |\n| **Proof** | ok |`
-    const result = validatePrBody(noSolution)
+    const noSolution = `${badges}\n<table>\n<tr><td><strong>Problem</strong></td><td>${words(3)}</td></tr>\n<tr><td><strong>Proof</strong></td><td>ok</td></tr>\n</table>`
+    const result = validatePrBody({ body: noSolution })
     expect(result.ok).toBe(false)
     expect(result.errors.some((e) => e.includes('Solution'))).toBe(true)
   })
 
   it('rejects a missing Proof row', () => {
-    const noProof = `${badges}\n\n| **Problem** | ${words(3)} |\n| **Solution** | ${words(3)} |`
-    expect(validatePrBody(noProof).errors.some((e) => e.includes('Proof'))).toBe(true)
+    const noProof = `${badges}\n<table>\n<tr><td><strong>Problem</strong></td><td>${words(3)}</td></tr>\n<tr><td><strong>Solution</strong></td><td>${words(3)}</td></tr>\n</table>`
+    expect(validatePrBody({ body: noProof }).errors.some((e) => e.includes('Proof'))).toBe(true)
+  })
+
+  it('still accepts the markdown-table fallback', () => {
+    const md = `${badges}\n\n| | |\n|---|---|\n| **Problem** | ${words(3)} |\n| **Solution** | ${words(3)} |\n| **Proof** | ok |`
+    expect(validatePrBody({ body: md }).ok).toBe(true)
   })
 })

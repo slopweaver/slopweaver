@@ -36,11 +36,14 @@ function routeFor({ noun, verb, entry }: { noun: string; verb: string; entry: Re
 }
 
 /**
- * Resolve `argv` (full process argv: [node, cli, noun, verb, ...]) against the registry. Returns the
- * matching route, or null when argv[2] is not a registered noun OR the verb is missing/unknown — so the
- * caller can render usage (see isNoun).
+ * Resolve `argv` (full process argv: [node, cli, noun, verb, ...]) against the registry.
+ *
+ * @param groups the noun registry
+ * @param argv the full process argv
+ * @returns the matching route, or null when argv[2] is not a registered noun OR the verb is
+ *   missing/unknown — so the caller can render usage (see isNoun)
  */
-export function resolveNoun(groups: NounGroups, argv: readonly string[]): NounRoute | null {
+export function resolveNoun({ groups, argv }: { groups: NounGroups; argv: readonly string[] }): NounRoute | null {
   const noun = argv[2]
   if (noun === undefined) {
     return null
@@ -65,21 +68,31 @@ export function resolveNoun(groups: NounGroups, argv: readonly string[]): NounRo
   return routeFor({ noun, verb, entry })
 }
 
-/** Whether argv[2] names a registered noun group (even if the verb is missing/unknown). */
-export function isNoun(groups: NounGroups, argv: readonly string[]): boolean {
+/**
+ * Whether argv[2] names a registered noun group (even if the verb is missing/unknown).
+ *
+ * @param groups the noun registry
+ * @param argv the full process argv
+ * @returns true when argv[2] is a registered noun
+ */
+export function isNoun({ groups, argv }: { groups: NounGroups; argv: readonly string[] }): boolean {
   const noun = argv[2]
   return noun !== undefined && noun in groups
 }
 
 /**
  * Render usage for the noun groups: a `slopweaver <noun> <verbs>` line each, with a one-line summary
- * beneath when supplied. Pass `only` to scope the listing to a single noun (so `slopweaver <noun>` with
- * no verb shows just that noun's verbs, not the whole surface).
+ * beneath when supplied.
+ *
+ * @param groups the noun registry
+ * @param summaries the per-noun one-line summaries (default none)
+ * @param only scope the listing to a single noun (so `slopweaver <noun>` with no verb shows just that
+ *   noun's verbs, not the whole surface)
+ * @returns the rendered usage block
  */
 export function renderNounUsage(
-  groups: NounGroups,
-  summaries: Readonly<Record<string, string>> = {},
-  only?: string,
+  { groups, summaries = {}, only }:
+  { groups: NounGroups; summaries?: Readonly<Record<string, string>>; only?: string },
 ): string {
   const nouns = (only !== undefined && only in groups ? [only] : Object.keys(groups)).sort()
   return nouns

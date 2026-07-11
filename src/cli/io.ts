@@ -12,7 +12,13 @@ export type ReadJsonResult =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: string }
 
-export function readJson(path: string): ReadJsonResult {
+/**
+ * Read + parse a JSON file.
+ *
+ * @param path the file path
+ * @returns `{ ok: true, value }` or `{ ok: false, error }`
+ */
+export function readJson({ path }: { path: string }): ReadJsonResult {
   try {
     return { ok: true, value: JSON.parse(readFileSync(resolve(path), 'utf8')) }
   } catch (error: unknown) {
@@ -28,8 +34,11 @@ export function readJson(path: string): ReadJsonResult {
  * but any OTHER read error (permission, EISDIR, I/O) surfaces as `err`. Callers feeding dedup/planning
  * must NOT treat a permission/corrupt read as "empty" — that silently reprocesses or hides a broken
  * setup.
+ *
+ * @param path the file path
+ * @returns the file text (`ok('')` when absent), or `err` on any other read failure
  */
-export function readOptionalText(path: string): Result<string> {
+export function readOptionalText({ path }: { path: string }): Result<string> {
   try {
     return ok(readFileSync(resolve(path), 'utf8'))
   } catch (error: unknown) {
@@ -40,11 +49,16 @@ export function readOptionalText(path: string): Result<string> {
   }
 }
 
-/** Read several optional files in order; the first real (non-ENOENT) read error short-circuits. */
-export function readOptionalTexts(paths: readonly string[]): Result<readonly string[]> {
+/**
+ * Read several optional files in order; the first real (non-ENOENT) read error short-circuits.
+ *
+ * @param paths the file paths, in order
+ * @returns each file's text (absent ⇒ `''`), or the first real read error
+ */
+export function readOptionalTexts({ paths }: { paths: readonly string[] }): Result<readonly string[]> {
   const texts: string[] = []
   for (const path of paths) {
-    const result = readOptionalText(path)
+    const result = readOptionalText({ path })
     if (result.ok === false) {
       return err(result.errors)
     }
@@ -53,7 +67,13 @@ export function readOptionalTexts(paths: readonly string[]): Result<readonly str
   return ok(texts)
 }
 
-export function appendLine(path: string, row: string): void {
+/**
+ * Append a row to a file, creating parent directories as needed.
+ *
+ * @param path the file path
+ * @param row the exact bytes to append (include any trailing newline)
+ */
+export function appendLine({ path, row }: { path: string; row: string }): void {
   mkdirSync(dirname(resolve(path)), { recursive: true })
   appendFileSync(resolve(path), row, { encoding: 'utf8' })
 }

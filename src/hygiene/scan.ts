@@ -37,8 +37,14 @@ const PATTERNS: readonly Pattern[] = [
   { label: 'raw-workspace-id', re: /\b(?=[A-Z0-9]*[0-9])[CUAW][A-Z0-9]{8,}\b/ },
 ]
 
-/** Read the optional user denylist ($SLOPWEAVER_HOME/hygiene-denylist.txt); one case-insensitive substring per line. */
-export function loadDenylist(home: string | undefined): readonly string[] {
+/**
+ * Read the optional user denylist ($SLOPWEAVER_HOME/hygiene-denylist.txt); one case-insensitive
+ * substring per line.
+ *
+ * @param home the SLOPWEAVER_HOME dir (undefined/empty ⇒ no denylist)
+ * @returns the denylist substrings (blank + `#` lines dropped), or `[]`
+ */
+export function loadDenylist({ home }: { home: string | undefined }): readonly string[] {
   if (home === undefined || home.length === 0) {
     return []
   }
@@ -85,7 +91,7 @@ function repoRoot(): string {
 }
 
 /** List git-tracked files (repo-relative), anchored at `root`. Throws if run outside a git checkout. */
-function trackedFiles(root: string): readonly string[] {
+function trackedFiles({ root }: { root: string }): readonly string[] {
   return execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8' })
     .split('\n')
     .map((l) => l.trim())
@@ -93,7 +99,7 @@ function trackedFiles(root: string): readonly string[] {
 }
 
 /** A NUL byte is the cheap, reliable "this is binary, skip it" signal. */
-function looksBinary(content: string): boolean {
+function looksBinary({ content }: { content: string }): boolean {
   return content.includes('\u0000')
 }
 
@@ -103,12 +109,12 @@ export function runScan(): number {
   let files: readonly string[]
   try {
     root = repoRoot()
-    files = trackedFiles(root)
+    files = trackedFiles({ root })
   } catch {
     process.stderr.write('hygiene: not a git checkout (git ls-files failed)\n')
     return 1
   }
-  const denylist = loadDenylist(process.env.SLOPWEAVER_HOME)
+  const denylist = loadDenylist({ home: process.env.SLOPWEAVER_HOME })
   const hits: Hit[] = []
   for (const path of files) {
     let content: string
@@ -117,7 +123,7 @@ export function runScan(): number {
     } catch {
       continue
     }
-    if (looksBinary(content)) {
+    if (looksBinary({ content })) {
       continue
     }
     hits.push(...scanContent({ path, content, denylist }))

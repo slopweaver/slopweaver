@@ -14,13 +14,13 @@ import { isNoun, renderNounUsage, resolveNoun } from './router.js'
 import { renderVerbHelp, wantsHelp } from './verbHelp.js'
 
 export async function main(argv: readonly string[]): Promise<number> {
-  const nounRoute = resolveNoun(NOUN_GROUPS, argv)
+  const nounRoute = resolveNoun({ groups: NOUN_GROUPS, argv })
   if (nounRoute) {
     // `--help`/`-h` is answered here, before the handler runs: a manifest verb's usage rides on the
     // registry entry, so we print it WITHOUT loading the module. Help is not an error -> stdout, exit 0.
     if (nounRoute.kind === 'manifest') {
-      if (wantsHelp(argv)) {
-        logger.out(renderVerbHelp(nounRoute.entry.meta))
+      if (wantsHelp({ argv })) {
+        logger.out(renderVerbHelp({ meta: nounRoute.entry.meta }))
         return 0
       }
       const run = await nounRoute.entry.load()
@@ -28,9 +28,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
     return await nounRoute.handler(argv)
   }
-  if (isNoun(NOUN_GROUPS, argv)) {
+  if (isNoun({ groups: NOUN_GROUPS, argv })) {
     logger.error(`usage: slopweaver ${argv[2]} <verb>`)
-    logger.error(renderNounUsage(NOUN_GROUPS, NOUN_SUMMARIES, argv[2]))
+    logger.error(renderNounUsage({ groups: NOUN_GROUPS, summaries: NOUN_SUMMARIES, only: argv[2] }))
     return 1
   }
   printUsage()
@@ -42,7 +42,7 @@ function printUsage(): void {
     'usage: slopweaver <noun> <verb> [--flags]',
     '',
     'noun groups:',
-    renderNounUsage(NOUN_GROUPS, NOUN_SUMMARIES),
+    renderNounUsage({ groups: NOUN_GROUPS, summaries: NOUN_SUMMARIES }),
   ].join('\n'))
 }
 
@@ -61,7 +61,7 @@ if (isDirectInvocation) {
       process.exit(code)
     },
     (error: unknown) => {
-      logger.error(errorMessage(error))
+      logger.error(errorMessage({ error }))
       surfaceFailureHint({ argv: process.argv, code: 1, error })
       process.exit(1)
     },

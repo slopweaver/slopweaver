@@ -39,7 +39,7 @@ interface FailureSignature {
  * A SCREAMING_SNAKE_CASE env-var name lifted out of a "set FOO_TOKEN" message, so the auth hint can name
  * the exact var to set. Requires at least one underscore so it never grabs a stray uppercase word.
  */
-function envVarFrom(reason: string | undefined): string | undefined {
+function envVarFrom({ reason }: { reason: string | undefined }): string | undefined {
   if (reason === undefined) {
     return undefined
   }
@@ -70,7 +70,7 @@ const FAILURE_SIGNATURES: readonly FailureSignature[] = [
     matches: ({ haystack }) =>
       /token missing|missing token|not_authed|invalid_auth|not authenticated|\bunauthori[sz]ed\b|bad credentials/.test(haystack),
     hint: ({ facts }) => {
-      const env = envVarFrom(facts.reason)
+      const env = envVarFrom({ reason: facts.reason })
       return env === undefined
         ? 'missing auth — set the required token env var (the message names which), or run `gh auth login`'
         : `missing auth — set ${env}, or run \`gh auth login\``
@@ -93,7 +93,7 @@ export function failureHint(facts: FailureFacts): string | null {
 }
 
 /** noun (argv[2]) and the verb (argv[3] only when it is a real sub-verb, not a flag). */
-function nounVerbOf(argv: readonly string[]): { readonly noun: string; readonly verb: string } {
+function nounVerbOf({ argv }: { argv: readonly string[] }): { readonly noun: string; readonly verb: string } {
   const noun = argv[2] ?? ''
   const candidate = argv[3]
   return { noun, verb: candidate !== undefined && !candidate.startsWith('-') ? candidate : '' }
@@ -105,13 +105,13 @@ function nounVerbOf(argv: readonly string[]): { readonly noun: string; readonly 
  * side-effect-only: it logs at most one line and returns void, so it can NEVER alter the real exit code.
  */
 export function surfaceFailureHint(input: { readonly argv: readonly string[]; readonly code: number; readonly error?: unknown }): void {
-  const { noun, verb } = nounVerbOf(input.argv)
+  const { noun, verb } = nounVerbOf({ argv: input.argv })
   const hint = failureHint({
     noun,
     verb,
     code: input.code,
     ...(input.error === undefined ? {} : { errorClass: input.error instanceof Error ? input.error.constructor.name : 'unknown' }),
-    ...(input.error === undefined ? {} : { reason: errorMessage(input.error) }),
+    ...(input.error === undefined ? {} : { reason: errorMessage({ error: input.error }) }),
   })
   if (hint !== null) {
     logger.error(hint)
