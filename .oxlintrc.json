@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "@stylistic/brace-style": ["error", "1tbs", { "allowSingleLine": true }]
+  },
+  "ignorePatterns": ["dist", "node_modules"]
+}

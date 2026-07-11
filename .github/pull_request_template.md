@@ -1,25 +1,18 @@
-## What this PR does
+<!--
+  PR format (required — see AGENTS.md § Pull requests). Keep this body LEAN.
+  Badges: shields.io flat style; include ONLY those that apply. Link CI to its run.
+  proof grade: bronze = builds + tests/gate green · silver = real seam exercised locally with
+  captured evidence · gold = end-to-end vs real data / a live preview.
+  Anything non-obvious → an inline review comment on the diff, NOT this description.
+-->
 
-<!-- 1-2 sentences. What changes; what's the user-visible effect. -->
+![CI](https://img.shields.io/badge/CI-passing-2ea44f?style=flat&logo=githubactions&logoColor=white) ![size](https://img.shields.io/badge/size-small-2ea44f?style=flat) ![proof](https://img.shields.io/badge/proof-bronze-cd7f32?style=flat)
 
-## Why
+| 👉 Next | <what happens after this merges> |
+|---|---|
 
-<!-- Motivation. Link to issue if applicable: closes #123, refs #456. -->
-
-## Test plan
-
-<!-- How you verified this works. Bullet list of manual steps + automated tests added. -->
-
-- [ ] Tests added / updated
-- [ ] Manually verified
-- [ ] CI green
-
-## Breaking changes
-
-<!-- None / list them. If yes, mark "BREAKING CHANGE:" in commit body too. -->
-
-None.
-
-## Notes for the reviewer
-
-<!-- Anything that helps review: tradeoffs, things to call out, alternative approaches considered. Optional. -->
+| | |
+|---|---|
+| **Problem** | <max 50 words> |
+| **Solution** | <max 50 words> |
+| **Proof** | <real evidence, graded to the proof badge: commands run, CI link, screenshot, reconciliation> |

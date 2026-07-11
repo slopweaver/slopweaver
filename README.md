@@ -1,141 +1,59 @@
-# SlopWeaver
+# Slopweaver
 
-> Help Claude Code answer "what should I work on next?" by searching across your work tools.
->
-> Open-source local-first MCP server. BYOK.
+Build a local-first, zero-key org world model from your GitHub history: point it at a repo, it
+ingests the history, runs a tiered (bronze → silver → gold) synthesis on your machine, and lets you
+ask questions of it. The free, own-your-data alternative to a hosted enterprise search.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![GitHub Stars](https://img.shields.io/github/stars/slopweaver/slopweaver?style=social)](https://github.com/slopweaver/slopweaver/stargazers)
+> 🚧 **v0.1 in progress.** The scaffold, CLI verb framework, and the public hygiene gate are in
+> place. The ingest, tiering, and ask pipeline land in the following releases.
 
-**Status**: pre-alpha. v1.0.0 ships in the coming weeks. Built solo by [@lachiejames](https://github.com/lachiejames). Roadmap: [tracking issue #2](https://github.com/slopweaver/slopweaver/issues/2).
+## Why
 
----
+- **Zero-key.** Nothing to configure. The language-model calls use your existing Claude Code session;
+  embeddings run on-device. The only optional credential is a GitHub token for private repos, and it
+  falls back to `gh auth token`.
+- **Local-first.** Your world model lives under `$SLOPWEAVER_HOME` on your machine. Nothing leaves it
+  except the Claude calls you already make in Claude Code.
+- **Trust is first-class.** A shipped hygiene gate scans every tracked file for leak classes (secrets,
+  absolute paths, raw workspace IDs) so you never commit your own org's secrets. See
+  [docs/security.md](docs/security.md).
 
-## What it does
-
-You sit down to work. You ask Claude Code:
-
-> "What should I work on next?"
-
-SlopWeaver searches everything — your open PRs, Slack mentions, Linear tickets, threads waiting on your reply, recent activity in repos you care about. Claude synthesizes a priority order and tells you what's worth doing now, what can wait, and what isn't worth your time at all.
-
-You get oriented in 60 seconds instead of 20 minutes of tab-flipping.
-
-**Pull-based. Never acts without you. Cognitive partner, not automation tool.**
-
-(Demo video lands with v1.0.0.)
-
----
-
-## Install (coming with v1.0.0)
-
-SlopWeaver runs as a local subprocess of your MCP client over **stdio** — no HTTP server, no token paste, no auth dance.
-
-**Claude Code:**
+## Try it
 
 ```bash
-claude mcp add slopweaver -- npx -y @slopweaver/mcp-local
+slopweaver doctor
 ```
 
-**Cursor** — add to `~/.cursor/mcp.json` (or `.cursor/mcp.json` in your project):
+Prints the plugin version and your resolved `SLOPWEAVER_HOME`.
 
-```json
-{
-  "mcpServers": {
-    "slopweaver": {
-      "command": "npx",
-      "args": ["-y", "@slopweaver/mcp-local"]
-    }
-  }
-}
-```
+## Development
 
-**Cline** — add to `~/.cline/data/settings/cline_mcp_settings.json` (or `$CLINE_DIR/data/settings/cline_mcp_settings.json` if you've set `CLINE_DIR`):
-
-```json
-{
-  "mcpServers": {
-    "slopweaver": {
-      "command": "npx",
-      "args": ["-y", "@slopweaver/mcp-local"]
-    }
-  }
-}
-```
-
-**Codex CLI** — add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.slopweaver]
-command = "npx"
-args = ["-y", "@slopweaver/mcp-local"]
-```
-
-Then connect your work tools (one-time setup). The fastest path is the guided wizard:
+Requires [Node](https://nodejs.org) (see `.nvmrc`) and [Yarn 4](https://yarnpkg.com) (resolved
+automatically from the `packageManager` field via Corepack — run `corepack enable` once).
 
 ```bash
-npx -y @slopweaver/mcp-local init   # detects MCP clients, walks through GitHub + Slack, verifies tokens
+yarn install
+yarn slopweaver doctor  # smoke-test the CLI end-to-end
+yarn build              # tsc → dist/
+yarn typecheck          # tsc --noEmit
+yarn test:unit          # vitest
+yarn hygiene            # public leak-class gate
 ```
 
-Prefer to do it manually?
+### Try it as a Claude Code plugin (local)
 
-```bash
-npx -y @slopweaver/mcp-local connect github   # paste a fine-grained PAT (input is hidden)
-npx -y @slopweaver/mcp-local connect slack    # paste a Slack user token (xoxp-)
+This repo ships a local dev marketplace (`.claude-plugin/marketplace.json`), so you can install the
+plugin from your own checkout before it's published:
+
+```
+/plugin marketplace add /path/to/slopweaver
+/plugin install slopweaver
 ```
 
-(If you'd rather have `slopweaver` on your PATH directly, `npm install -g @slopweaver/mcp-local` first, then run `slopweaver init`.)
-
-Then ask your client: *"What should I work on next?"* If anything fails, [open an issue](https://github.com/slopweaver/slopweaver/issues/new) — a `doctor` subcommand ships with v1.0.0.
-
-> **Note:** Connecting SlopWeaver to GitHub (so it can poll your PRs and mentions) uses GitHub's own OAuth or a personal access token — that's separate from the MCP transport between your client and SlopWeaver. The MCP layer itself has no auth in v1; stdio inherits the user's trust context.
-
-### Try it without connecting anything (demo mode)
-
-If you want to feel the cold-start moment before bringing your own tokens, SlopWeaver ships a demo profile that seeds a separate SQLite database with synthetic GitHub + Slack evidence:
-
-```bash
-slopweaver demo seed     # populates ~/.slopweaver/demo.db with ~22 synthetic rows
-slopweaver --demo        # runs the MCP server against demo.db instead of slopweaver.db
-                         # (equivalent to SLOPWEAVER_DEMO=1)
-slopweaver demo reset    # drop + re-seed if the timestamps have drifted
-slopweaver demo exit     # remove demo.db (restart the server without --demo,
-                         # or unset SLOPWEAVER_DEMO, to return to real mode)
-```
-
-Once the server is running in demo mode, ask your MCP client to call the `start_session` tool — it serves the synthetic rows exactly the same way it would serve your real data. Only GitHub and Slack are covered (those are the integrations v1.0 actually ships); Linear / Gmail / Calendar are planned for v1.1+ and are intentionally absent from the demo so the snapshot can't claim a richer product than the binary delivers.
-
-The bare `slopweaver demo` command (with no subcommand) prints a static markdown snapshot to stdout for screenshotting or sharing.
-
----
-
-## Why local-first
-
-- **Your work data stays on your machine.** No SaaS, no cloud round-trip, no signup.
-- **BYOK.** Bring your own Anthropic / OpenAI key (only needed for AI features; deterministic context tools work without).
-- **One binary. SQLite.** No Docker, no Postgres, no setup theatre.
-
----
-
-## Cloud tier (year 2 — coming)
-
-Some things require a server: real-time webhooks instead of polling, mobile push notifications, cross-device sync, always-on observation. The optional [SlopWeaver Cloud](https://slopweaver.ai) (launching year 2) adds these. Same code; hosted deployment.
-
----
-
-## Integrations
-
-**v1.0**: GitHub + Slack.
-
-**v1.1+ (planned)**: Linear, Gmail, Google Calendar.
-
-[Request an integration](https://github.com/slopweaver/slopweaver/issues/new) once issue templates land.
-
----
+> In this release the plugin registers only its scaffold — the user-facing slash-commands
+> (`onboard`, `refresh`, `ask`) land in the following PRs. Today the testable surface is the CLI
+> above (`yarn slopweaver doctor`).
 
 ## License
 
-[MIT](LICENSE).
-
-## Security
-
-Integration tokens (GitHub PAT, Slack user token) are stored in the macOS Keychain under the entry `slopweaver / <integration>` — the local SQLite database holds only presence metadata (slug, account label, timestamps). Audit a stored token with `security find-generic-password -a github -s slopweaver -w`. On first write the v1 binary is unsigned, so macOS shows a "Keychain Access wants to use the slopweaver entry" prompt; clicking "Always Allow" trusts the binary's path. macOS is the only OS that's QA'd for v1 — Linux Secret Service and Windows Credential Manager work under the hood but are best-effort untested. For vulnerability disclosure see [SECURITY.md](SECURITY.md).
+MIT — see [LICENSE](LICENSE).

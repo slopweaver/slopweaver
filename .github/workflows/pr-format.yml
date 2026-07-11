@@ -1,0 +1,21 @@
+name: PR format
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  pr-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - run: corepack enable
+      - run: yarn install --immutable
+      - name: Check PR description format
+        env:
+          # Passed as an env var (not shell-interpolated) so the body can't inject into the command.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: yarn check:pr-format
