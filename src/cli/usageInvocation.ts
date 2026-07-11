@@ -28,7 +28,10 @@ export function isFlatSubcommand(value: string | undefined): value is FlatSubcom
  * True when `argv` (full process argv) would dispatch NO handler — the CLI only renders usage/help. That
  * is the case when argv[2] resolves to no noun route (respecting the default-verb convention) AND is not
  * a flat subcommand. Pure: reads the live noun registry, no I/O.
+ *
+ * @param argv the full process argv
+ * @returns true when the invocation only renders usage/help
  */
-export function isUsageInvocation(argv: readonly string[]): boolean {
-  return resolveNoun(NOUN_GROUPS, argv) === null && !isFlatSubcommand(argv[2])
+export function isUsageInvocation({ argv }: { argv: readonly string[] }): boolean {
+  return resolveNoun({ groups: NOUN_GROUPS, argv }) === null && !isFlatSubcommand(argv[2])
 }

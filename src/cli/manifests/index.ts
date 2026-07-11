@@ -10,6 +10,7 @@
  * The first command `import()` fires only on a verb's `load()`.
  */
 import { doctorManifest } from './doctor.js'
+import { refreshManifest } from './refresh.js'
 import type { NounManifestModule } from '../manifest.js'
 
 export const MANIFEST_MODULES: readonly NounManifestModule[] = [
@@ -17,5 +18,10 @@ export const MANIFEST_MODULES: readonly NounManifestModule[] = [
     noun: 'doctor',
     summary: 'Env preflight: print the plugin version + resolved SLOPWEAVER_HOME',
     verbs: doctorManifest,
+  },
+  {
+    noun: 'refresh',
+    summary: 'Ingest recent GitHub activity into the local bronze corpus',
+    verbs: refreshManifest,
   },
 ]

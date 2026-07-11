@@ -47,6 +47,20 @@ the *design*, never the code or naming verbatim.
 - **Own mistakes plainly** and fix them; don't paper over.
 - **Terse, outcome-first.** Lead with what changed and whether it works.
 
+## Code standards (mandatory, whole repo)
+
+Two hard rules govern **all** TypeScript here — read them before writing code:
+
+- **[TypeScript patterns](.claude/rules/typescript-patterns.md)** — named-object params on every
+  1+-arg function (with the listed exceptions), no `any`, explicit return types, `@param`/`@returns`.
+- **[Testing](.claude/rules/testing.md)** — pure functions, zero mocks, no conditionals in assertions,
+  falsifiable + exact assertions.
+
+These apply to the entire repo, always — not just new code. A change that diverges is a defect.
+
+@.claude/rules/typescript-patterns.md
+@.claude/rules/testing.md
+
 ## Toolchain
 
 Yarn 4 (Berry), pinned via the `packageManager` field and resolved by Corepack/proto. `node-modules`

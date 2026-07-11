@@ -30,10 +30,13 @@ export interface VerbManifestEntry {
  * function. Pass the `import(...).then(m => m.run)` thunk so the module is fetched only when `load()` is
  * awaited.
  *
+ * @param meta the verb's command metadata (read import-free during enumeration)
+ * @param load the deferred import of the verb's run function
+ * @returns a frozen lazy manifest entry
  * @example
- *   lazy(doctorMeta, () => import('./commands/doctor/run.js').then((m) => m.doctorRunCommand))
+ *   lazy({ meta: doctorMeta, load: () => import('./commands/doctor/run.js').then((m) => m.doctorRunCommand) })
  */
-export function lazy(meta: CommandMeta, load: () => Promise<CommandRun>): VerbManifestEntry {
+export function lazy({ meta, load }: { meta: CommandMeta; load: () => Promise<CommandRun> }): VerbManifestEntry {
   return Object.freeze({ meta, load })
 }
 

@@ -21,8 +21,12 @@ export interface ParsedFlagTail {
 /**
  * Parse a `--flag value` / `--switch` tail into a validated bag, returning `err` for an UNKNOWN flag, a
  * MISSING value, or a stray positional — instead of silently dropping them.
+ *
+ * @param rest the argv tail (verb args, after `node cli noun verb`)
+ * @param spec the value + boolean flag names to accept
+ * @returns the parsed `{ values, flags }`, or an error listing every rejection
  */
-export function parseFlagTail(rest: readonly string[], spec: FlagTailSpec): Result<ParsedFlagTail> {
+export function parseFlagTail({ rest, spec }: { rest: readonly string[]; spec: FlagTailSpec }): Result<ParsedFlagTail> {
   const valueFlags = new Set(spec.value)
   const boolFlags = new Set(spec.boolean ?? [])
   const values: Record<string, string> = {}
@@ -63,7 +67,17 @@ export function parseFlagTail(rest: readonly string[], spec: FlagTailSpec): Resu
   return errors.length > 0 ? err(errors) : ok({ values, flags })
 }
 
-export function requireNext(arg: string, value: string | undefined, errors: string[]): string {
+/**
+ * Require a value for `arg`, pushing an error and returning `''` when it's missing or itself a flag.
+ *
+ * @param arg the flag name (for the error message)
+ * @param value the candidate value token
+ * @param errors the error accumulator to push into
+ * @returns the value, or `''` when absent/invalid
+ */
+export function requireNext(
+  { arg, value, errors }: { arg: string; value: string | undefined; errors: string[] },
+): string {
   if (value === undefined || value.startsWith('--')) {
     errors.push(`${arg} requires a value`)
     return ''
@@ -71,8 +85,18 @@ export function requireNext(arg: string, value: string | undefined, errors: stri
   return value
 }
 
-/** Read the value token AFTER a flag at `index`, recording an error when it's missing or itself a flag. */
-export function takeValue(tail: readonly string[], index: number, flag: string, errors: string[]): string | undefined {
+/**
+ * Read the value token AFTER a flag at `index`, recording an error when it's missing or itself a flag.
+ *
+ * @param tail the argv tail
+ * @param index the flag's index in `tail`
+ * @param flag the flag name (for the error message)
+ * @param errors the error accumulator to push into
+ * @returns the value token, or `undefined` when absent/invalid
+ */
+export function takeValue(
+  { tail, index, flag, errors }: { tail: readonly string[]; index: number; flag: string; errors: string[] },
+): string | undefined {
   const next = tail[index + 1]
   if (next === undefined || next.startsWith('--')) {
     errors.push(`${flag} requires a value`)
@@ -108,7 +132,13 @@ export function parsePositiveInteger({ value, label, errors }: { value: string; 
   return 50
 }
 
-export function parseFreeformList(value: string): readonly string[] {
+/**
+ * Split a comma-separated string into a deduped, trimmed, non-empty list.
+ *
+ * @param value the raw comma-separated string
+ * @returns the deduped items
+ */
+export function parseFreeformList({ value }: { value: string }): readonly string[] {
   return [...new Set(
     value
       .split(',')

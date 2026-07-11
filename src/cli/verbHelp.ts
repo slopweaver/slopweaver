@@ -12,13 +12,21 @@ import type { CommandMeta } from './defineCommand.js'
 /**
  * Whether `argv` (full process argv: [node, cli, noun, verb, ...]) is a help request: `--help` or `-h`
  * anywhere in the verb's tail (argv[3] onward). Exact-match so a flag like `--help-text` never trips it.
+ *
+ * @param argv the full process argv
+ * @returns true when the tail requests help
  */
-export function wantsHelp(argv: readonly string[]): boolean {
+export function wantsHelp({ argv }: { argv: readonly string[] }): boolean {
   return argv.slice(3).some((arg) => arg === '--help' || arg === '-h')
 }
 
-/** Render a verb's help block from its metadata: summary, the usage line, and the example when present. */
-export function renderVerbHelp(meta: CommandMeta): string {
+/**
+ * Render a verb's help block from its metadata: summary, the usage line, and the example when present.
+ *
+ * @param meta the verb's command metadata
+ * @returns the rendered help block
+ */
+export function renderVerbHelp({ meta }: { meta: CommandMeta }): string {
   const lines = [meta.summary, meta.usage]
   if (meta.example !== undefined) {
     lines.push('', `example: ${meta.example}`)

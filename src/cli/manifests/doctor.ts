@@ -23,6 +23,6 @@ const loadDoctor = () => import('../commands/doctor/run.js').then((m) => m.docto
 
 /** The `doctor` noun's verbs as lazy manifest entries. */
 export const doctorManifest: Readonly<Record<string, VerbManifestEntry>> = {
-  '': lazy(doctorMeta, loadDoctor),
-  run: lazy(doctorMeta, loadDoctor),
+  '': lazy({ meta: doctorMeta, load: loadDoctor }),
+  run: lazy({ meta: doctorMeta, load: loadDoctor }),
 }

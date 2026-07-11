@@ -12,8 +12,12 @@ import { NOUN_GROUPS } from './nounGroups.js'
  * Whether `<noun> <verb>` is a manifest verb whose `CommandMeta` declares `dryParseSafe: true` — i.e.
  * its no-arg / `--help` / bad-flag path prints usage and returns with zero I/O. Unknown noun/verb or a
  * legacy handler -> false.
+ *
+ * @param noun the noun
+ * @param verb the verb
+ * @returns true when the verb declares `dryParseSafe`
  */
-export function isDryParseSafe(noun: string, verb: string): boolean {
+export function isDryParseSafe({ noun, verb }: { noun: string; verb: string }): boolean {
   const entry = NOUN_GROUPS[noun]?.[verb]
   return entry !== undefined && isManifestEntry(entry) && entry.meta.dryParseSafe === true
 }
@@ -22,8 +26,12 @@ export function isDryParseSafe(noun: string, verb: string): boolean {
  * Whether `<noun> <verb>` declares its arg/usage-reject path is I/O-free — either via `dryParseSafe`
  * (which also asserts the bare invocation is probe-safe) OR the narrower `parseRejectIsIoFree`. Unknown
  * / legacy -> false.
+ *
+ * @param noun the noun
+ * @param verb the verb
+ * @returns true when the verb's reject path is declared I/O-free
  */
-export function isParseRejectIoFree(noun: string, verb: string): boolean {
+export function isParseRejectIoFree({ noun, verb }: { noun: string; verb: string }): boolean {
   const entry = NOUN_GROUPS[noun]?.[verb]
   if (entry === undefined || !isManifestEntry(entry)) {
     return false
@@ -35,8 +43,12 @@ export function isParseRejectIoFree(noun: string, verb: string): boolean {
  * Whether `<noun> <verb>` is a manifest verb whose `CommandMeta` declares `diagnostic: true` — a
  * health-check whose non-zero exit REPORTS A FINDING rather than signalling a broken tool. Unknown
  * noun/verb or a legacy handler -> false.
+ *
+ * @param noun the noun
+ * @param verb the verb
+ * @returns true when the verb declares `diagnostic`
  */
-export function isDiagnosticVerb(noun: string, verb: string): boolean {
+export function isDiagnosticVerb({ noun, verb }: { noun: string; verb: string }): boolean {
   const entry = NOUN_GROUPS[noun]?.[verb]
   return entry !== undefined && isManifestEntry(entry) && entry.meta.diagnostic === true
 }

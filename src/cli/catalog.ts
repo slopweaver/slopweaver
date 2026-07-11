@@ -1,6 +1,6 @@
 /**
  * Catalog renderers — the human + machine views of the command registry, both derived from the SINGLE
- * `discoverCommands(NOUN_GROUPS)` source so they can never drift from what is actually wired:
+ * `discoverCommands({ groups: NOUN_GROUPS })` source so they can never drift from what is actually wired:
  *   - `renderCatalog`     : the recall view ("what can slopweaver do"), every verb grouped by noun with
  *                           its one-line summary (or `(undocumented)` for a bare handler) + coverage.
  *   - `renderCatalogJson` : the machine-enumerable surface a future planner / doc-sync consumes.
@@ -12,7 +12,7 @@
 import type { DiscoveredCommand } from './discoverCommands.js'
 
 /** Group commands by noun, preserving the (already noun,verb-sorted) order. */
-function byNoun<T extends { readonly noun: string }>(commands: readonly T[]): readonly (readonly [string, readonly T[]])[] {
+function byNoun<T extends { readonly noun: string }>({ commands }: { commands: readonly T[] }): readonly (readonly [string, readonly T[]])[] {
   const groups = new Map<string, T[]>()
   for (const command of commands) {
     const bucket = groups.get(command.noun) ?? []
@@ -24,10 +24,15 @@ function byNoun<T extends { readonly noun: string }>(commands: readonly T[]): re
 
 const PAD = 16
 
-/** Human recall view: every verb under its noun, summary or `(undocumented)`, plus a coverage footer. */
-export function renderCatalog(commands: readonly DiscoveredCommand[]): string {
+/**
+ * Human recall view: every verb under its noun, summary or `(undocumented)`, plus a coverage footer.
+ *
+ * @param commands the discovered commands
+ * @returns the rendered catalog text
+ */
+export function renderCatalog({ commands }: { commands: readonly DiscoveredCommand[] }): string {
   const documented = commands.filter((c) => c.meta !== undefined).length
-  const nouns = byNoun(commands)
+  const nouns = byNoun({ commands })
   const header = `slopweaver — ${String(commands.length)} commands across ${String(nouns.length)} nouns (${String(documented)} documented)`
   const lines: string[] = [header]
   for (const [noun, verbs] of nouns) {
@@ -40,8 +45,13 @@ export function renderCatalog(commands: readonly DiscoveredCommand[]): string {
   return lines.join('\n')
 }
 
-/** JSON view — the machine-enumerable surface a future planner / doc-sync consumes. */
-export function renderCatalogJson(commands: readonly DiscoveredCommand[]): string {
+/**
+ * JSON view — the machine-enumerable surface a future planner / doc-sync consumes.
+ *
+ * @param commands the discovered commands
+ * @returns the pretty-printed JSON array
+ */
+export function renderCatalogJson({ commands }: { commands: readonly DiscoveredCommand[] }): string {
   return JSON.stringify(
     commands.map((c) => ({
       noun: c.noun,
@@ -76,8 +86,11 @@ function flags({ command }: { command: Required<DiscoveredCommand> }): string {
 /**
  * Self-describe view: the DOCUMENTED verbs grouped by noun, with approval / work-item hints. Notes how
  * many verbs remain un-described so the surface is honest about coverage.
+ *
+ * @param commands the discovered commands
+ * @returns the rendered capabilities text
  */
-export function renderCapabilities(commands: readonly DiscoveredCommand[]): string {
+export function renderCapabilities({ commands }: { commands: readonly DiscoveredCommand[] }): string {
   const documented = commands.filter((c): c is Required<DiscoveredCommand> => c.meta !== undefined)
   const undocumented = commands.length - documented.length
   if (documented.length === 0) {
@@ -85,7 +98,7 @@ export function renderCapabilities(commands: readonly DiscoveredCommand[]): stri
   }
   const header = `I can run ${String(documented.length)} described commands${undocumented > 0 ? ` (+${String(undocumented)} more not yet self-described)` : ''}:`
   const lines: string[] = [header]
-  for (const [noun, verbs] of byNoun(documented)) {
+  for (const [noun, verbs] of byNoun({ commands: documented })) {
     lines.push('', noun)
     for (const command of verbs) {
       lines.push(`  ${command.verb.padEnd(PAD)} ${command.meta.summary}${flags({ command })}`)

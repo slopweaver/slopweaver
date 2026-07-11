@@ -4,7 +4,10 @@
  *
  * `instanceof Error` is deliberate over reading `.message` off any object: a non-Error throw (a string,
  * a number, a plain `{ code }` errno) stringifies predictably rather than yielding `undefined`.
+ *
+ * @param error the caught unknown
+ * @returns a display string for it
  */
-export function errorMessage(error: unknown): string {
+export function errorMessage({ error }: { error: unknown }): string {
   return error instanceof Error ? error.message : String(error)
 }
