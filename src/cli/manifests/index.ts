@@ -9,9 +9,11 @@
  * Pure: importing the barrel imports only manifest modules (metadata-only — no command module loads).
  * The first command `import()` fires only on a verb's `load()`.
  */
+import { askManifest } from './ask.js'
 import { deriveManifest } from './derive.js'
 import { distilManifest } from './distil.js'
 import { doctorManifest } from './doctor.js'
+import { factsManifest } from './facts.js'
 import { refreshManifest } from './refresh.js'
 import type { NounManifestModule } from '../manifest.js'
 
@@ -35,5 +37,15 @@ export const MANIFEST_MODULES: readonly NounManifestModule[] = [
     noun: 'distil',
     summary: 'Distil the corpus into gold (LLM map-reduce; caches per batch)',
     verbs: distilManifest,
+  },
+  {
+    noun: 'ask',
+    summary: 'Ask a grounded question of your local world model',
+    verbs: askManifest,
+  },
+  {
+    noun: 'facts',
+    summary: 'Retrieve the ranked record slice for a question (no LLM)',
+    verbs: factsManifest,
   },
 ]
