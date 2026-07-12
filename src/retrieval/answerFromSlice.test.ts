@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerFromSlice, stripUnresolvedCitations, validateAnswer } from './answerFromSlice.js'
+import { answerFromSlice, retrievedRefsFromSlice, stripUnresolvedCitations, validateAnswer } from './answerFromSlice.js'
 import type { LlmClient } from '../llm/provider.js'
 import { unwrap } from '../lib/result.js'
 import type { CorpusRecord } from '../corpus/types.js'
@@ -19,21 +19,22 @@ describe('stripUnresolvedCitations', () => {
 
 describe('validateAnswer', () => {
   it('keeps backed citations, drops invented ones, passes retrieved through', () => {
-    const answer = unwrap(validateAnswer({ input: { tldr: 'found it (#1) and (#99)', citations: ['#1', '#99'] }, evidenceTokens, urlByToken, retrieved: 1 }))
+    const answer = unwrap(validateAnswer({ input: { tldr: 'found it (#1) and (#99)', citations: ['#1', '#99'] }, evidenceTokens, urlByToken, retrievedRefs: [{ sourceId: '#1', token: '#1', url: 'u1' }] }))
     expect(answer.citations).toEqual(['u1'])
     expect(answer.used).toBe(1)
     expect(answer.retrieved).toBe(1)
     expect(answer.tldr).toBe('found it (#1) and')
+    expect(answer.citedTokens).toEqual(['#1'])
   })
 
   it('captures a citation the model only wrote inline (empty citations[])', () => {
-    const answer = unwrap(validateAnswer({ input: { tldr: 'grounded here (#1)', citations: [] }, evidenceTokens, urlByToken, retrieved: 1 }))
+    const answer = unwrap(validateAnswer({ input: { tldr: 'grounded here (#1)', citations: [] }, evidenceTokens, urlByToken, retrievedRefs: [{ sourceId: '#1', token: '#1', url: 'u1' }] }))
     expect(answer.citations).toEqual(['u1'])
     expect(answer.used).toBe(1)
   })
 
   it('errs on a malformed answer', () => {
-    expect(validateAnswer({ input: { tldr: 5 }, evidenceTokens, urlByToken, retrieved: 1 }).ok).toBe(false)
+    expect(validateAnswer({ input: { tldr: 5 }, evidenceTokens, urlByToken, retrievedRefs: [{ sourceId: '#1', token: '#1', url: 'u1' }] }).ok).toBe(false)
   })
 })
 
@@ -52,12 +53,22 @@ describe('answerFromSlice', () => {
 
   it('lets a gold record ground a citation to an id it MENTIONS (the gold-digest case)', async () => {
     const gold: CorpusRecord = {
-      source: 'gold', sourceId: 'gold:x#y', url: 'gold://gold:x#y', tsIso: 't', kind: 'finding', container: 'gold',
+      source: 'gold', sourceId: 'gold:x#y', url: 'gold://x#y', tsIso: 't', kind: 'finding', container: 'gold',
       title: 'Summary', text: 'PR #88 added the cache (#88:comment:2).', refs: [],
     }
     // The model cites #88:comment:2 — not gold's own token, but an id the gold record references.
     const answer = unwrap(await answerFromSlice({ question: 'q', client: toolClient({ tldr: 'cache added (#88:comment:2)', citations: ['#88:comment:2'] }), slice: [gold] }))
     expect(answer.used).toBe(1)
-    expect(answer.citations).toEqual(['gold://gold:x#y'])
+    expect(answer.citations).toEqual(['gold://x#y'])
+  })
+})
+
+describe('retrievedRefsFromSlice', () => {
+  it('maps each sliced record to its sourceId, cite token, and url', () => {
+    const gold: CorpusRecord = { source: 'gold', sourceId: 'gold:x', url: 'gold://x', tsIso: 't', kind: 'finding', container: 'gold', text: 'y', refs: [] }
+    expect(retrievedRefsFromSlice({ slice: [rec, gold] })).toEqual([
+      { sourceId: '#1', token: '#1', url: 'u1' },
+      { sourceId: 'gold:x', token: 'gold:x', url: 'gold://x' },
+    ])
   })
 })

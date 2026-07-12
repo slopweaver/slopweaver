@@ -15,7 +15,7 @@ describe('readGoldRecords', () => {
     writeFileSync(join(dir, 'overview.md'), '# World model\n\n## Busiest containers\n\nslopweaver is busy\n\n## Owners\n\nalice owns it\n', 'utf8')
     const records = readGoldRecords({ home, tsIso: '2026-01-01T00:00:00Z' })
     expect(records).toHaveLength(2)
-    expect(records[0]).toMatchObject({ source: 'gold', kind: 'finding', sourceId: 'gold:overview.md#busiest-containers', container: 'gold' })
+    expect(records[0]).toMatchObject({ source: 'gold', kind: 'finding', sourceId: 'gold:overview.md#busiest-containers', url: 'gold://overview.md#busiest-containers', container: 'gold' })
     expect(records[0].title).toBe('World model — Busiest containers')
   })
 

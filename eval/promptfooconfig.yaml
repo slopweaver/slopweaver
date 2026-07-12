@@ -1,0 +1,17 @@
+# Slopweaver eval harness (v0.2 PR1 skeleton).
+# One real question runs end to end through promptfoo via the ask provider, which shells the real
+# `slopweaver ask --json` against the local world model. Scoring assertions (retrieval recall@k,
+# citation precision) land in PR2; this proves the mechanism runs and renders.
+description: Slopweaver ask harness (v0.2 PR1 skeleton)
+
+prompts:
+  - '{{question}}'
+
+providers:
+  - id: file://./askProvider.ts
+    label: ask@working-tree
+
+tests:
+  - description: 'single-fact: recent changes'
+    vars:
+      question: what changed recently?
