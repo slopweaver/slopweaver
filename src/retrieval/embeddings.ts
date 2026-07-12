@@ -8,7 +8,10 @@
  * nomic is asymmetric: documents and queries get different task prefixes, applied here, never by callers.
  * Output is mean-pooled + L2-normalised, so a downstream dot product IS cosine.
  */
+import { join } from 'node:path'
+
 import { err, ok, type Result } from '../lib/result.js'
+import { slopweaverHome } from '../config.js'
 
 export const EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
 export const EMBEDDING_DIM = 768
@@ -33,13 +36,18 @@ export type ExtractionPipeline =
 
 interface TransformersModule {
   pipeline: (task: string, model: string) => Promise<ExtractionPipeline>
+  /** transformers.js global config; we point the model cache under the world-model home. */
+  env: { cacheDir: string }
 }
 
 export type TransformersImporter = () => Promise<TransformersModule>
 
 async function importTransformers(): Promise<TransformersModule> {
   const mod: unknown = await import('@xenova/transformers')
-  return mod as TransformersModule
+  const transformers = mod as TransformersModule
+  // Co-locate the downloaded model with the world model (survives a node_modules wipe, stays local).
+  transformers.env.cacheDir = join(slopweaverHome(), '.cache', 'models')
+  return transformers
 }
 
 /**

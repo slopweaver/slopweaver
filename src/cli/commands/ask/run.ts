@@ -78,7 +78,7 @@ export async function runAsk(argv: readonly string[]): Promise<number> {
     return EXIT_ERROR
   }
 
-  const { tldr, details, citations, used } = answer.value
+  const { tldr, details, citations, retrieved } = answer.value
   logger.out(tldr)
   if (details !== undefined && details.length > 0) {
     logger.out('')
@@ -89,7 +89,9 @@ export async function runAsk(argv: readonly string[]): Promise<number> {
     logger.out('citations:')
     citations.forEach((c) => { logger.out(`  ${c}`) })
   }
-  return used > 0 ? EXIT_OK : EXIT_EXPECTED_EMPTY
+  // Expected-empty ONLY when the query retrieved nothing — a substantive answer with no surviving
+  // citations is still a real answer (exit 0), not "nothing matched".
+  return retrieved > 0 ? EXIT_OK : EXIT_EXPECTED_EMPTY
 }
 
 export const askRunCommand = defineCommand({
