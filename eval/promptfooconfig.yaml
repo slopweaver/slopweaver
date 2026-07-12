@@ -1,8 +1,10 @@
-# Slopweaver eval harness (v0.2 PR1 skeleton).
-# One real question runs end to end through promptfoo via the ask provider, which shells the real
-# `slopweaver ask --json` against the local world model. Scoring assertions (retrieval recall@k,
-# citation precision) land in PR2; this proves the mechanism runs and renders.
-description: Slopweaver ask harness (v0.2 PR1 skeleton)
+# Slopweaver eval harness (v0.2).
+# Each labelled question runs end to end through promptfoo via the ask provider, which shells the real
+# `slopweaver ask --json` against the local world model. The grounding assertion (cases.ts →
+# groundingAssertion.ts) scores each result against a hand-labelled, frozen expected-grounding set WE
+# own — deterministic, no LLM on the gate. It reports the two-layer metric: retrieval recall (did the
+# expected records reach the slice) vs answer recall + citation precision (did the answer cite them).
+description: Slopweaver ask harness (v0.2)
 
 prompts:
   - '{{question}}'
@@ -11,7 +13,4 @@ providers:
   - id: file://./askProvider.ts
     label: ask@working-tree
 
-tests:
-  - description: 'single-fact: recent changes'
-    vars:
-      question: what changed recently?
+tests: file://./cases.ts
