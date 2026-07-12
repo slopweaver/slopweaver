@@ -1,10 +1,14 @@
 /**
  * Compose a grounded answer from a retrieved slice via a forced-tool structured call over the keyless
- * `claude` transport. Two grounding guards:
- *  1. a model citation survives only if its token is one the slice actually offered (`evidenceTokens`) —
- *     a hallucinated/invented citation is dropped;
- *  2. any inline `(TOKEN)` in the prose whose token didn't survive is stripped, so the text never shows
- *     a citation the answer can't back.
+ * `claude` transport. Grounding without over-stripping:
+ *  - A citation survives only if its token is one the slice actually offered — the record's own cite
+ *    token OR a cite-shaped token appearing INSIDE a sliced record (gold digests summarise and reference
+ *    other records, so a gold record legitimately makes `#88` a citable evidence token). A truly invented
+ *    citation — one in no sliced record — is still dropped.
+ *  - Citations are gathered from BOTH the structured `citations[]` field and inline `(TOKEN)`s in the
+ *    prose, so an answer that only cited inline still yields a citations block.
+ *  - Any inline `(TOKEN)` whose token didn't survive is stripped, so the text never shows a citation the
+ *    answer can't back.
  */
 import { err, ok, type Result } from '../lib/result.js'
 import { isRecord } from '../lib/parsers.js'
@@ -19,10 +23,12 @@ export interface Answer {
   readonly details?: string
   /** Back-compat convenience: `tldr`, or `tldr\n\ndetails`. */
   readonly answer: string
-  /** Source-record URLs the answer cites, first-appearance order. */
+  /** Source URLs the answer cites, first-appearance order. */
   readonly citations: readonly string[]
-  /** How many distinct records grounded the answer (0 = nothing matched / nothing survived). */
+  /** How many distinct records grounded the answer. */
   readonly used: number
+  /** How many records were retrieved into the slice (0 = the query matched nothing). */
+  readonly retrieved: number
 }
 
 export const ANSWER_SCHEMA: JsonObjectSchema = {
@@ -35,9 +41,49 @@ export const ANSWER_SCHEMA: JsonObjectSchema = {
   required: ['tldr', 'citations'],
 }
 
-/** A parenthetical that looks like a citation token (so normal prose parentheticals are left alone). */
+/** Every cite-shaped token in a string: `#42`, `#42:comment:3`, `TEAM-9`, `gold:…`. */
+const CITE_SHAPE = /#\d+(?::(?:review|comment|state)(?::\d+)?)?|\b[A-Z][A-Z0-9]+-\d+\b|gold:[^\s)]+/g
+
+/** True when a parenthetical looks like a citation token (so normal prose parentheticals are left alone). */
 function looksLikeToken({ inner }: { inner: string }): boolean {
-  return /^#\d+$/.test(inner) || /^[A-Za-z]+-\d+$/.test(inner) || /^[A-Z0-9]{6,}$/.test(inner) || inner.startsWith('gold:')
+  return new RegExp(`^(?:${CITE_SHAPE.source})$`).test(inner)
+}
+
+/**
+ * The evidence a slice offers: every record's own cite token, plus every cite-shaped token appearing in
+ * a sliced record's title/text/refs — each mapped to a URL (the record's own token wins over a mention).
+ */
+function buildEvidence({ slice }: { slice: readonly CorpusRecord[] }): { evidenceTokens: Set<string>; urlByToken: Map<string, string> } {
+  const urlByToken = new Map<string, string>()
+  for (const record of slice) {
+    urlByToken.set(citeToken({ record }), record.url) // direct: the record IS the evidence
+  }
+  for (const record of slice) {
+    const haystack = `${record.title ?? ''} ${record.text} ${record.refs.join(' ')}`
+    for (const match of haystack.matchAll(CITE_SHAPE)) {
+      if (!urlByToken.has(match[0])) {
+        urlByToken.set(match[0], record.url) // mentioned in this record → grounded by it
+      }
+    }
+  }
+  return { evidenceTokens: new Set(urlByToken.keys()), urlByToken }
+}
+
+/** Normalise a model citation to its token. */
+function citationToken({ citation }: { citation: string }): string {
+  return tokenFromRef({ ref: citation }) ?? citation.trim()
+}
+
+/** The inline `(TOKEN)` citation tokens in a piece of prose. */
+function inlineTokens({ text }: { text: string }): readonly string[] {
+  const tokens: string[] = []
+  for (const match of text.matchAll(/\(([^()\s]+)\)/g)) {
+    const inner = match[1] ?? ''
+    if (looksLikeToken({ inner })) {
+      tokens.push(inner)
+    }
+  }
+  return tokens
 }
 
 /** Strip inline `(TOKEN)` citations whose token didn't survive; tidy whitespace. */
@@ -50,45 +96,57 @@ export function stripUnresolvedCitations({ text, surviving }: { text: string; su
     .trim()
 }
 
-/** Normalise a model citation to its token. */
-function citationToken({ citation }: { citation: string }): string {
-  return tokenFromRef({ ref: citation }) ?? citation.trim()
-}
-
 /**
- * Validate + ground a model answer: keep only real citations, strip hallucinated inline tokens.
+ * Validate + ground a model answer: keep only citations backed by the slice, strip invented inline ones.
  *
  * @param input the raw model output
  * @param evidenceTokens the tokens the slice offered to cite
- * @param urlByToken maps a surviving token to its record URL
+ * @param urlByToken maps an evidence token to its source URL
+ * @param retrieved how many records were in the slice
  * @returns the grounded `Answer`, or an error (triggering a retry)
  */
 export function validateAnswer(
-  { input, evidenceTokens, urlByToken }: { input: unknown; evidenceTokens: ReadonlySet<string>; urlByToken: ReadonlyMap<string, string> },
+  { input, evidenceTokens, urlByToken, retrieved }: {
+    input: unknown
+    evidenceTokens: ReadonlySet<string>
+    urlByToken: ReadonlyMap<string, string>
+    retrieved: number
+  },
 ): Result<Answer> {
   if (!isRecord(input) || typeof input.tldr !== 'string' || !Array.isArray(input.citations)) {
     return err(['answer must have a string tldr and a citations array'])
   }
-  const survivingTokens: string[] = []
+  const details = typeof input.details === 'string' && input.details.trim().length > 0 ? input.details : undefined
+  // Candidate tokens: the structured citations[] AND anything cited inline in the prose.
+  const structured = input.citations.filter((c): c is string => typeof c === 'string').map((c) => citationToken({ citation: c }))
+  const inline = [...inlineTokens({ text: input.tldr }), ...(details !== undefined ? inlineTokens({ text: details }) : [])]
+  // `surviving` = every grounded token (so valid inline cites are kept in the prose); `citations` =
+  // the distinct source URLs those tokens point to (several tokens can share one record's URL).
+  const surviving = new Set<string>()
   const citations: string[] = []
-  for (const raw of input.citations) {
-    if (typeof raw !== 'string') {
+  const seenUrls = new Set<string>()
+  for (const token of [...structured, ...inline]) {
+    const url = urlByToken.get(token)
+    if (!evidenceTokens.has(token) || url === undefined) {
       continue
     }
-    const token = citationToken({ citation: raw })
-    const url = urlByToken.get(token)
-    if (evidenceTokens.has(token) && url !== undefined && !survivingTokens.includes(token)) {
-      survivingTokens.push(token)
+    surviving.add(token)
+    if (!seenUrls.has(url)) {
+      seenUrls.add(url)
       citations.push(url)
     }
   }
-  const surviving = new Set(survivingTokens)
   const tldr = stripUnresolvedCitations({ text: input.tldr, surviving })
-  const details = typeof input.details === 'string' && input.details.trim().length > 0
-    ? stripUnresolvedCitations({ text: input.details, surviving })
-    : undefined
-  const answer = details !== undefined && details.length > 0 ? `${tldr}\n\n${details}` : tldr
-  return ok({ tldr, ...(details !== undefined && details.length > 0 ? { details } : {}), answer, citations, used: survivingTokens.length })
+  const strippedDetails = details !== undefined ? stripUnresolvedCitations({ text: details, surviving }) : undefined
+  const answer = strippedDetails !== undefined && strippedDetails.length > 0 ? `${tldr}\n\n${strippedDetails}` : tldr
+  return ok({
+    tldr,
+    ...(strippedDetails !== undefined && strippedDetails.length > 0 ? { details: strippedDetails } : {}),
+    answer,
+    citations,
+    used: citations.length,
+    retrieved,
+  })
 }
 
 /**
@@ -97,21 +155,20 @@ export function validateAnswer(
  * @param question the user's question
  * @param client the LLM transport
  * @param slice the retrieved records
- * @returns the grounded answer (empty slice ⇒ a "nothing matched" answer, not an error)
+ * @returns the grounded answer (empty slice ⇒ a "nothing matched" answer with `retrieved: 0`, not an error)
  */
 export async function answerFromSlice(
   { question, client, slice }: { question: string; client: LlmClient; slice: readonly CorpusRecord[] },
 ): Promise<Result<Answer>> {
   if (slice.length === 0) {
     const tldr = 'No records in the world model matched that question.'
-    return ok({ tldr, answer: tldr, citations: [], used: 0 })
+    return ok({ tldr, answer: tldr, citations: [], used: 0, retrieved: 0 })
   }
-  const evidenceTokens = new Set(slice.map((record) => citeToken({ record })))
-  const urlByToken = new Map(slice.map((record) => [citeToken({ record }), record.url]))
+  const { evidenceTokens, urlByToken } = buildEvidence({ slice })
   const { system, user } = buildPrompt({ question, slice })
   return completeStructured({
     request: { system, user, toolName: 'emit_answer', toolDescription: 'Emit the grounded answer.', schema: ANSWER_SCHEMA },
     client,
-    validate: (input) => validateAnswer({ input, evidenceTokens, urlByToken }),
+    validate: (input) => validateAnswer({ input, evidenceTokens, urlByToken, retrieved: slice.length }),
   })
 }

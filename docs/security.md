@@ -5,9 +5,28 @@ data is "where does my data go". The answer here is: nowhere you don't already s
 
 ## Data flow
 
-All processing is local. Your world model is written under `$SLOPWEAVER_HOME` on your machine and is
-never uploaded. Nothing leaves your machine except the Claude calls you already make in Claude Code.
-Embeddings run on-device.
+All processing is local. Your world model — bronze, silver, gold, and the embedding cache — is written
+under `$SLOPWEAVER_HOME` on your machine and is never uploaded. Exactly three things touch the network,
+and **none of them is your world-model data leaving**:
+
+1. **GitHub reads you authorise** — `refresh` calls the GitHub API (REST + GraphQL) to read the repo
+   history you point it at, using your `gh` login / token. This is a read, over your own credential.
+2. **Claude calls you already make** — `distil` and `ask` run the model through your existing Claude
+   Code session (the `claude` CLI). Same calls, same account, same data boundary you already accept by
+   using Claude Code. No separate API key.
+3. **A one-time model download** — the first semantic query downloads the open embedding model
+   (`nomic-embed-text-v1.5`) from Hugging Face and caches it under `$SLOPWEAVER_HOME`. This fetches
+   model *weights*; it sends none of your data. After that, embeddings run fully offline, on-device.
+
+There is no telemetry, no account, and no Slopweaver server — there is no Slopweaver server to send
+anything to.
+
+## Runs anywhere, no native build
+
+Embedding inference runs on WebAssembly (`onnxruntime-web`); there is no native compilation step and no
+platform-specific binary, so the same plugin behaves identically on macOS, Linux, and Windows across
+CPU architectures. If the embedder is ever unavailable, retrieval fails soft to keyword (BM25) search
+rather than breaking.
 
 ## Credentials
 
