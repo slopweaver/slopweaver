@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GOLDEN_CASES, parseScorableAnswer, scoreGrounding, type ScorableAnswer } from './scorer.js'
+import { GOLDEN_CASES, parseScorableAnswer, scoreGrounding, type QuestionClass, type ScorableAnswer } from './scorer.js'
 
 describe('scoreGrounding', () => {
   it('scores a perfect answer 1/1/1 across all three layers', () => {
@@ -133,15 +133,29 @@ describe('parseScorableAnswer', () => {
 })
 
 describe('GOLDEN_CASES', () => {
-  it('ships exactly one labelled case for PR2, grounded on the recent PRs + the gold digest', () => {
-    expect(GOLDEN_CASES).toHaveLength(1)
-    expect(GOLDEN_CASES[0]!.question).toBe('what changed recently?')
-    expect(GOLDEN_CASES[0]!.expectedGrounding).toEqual([
-      'gold:by-source/github.md#slopweaver-slopweaver',
-      '#90',
-      '#89',
-      '#88',
-      '#87',
-    ])
+  it('ships 12 labelled cases, three in each of the four question classes', () => {
+    expect(GOLDEN_CASES).toHaveLength(12)
+    const perClass = new Map<QuestionClass, number>()
+    for (const golden of GOLDEN_CASES) {
+      perClass.set(golden.kind, (perClass.get(golden.kind) ?? 0) + 1)
+    }
+    expect(perClass.get('single-fact')).toBe(3)
+    expect(perClass.get('aggregation')).toBe(3)
+    expect(perClass.get('recency')).toBe(3)
+    expect(perClass.get('cross-cutting')).toBe(3)
+  })
+
+  it('labels every case with at least one expected sourceId and a non-empty question', () => {
+    for (const golden of GOLDEN_CASES) {
+      expect(golden.question.length).toBeGreaterThan(0)
+      expect(golden.expectedGrounding.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('carries no forbidden private identifier in any question', () => {
+    // The public-repo no-leak rule: the golden questions ship in the repo, so they must be clean.
+    for (const golden of GOLDEN_CASES) {
+      expect(/work.?console/i.test(golden.question)).toBe(false)
+    }
   })
 })

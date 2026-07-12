@@ -12,9 +12,17 @@
  */
 import { isRecord } from '../lib/parsers.js'
 
+/**
+ * The four question classes the golden set spans, so a scoreboard can be read by class — each stresses
+ * retrieval differently (a single fact, an aggregation across records, an old record recency decay
+ * buries, a design thread cutting across PRs).
+ */
+export type QuestionClass = 'single-fact' | 'aggregation' | 'recency' | 'cross-cutting'
+
 /** A hand-labelled golden case: a question and the corpus sourceIds that genuinely ground its answer. */
 export interface GoldenCase {
   readonly question: string
+  readonly kind: QuestionClass
   /** The sourceIds a correct answer must be grounded by — labelled by us and frozen, never from `ask`. */
   readonly expectedGrounding: readonly string[]
 }
@@ -121,15 +129,77 @@ export function parseScorableAnswer({ value }: { value: unknown }): ScorableAnsw
 }
 
 /**
- * The frozen golden set. v0.2 PR2 ships ONE labelled case to prove the scorer end to end; PR3 grows this
- * to 12 across the four question classes. Labels are chosen by inspecting the corpus, never from `ask`.
+ * The frozen golden set: 12 questions hand-labelled against the public Slopweaver corpus (its own repo),
+ * three per class. Labels are chosen by READING the corpus — the specific record(s) that genuinely
+ * answer each question — never from `ask`'s own output. Frozen so scores are comparable run to run.
  *
- * `what changed recently?` → the substantive recent work is the v0.1 PRs #87–#90 (the bronze→silver→
- * gold→ask pipeline), plus the gold digest that summarises them.
+ * The `recency` cluster deliberately targets the oldest records (the May v1 roadmap comments); recency
+ * decay tends to bury them below the slice, so these are where the completeness gap reproduces as a red
+ * (low retrieval-recall) case — the proof the harness bites.
  */
 export const GOLDEN_CASES: readonly GoldenCase[] = [
+  // single-fact — one specific record holds the answer.
   {
-    question: 'what changed recently?',
-    expectedGrounding: ['gold:by-source/github.md#slopweaver-slopweaver', '#90', '#89', '#88', '#87'],
+    question: 'why does slopweaver use the node-modules linker instead of Yarn PnP?',
+    kind: 'single-fact',
+    expectedGrounding: ['#86:comment:1'],
+  },
+  {
+    question: 'what does enabling persist on the vector cache do?',
+    kind: 'single-fact',
+    expectedGrounding: ['#89:comment:8'],
+  },
+  {
+    question: 'how is the bronze refresh cursor computed?',
+    kind: 'single-fact',
+    expectedGrounding: ['#87:comment:3'],
+  },
+  // aggregation — a correct answer must rest on several records at once.
+  {
+    question: 'what shipped across the whole v0.1 release?',
+    kind: 'aggregation',
+    expectedGrounding: ['#86', '#87', '#88', '#89', '#90'],
+  },
+  {
+    question: 'which pull requests built the retrieval and answering features?',
+    kind: 'aggregation',
+    expectedGrounding: ['#88', '#89'],
+  },
+  {
+    question: 'what were the main stability issues review flagged and fixed across the v0.1 PRs?',
+    kind: 'aggregation',
+    expectedGrounding: ['#87:comment:8', '#88:comment:8', '#88:comment:10', '#89:comment:9', '#89:comment:10'],
+  },
+  // recency — the answer lives in an OLD record; recency decay is the adversary here.
+  {
+    question: 'what was the earliest roadmap amendment discussed on the project?',
+    kind: 'recency',
+    expectedGrounding: ['#2:comment:0'],
+  },
+  {
+    question: 'what did the mid-May project status snapshot report?',
+    kind: 'recency',
+    expectedGrounding: ['#2:comment:1'],
+  },
+  {
+    question: 'what was the first dogfooding milestone the project reached?',
+    kind: 'recency',
+    expectedGrounding: ['#2:comment:2'],
+  },
+  // cross-cutting — one design thread that runs through several PRs.
+  {
+    question: 'how does slopweaver keep private identifiers out of the public repo?',
+    kind: 'cross-cutting',
+    expectedGrounding: ['#86:comment:4', '#87:comment:1'],
+  },
+  {
+    question: 'how does the pipeline avoid recomputing records that have not changed?',
+    kind: 'cross-cutting',
+    expectedGrounding: ['#87:comment:4', '#88:comment:2', '#89:comment:2'],
+  },
+  {
+    question: 'what keeps the language-model and embedding cost down?',
+    kind: 'cross-cutting',
+    expectedGrounding: ['#88:comment:2', '#89:comment:8'],
   },
 ]
