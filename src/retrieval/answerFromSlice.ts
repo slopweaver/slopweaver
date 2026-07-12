@@ -18,6 +18,14 @@ import type { CorpusRecord } from '../corpus/types.js'
 import { citeToken, tokenFromRef } from './citeToken.js'
 import { buildPrompt, CITE_INLINE } from './askPrompt.js'
 
+/** A record that made it into the retrieved slice, in the id spaces a caller may match against. */
+export interface RetrievedRef {
+  readonly sourceId: string
+  /** The token the record is cited by (mined from its url, else its sourceId). */
+  readonly token: string
+  readonly url: string
+}
+
 export interface Answer {
   readonly tldr: string
   readonly details?: string
@@ -25,6 +33,10 @@ export interface Answer {
   readonly answer: string
   /** Source URLs the answer cites, first-appearance order. */
   readonly citations: readonly string[]
+  /** The cited tokens (first-appearance order), the token-space twin of `citations`. */
+  readonly citedTokens: readonly string[]
+  /** Every record in the retrieved slice, so retrieval recall can be scored apart from citations. */
+  readonly retrievedRefs: readonly RetrievedRef[]
   /** How many distinct records grounded the answer. */
   readonly used: number
   /** How many records were retrieved into the slice (0 = the query matched nothing). */
@@ -69,6 +81,11 @@ function buildEvidence({ slice }: { slice: readonly CorpusRecord[] }): { evidenc
   return { evidenceTokens: new Set(urlByToken.keys()), urlByToken }
 }
 
+/** Map a retrieved slice to its per-record identifiers (sourceId, cite token, url). Pure. */
+export function retrievedRefsFromSlice({ slice }: { slice: readonly CorpusRecord[] }): readonly RetrievedRef[] {
+  return slice.map((record) => ({ sourceId: record.sourceId, token: citeToken({ record }), url: record.url }))
+}
+
 /** Normalise a model citation to its token. */
 function citationToken({ citation }: { citation: string }): string {
   return tokenFromRef({ ref: citation }) ?? citation.trim()
@@ -102,15 +119,15 @@ export function stripUnresolvedCitations({ text, surviving }: { text: string; su
  * @param input the raw model output
  * @param evidenceTokens the tokens the slice offered to cite
  * @param urlByToken maps an evidence token to its source URL
- * @param retrieved how many records were in the slice
+ * @param retrievedRefs the records in the retrieved slice (their count is the reported `retrieved`)
  * @returns the grounded `Answer`, or an error (triggering a retry)
  */
 export function validateAnswer(
-  { input, evidenceTokens, urlByToken, retrieved }: {
+  { input, evidenceTokens, urlByToken, retrievedRefs }: {
     input: unknown
     evidenceTokens: ReadonlySet<string>
     urlByToken: ReadonlyMap<string, string>
-    retrieved: number
+    retrievedRefs: readonly RetrievedRef[]
   },
 ): Result<Answer> {
   if (!isRecord(input) || typeof input.tldr !== 'string' || !Array.isArray(input.citations)) {
@@ -124,13 +141,17 @@ export function validateAnswer(
   // the distinct source URLs those tokens point to (several tokens can share one record's URL).
   const surviving = new Set<string>()
   const citations: string[] = []
+  const citedTokens: string[] = []
   const seenUrls = new Set<string>()
   for (const token of [...structured, ...inline]) {
     const url = urlByToken.get(token)
     if (!evidenceTokens.has(token) || url === undefined) {
       continue
     }
-    surviving.add(token)
+    if (!surviving.has(token)) {
+      surviving.add(token)
+      citedTokens.push(token)
+    }
     if (!seenUrls.has(url)) {
       seenUrls.add(url)
       citations.push(url)
@@ -144,8 +165,10 @@ export function validateAnswer(
     ...(strippedDetails !== undefined && strippedDetails.length > 0 ? { details: strippedDetails } : {}),
     answer,
     citations,
+    citedTokens,
+    retrievedRefs,
     used: citations.length,
-    retrieved,
+    retrieved: retrievedRefs.length,
   })
 }
 
@@ -162,13 +185,14 @@ export async function answerFromSlice(
 ): Promise<Result<Answer>> {
   if (slice.length === 0) {
     const tldr = 'No records in the world model matched that question.'
-    return ok({ tldr, answer: tldr, citations: [], used: 0, retrieved: 0 })
+    return ok({ tldr, answer: tldr, citations: [], citedTokens: [], retrievedRefs: [], used: 0, retrieved: 0 })
   }
+  const retrievedRefs = retrievedRefsFromSlice({ slice })
   const { evidenceTokens, urlByToken } = buildEvidence({ slice })
   const { system, user } = buildPrompt({ question, slice })
   return completeStructured({
     request: { system, user, toolName: 'emit_answer', toolDescription: 'Emit the grounded answer.', schema: ANSWER_SCHEMA },
     client,
-    validate: (input) => validateAnswer({ input, evidenceTokens, urlByToken, retrieved: slice.length }),
+    validate: (input) => validateAnswer({ input, evidenceTokens, urlByToken, retrievedRefs }),
   })
 }

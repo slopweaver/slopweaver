@@ -75,12 +75,15 @@ export function readGoldRecords({ home, tsIso }: { home?: string; tsIso: string 
     const title = docTitle({ markdown })
     const docPath = relative(root, file)
     for (const section of sections({ markdown })) {
-      const sourceId = `gold:${docPath}#${slug({ heading: section.heading })}`
+      // `ref` is the doc-relative anchor; the `gold:` cite-token prefix and the `gold://` URL scheme are
+      // each applied once to it, so neither is doubled (a `gold://gold:…` URL would be malformed).
+      const ref = `${docPath}#${slug({ heading: section.heading })}`
+      const sourceId = `gold:${ref}`
       const recordTitle = title !== undefined ? `${title} — ${section.heading}` : section.heading
       records.push({
         source: 'gold',
         sourceId,
-        url: `gold://${sourceId}`,
+        url: `gold://${ref}`,
         tsIso,
         kind: 'finding',
         container: 'gold',

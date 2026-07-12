@@ -16,8 +16,9 @@ import { prepareSemanticContext } from '../../../retrieval/semanticRetrieval.js'
 import { answerQuestion } from '../../../retrieval/askEngine.js'
 import { loadCorpus } from '../../../retrieval/loadCorpus.js'
 import { parseQueryArgs } from '../queryArgs.js'
+import { renderAskJson } from './askJson.js'
 
-const USAGE = 'usage: slopweaver ask <question> [--limit N] [--no-semantic] [--alpha 0..1] [--half-life-days N] [--home <dir>] [--corpus <dir>]'
+const USAGE = 'usage: slopweaver ask <question> [--limit N] [--no-semantic] [--alpha 0..1] [--half-life-days N] [--json] [--home <dir>] [--corpus <dir>]'
 const DEFAULT_LIMIT = 12
 
 /**
@@ -76,6 +77,12 @@ export async function runAsk(argv: readonly string[]): Promise<number> {
   if (answer.ok === false) {
     answer.errors.forEach((e) => { logger.error(e) })
     return EXIT_ERROR
+  }
+
+  // `--json`: one machine-readable object on stdout (diagnostics stay on stderr), for the eval harness.
+  if (args.json) {
+    logger.out(renderAskJson({ question: args.question, answer: answer.value }))
+    return answer.value.retrieved > 0 ? EXIT_OK : EXIT_EXPECTED_EMPTY
   }
 
   const { tldr, details, citations, retrieved } = answer.value

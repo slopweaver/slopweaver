@@ -10,6 +10,8 @@ export interface QueryArgs {
   readonly limit: number
   readonly alpha?: number
   readonly semantic: boolean
+  /** Emit one machine-readable JSON object on stdout instead of the pretty answer. */
+  readonly json: boolean
   readonly halfLifeDays?: number
   readonly question: string
   readonly errors: readonly string[]
@@ -55,11 +57,14 @@ export function parseQueryArgs({ rest, defaultLimit }: { rest: readonly string[]
   const valueFlags = new Set(['home', 'corpus', 'limit', 'alpha', 'half-life-days'])
   const questionParts: string[] = []
   let semantic = true
+  let json = false
 
   for (let i = 0; i < rest.length; i += 1) {
     const token = rest[i] ?? ''
     if (token === '--no-semantic') {
       semantic = false
+    } else if (token === '--json') {
+      json = true
     } else if (token.startsWith('--')) {
       const key = token.slice(2)
       if (!valueFlags.has(key)) {
@@ -84,6 +89,7 @@ export function parseQueryArgs({ rest, defaultLimit }: { rest: readonly string[]
     limit: values.limit !== undefined ? positiveInt({ raw: values.limit, label: '--limit', errors, fallback: defaultLimit }) : defaultLimit,
     ...(values.alpha !== undefined ? { alpha: fraction({ raw: values.alpha, label: '--alpha', errors }) } : {}),
     semantic,
+    json,
     ...(values['half-life-days'] !== undefined ? { halfLifeDays: positiveNumber({ raw: values['half-life-days'], label: '--half-life-days', errors }) } : {}),
     question: questionParts.join(' '),
     errors,
