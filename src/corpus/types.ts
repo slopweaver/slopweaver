@@ -9,17 +9,24 @@
  * equally readable and the reader never has to fail-closed on an unparseable access tag.
  */
 
-/** Origin system of a record. The discriminator; widens as connectors are added. */
-export type CorpusSource = 'github'
+/**
+ * Origin system of a record. `github` is fetched into bronze; `gold` is the SYNTHETIC source for gold
+ * markdown read back as records (so distilled findings are retrievable/citable alongside bronze). The
+ * union widens as connectors are added.
+ */
+export type CorpusSource = 'github' | 'gold'
 
-/** The sources the refresh loop fetches + watermarks. Kept as a value so callers can iterate it. */
+/**
+ * The sources the refresh loop fetches + watermarks. `gold` is deliberately excluded — it's synthesised
+ * by the gold stage, never fetched or written to bronze. Kept as a value so callers can iterate it.
+ */
 export const CORPUS_SOURCES: readonly CorpusSource[] = ['github']
 
-/** The unit a record represents. GitHub produces all four; widens with new connectors. */
-export type CorpusKind = 'pr' | 'issue' | 'comment' | 'review'
+/** The unit a record represents. GitHub produces the first four; `finding` is a gold section. */
+export type CorpusKind = 'pr' | 'issue' | 'comment' | 'review' | 'finding'
 
-/** Runtime mirror of {@link CorpusKind} for round-trip validation when reading JSONL back. */
-export const CORPUS_KINDS: readonly CorpusKind[] = ['pr', 'issue', 'comment', 'review']
+/** Runtime mirror of {@link CorpusKind} for round-trip validation when reading records back. */
+export const CORPUS_KINDS: readonly CorpusKind[] = ['pr', 'issue', 'comment', 'review', 'finding']
 
 /**
  * One durable unit of activity, normalised. Every field is `readonly` — records are values, never

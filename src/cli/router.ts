@@ -53,19 +53,18 @@ export function resolveNoun({ groups, argv }: { groups: NounGroups; argv: readon
     return null
   }
   const verb = argv[3]
-  // Default-verb convention: a noun may register a `''` handler as its default, so a verb-less
-  // invocation runs it — e.g. bare `slopweaver doctor` -> `doctor run`, or a bare noun where the tail is
-  // FLAGS for the default verb, not a verb word. Both shapes mean "no verb given": argv[3] is either
-  // undefined or starts with `--`. Nouns without a `''` default fall through to usage (isNoun renders).
-  if (verb === undefined || verb.startsWith('--')) {
-    const fallback = verbs['']
-    return fallback === undefined ? null : routeFor({ noun, verb: '', entry: fallback })
+  // A registered verb wins outright (e.g. `doctor run`).
+  const entry = verb !== undefined ? verbs[verb] : undefined
+  if (entry !== undefined) {
+    return routeFor({ noun, verb, entry })
   }
-  const entry = verbs[verb]
-  if (entry === undefined) {
-    return null
-  }
-  return routeFor({ noun, verb, entry })
+  // Default-verb convention: a noun may register a `''` handler as its default. It runs whenever there
+  // is no verb given (argv[3] undefined or a `--flag`) AND when argv[3] is a non-verb token — i.e. an
+  // ARGUMENT for the default verb, not a verb word. This is what lets `slopweaver ask <free text>` and
+  // `slopweaver doctor` both work: the `''` handler owns the whole tail. Nouns without a `''` default
+  // fall through to usage (isNoun renders) for any unknown verb.
+  const fallback = verbs['']
+  return fallback === undefined ? null : routeFor({ noun, verb: '', entry: fallback })
 }
 
 /**

@@ -10,6 +10,10 @@ const groups: NounGroups = {
     '': lazy({ meta, load: () => Promise.resolve(() => 0) }),
     run: lazy({ meta, load: () => Promise.resolve(() => 0) }),
   },
+  // A noun with named verbs but NO default handler.
+  plain: {
+    go: lazy({ meta, load: () => Promise.resolve(() => 0) }),
+  },
 }
 
 const argv = (...rest: string[]): readonly string[] => ['node', 'cli', ...rest]
@@ -35,8 +39,13 @@ describe('resolveNoun', () => {
     expect(resolveNoun({ groups, argv: argv('nope') })).toBeNull()
   })
 
-  it('returns null for an unknown verb under a known noun', () => {
-    expect(resolveNoun({ groups, argv: argv('doctor', 'nope') })).toBeNull()
+  it('routes an unknown verb to the default handler when the noun has one (free-text tail)', () => {
+    const route = resolveNoun({ groups, argv: argv('doctor', 'nope') })!
+    expect(route.verb).toBe('')
+  })
+
+  it('returns null for an unknown verb under a noun with no default', () => {
+    expect(resolveNoun({ groups, argv: argv('plain', 'nope') })).toBeNull()
   })
 })
 

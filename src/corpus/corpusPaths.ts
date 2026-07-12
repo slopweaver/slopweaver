@@ -108,11 +108,21 @@ export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): st
 }
 
 /**
+ * The rebuildable cache dir (`.cache`, gitignored) — distil digests, embedding vectors.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute cache directory path
+ */
+export function cacheDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(warehouseDir({ home }), '.cache')
+}
+
+/**
  * The distil batch-cache file (content-hash → digest; rebuildable, gitignored).
  *
  * @param home the world-model home (defaults to {@link slopweaverHome})
  * @returns the absolute distil cache file path
  */
 export function distilCachePath({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), '.cache', 'distil', 'batches.json')
+  return join(cacheDir({ home }), 'distil', 'batches.json')
 }
