@@ -1,8 +1,8 @@
 /**
- * On-disk layout of the warehouse. One place that knows where bronze lines and the watermark live, so
- * the writer and reader can never disagree. v0.1 is warehouse-only — no legacy layout to tolerate.
+ * On-disk layout of the corpus. One place that knows where bronze lines and the watermark live, so
+ * the writer and reader can never disagree. v0.1 is corpus-only — no legacy layout to tolerate.
  *
- *   $SLOPWEAVER_HOME/warehouse/
+ *   $SLOPWEAVER_HOME/corpus/
  *   ├── bronze/<source>/<since>_<until>.jsonl   # CorpusRecord lines
  *   ├── silver/index/{directory,opportunities,identities}.json
  *   ├── silver/graph/graph.json
@@ -13,7 +13,7 @@
  */
 import { join } from 'node:path'
 
-import { slopweaverHome, warehouseDir } from '../config.js'
+import { slopweaverHome, corpusDir } from '../config.js'
 import type { CorpusSource, ExportWindow } from './types.js'
 
 /**
@@ -23,7 +23,7 @@ import type { CorpusSource, ExportWindow } from './types.js'
  * @returns the absolute bronze directory path
  */
 export function bronzeDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), 'bronze')
+  return join(corpusDir({ home }), 'bronze')
 }
 
 /**
@@ -64,7 +64,7 @@ export function bronzeFile(
  * @returns the absolute watermark file path
  */
 export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), '.watermark.json')
+  return join(corpusDir({ home }), '.watermark.json')
 }
 
 /**
@@ -74,7 +74,7 @@ export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {
  * @returns the absolute silver index directory path
  */
 export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), 'silver', 'index')
+  return join(corpusDir({ home }), 'silver', 'index')
 }
 
 /**
@@ -84,7 +84,7 @@ export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = 
  * @returns the absolute silver graph directory path
  */
 export function silverGraphDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), 'silver', 'graph')
+  return join(corpusDir({ home }), 'silver', 'graph')
 }
 
 /**
@@ -94,7 +94,7 @@ export function silverGraphDir({ home = slopweaverHome() }: { home?: string } = 
  * @returns the absolute silver digests directory path
  */
 export function silverDigestsDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), 'silver', 'digests')
+  return join(corpusDir({ home }), 'silver', 'digests')
 }
 
 /**
@@ -104,7 +104,7 @@ export function silverDigestsDir({ home = slopweaverHome() }: { home?: string } 
  * @returns the absolute gold directory path
  */
 export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), 'gold')
+  return join(corpusDir({ home }), 'gold')
 }
 
 /**
@@ -114,7 +114,7 @@ export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): st
  * @returns the absolute cache directory path
  */
 export function cacheDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(warehouseDir({ home }), '.cache')
+  return join(corpusDir({ home }), '.cache')
 }
 
 /**

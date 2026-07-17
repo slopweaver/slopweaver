@@ -1,5 +1,5 @@
 /**
- * The distil batch cache: `content-hash → digest`, persisted at `warehouse/.cache/distil/batches.json`
+ * The distil batch cache: `content-hash → digest`, persisted at `corpus/.cache/distil/batches.json`
  * (rebuildable, gitignored). This is the incrementality engine — a batch whose hash is already cached is
  * served without an LLM call, so a re-run only spends tokens on batches whose bronze changed. Stale
  * hashes simply go unreferenced; the cache is keyed by hash, never pruned.

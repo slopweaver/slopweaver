@@ -10,7 +10,7 @@ dist/
 
 # Local world-model artifacts (live under $SLOPWEAVER_HOME; never committed)
 .cache/
-warehouse/
+corpus/
 
 # Claude Code plugin data
 .claude/plugins/

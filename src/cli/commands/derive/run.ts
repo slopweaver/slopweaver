@@ -1,6 +1,6 @@
 /**
  * `slopweaver derive` — the free, deterministic silver synthesis. Reads the bronze corpus, builds the
- * directory + cross-ref graph + opportunities, and writes them under `warehouse/silver/`. No LLM, no
+ * directory + cross-ref graph + opportunities, and writes them under `corpus/silver/`. No LLM, no
  * network — cheap enough to re-run in full every time. `--dry-run` prints the summary without writing.
  */
 import { readFileSync } from 'node:fs'

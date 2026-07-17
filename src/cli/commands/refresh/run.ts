@@ -1,7 +1,7 @@
 /**
  * `slopweaver refresh` — the bronze ingest. Resolves the target repo (from `--repo` or the git remote)
  * and a token (gh-first), computes an incremental window from the watermark, fetches + projects GitHub
- * activity into `CorpusRecord`s, writes them (redacted, deduped) to the bronze warehouse, and advances
+ * activity into `CorpusRecord`s, writes them (redacted, deduped) to the bronze corpus, and advances
  * the watermark. Derive/distil (silver/gold) are separate verbs; this one only fills bronze.
  *
  * GitHub's GraphQL API needs auth, so an unauthenticated run degrades to discovery-only (atoms without
