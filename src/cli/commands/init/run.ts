@@ -6,6 +6,7 @@
 import { logger } from '../../../lib/logger.js'
 import { defineCommand } from '../../defineCommand.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exitCodes.js'
+import { parseFlags } from '../../parseFlags.js'
 import { runInit } from '../../../init/stateInit.js'
 
 const USAGE = 'usage: slopweaver init [--home <dir>]'
@@ -22,17 +23,15 @@ export function runInitCommand(argv: readonly string[]): number {
     logger.out(USAGE)
     return EXIT_OK
   }
-  const homeFlag = rest.indexOf('--home')
-  let home: string | undefined
-  if (homeFlag !== -1) {
-    const value = rest[homeFlag + 1]
-    if (value === undefined || value.startsWith('-')) {
-      logger.error('init: --home needs a directory path')
-      logger.error(USAGE)
-      return EXIT_USAGE
-    }
-    home = value
+  // Positionals allowed (and ignored) so a bare-noun alias token like `init run` still parses.
+  const parsed = parseFlags({ args: rest, spec: { string: ['home'] }, allowPositionals: true })
+  if (parsed.ok === false) {
+    parsed.errors.forEach((e) => { logger.error(`init: ${e}`) })
+    logger.error(USAGE)
+    return EXIT_USAGE
   }
+  const homeValue = parsed.value.values.home
+  const home = typeof homeValue === 'string' ? homeValue : undefined
 
   const report = runInit(home !== undefined ? { home } : {})
   logger.out(`state home: ${report.home}`)

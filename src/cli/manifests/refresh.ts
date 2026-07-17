@@ -3,7 +3,7 @@
  * same handler through one lazy loader, so enumeration stays import-free and the (octokit-heavy) command
  * module loads only when `refresh` is actually dispatched.
  */
-import { lazy, type VerbManifestEntry } from '../manifest.js'
+import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 
 const refreshMeta = {
   summary: 'Ingest recent GitHub activity into the local bronze corpus',
@@ -14,6 +14,6 @@ const refreshMeta = {
 const loadRefresh = () => import('../commands/refresh/run.js').then((m) => m.refreshRunCommand)
 
 export const refreshManifest: Readonly<Record<string, VerbManifestEntry>> = {
-  '': lazy({ meta: refreshMeta, load: loadRefresh }),
+  [DEFAULT_VERB]: lazy({ meta: refreshMeta, load: loadRefresh }),
   run: lazy({ meta: refreshMeta, load: loadRefresh }),
 }

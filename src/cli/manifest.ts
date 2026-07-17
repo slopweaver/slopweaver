@@ -14,6 +14,13 @@ import { isRecord } from '../lib/parsers.js'
 import type { CommandMeta, CommandRun } from './defineCommand.js'
 
 /**
+ * The registry key for a noun's DEFAULT verb — the handler that runs on a bare noun (`slopweaver doctor`)
+ * or that owns a free-text tail (`slopweaver ask "…"`). It is the empty string (an alias distinct from any
+ * real verb name), named here so the convention reads intentionally instead of as a bare `''` literal.
+ */
+export const DEFAULT_VERB = ''
+
+/**
  * A verb described by its metadata alone, with its run function deferred behind `load()`. Enumeration
  * reads `meta` without importing the command module; dispatch awaits `load()` to fetch the run function
  * lazily, so only the invoked verb's module is ever imported.

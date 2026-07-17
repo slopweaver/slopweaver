@@ -8,9 +8,11 @@ dist/
 !.yarn/patches
 .pnp.*
 
-# Local world-model artifacts (live under $SLOPWEAVER_HOME; never committed)
-.cache/
-corpus/
+# Local world-model artifacts — a defensive net for a repo-relative $SLOPWEAVER_HOME. Anchored to the
+# repo ROOT (leading `/`) so these NEVER match in-repo source dirs like `src/corpus/`. The real state
+# lives under $SLOPWEAVER_HOME (outside the repo) and is never committed regardless.
+/.cache/
+/corpus/
 
 # Claude Code plugin data
 .claude/plugins/

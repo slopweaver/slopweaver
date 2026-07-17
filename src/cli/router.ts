@@ -5,7 +5,7 @@
  * its own argv tail and returns a process exit code. Nouns register in the manifest barrel; the router
  * resolves argv against the registry.
  */
-import { isManifestEntry, type VerbManifestEntry } from './manifest.js'
+import { DEFAULT_VERB, isManifestEntry, type VerbManifestEntry } from './manifest.js'
 
 /** A verb handler parses its own argv tail and returns a process exit code. */
 export type VerbHandler = (argv: readonly string[]) => Promise<number> | number
@@ -58,13 +58,13 @@ export function resolveNoun({ groups, argv }: { groups: NounGroups; argv: readon
   if (entry !== undefined) {
     return routeFor({ noun, verb, entry })
   }
-  // Default-verb convention: a noun may register a `''` handler as its default. It runs whenever there
-  // is no verb given (argv[3] undefined or a `--flag`) AND when argv[3] is a non-verb token — i.e. an
-  // ARGUMENT for the default verb, not a verb word. This is what lets `slopweaver ask <free text>` and
-  // `slopweaver doctor` both work: the `''` handler owns the whole tail. Nouns without a `''` default
+  // Default-verb convention: a noun may register a {@link DEFAULT_VERB} handler as its default. It runs
+  // whenever there is no verb given (argv[3] undefined or a `--flag`) AND when argv[3] is a non-verb token
+  // — i.e. an ARGUMENT for the default verb, not a verb word. This is what lets `slopweaver ask <free text>`
+  // and `slopweaver doctor` both work: the default handler owns the whole tail. Nouns without a default
   // fall through to usage (isNoun renders) for any unknown verb.
-  const fallback = verbs['']
-  return fallback === undefined ? null : routeFor({ noun, verb: '', entry: fallback })
+  const fallback = verbs[DEFAULT_VERB]
+  return fallback === undefined ? null : routeFor({ noun, verb: DEFAULT_VERB, entry: fallback })
 }
 
 /**
@@ -96,8 +96,8 @@ export function renderNounUsage(
   const nouns = (only !== undefined && only in groups ? [only] : Object.keys(groups)).sort()
   return nouns
     .map((noun) => {
-      // Skip the `''` default-verb alias (it points at a real named verb; listing it shows a blank).
-      const verbs = Object.keys(groups[noun] ?? {}).filter((v) => v !== '').sort().join(' | ')
+      // Skip the DEFAULT_VERB alias (it points at a real named verb; listing it shows a blank).
+      const verbs = Object.keys(groups[noun] ?? {}).filter((v) => v !== DEFAULT_VERB).sort().join(' | ')
       const head = `  slopweaver ${noun} <${verbs}>`
       const summary = summaries[noun]
       return summary === undefined ? head : `${head}\n      ${summary}`

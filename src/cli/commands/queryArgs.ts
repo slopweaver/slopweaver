@@ -1,8 +1,10 @@
 /**
  * Shared arg parsing for the query verbs (`ask`, `facts`): a free-text QUESTION (all non-flag tokens,
- * joined) plus flags. Unlike `parseFlagTail`, this keeps positional tokens as the question rather than
- * rejecting them. Pure — errors are accumulated, not thrown.
+ * joined) plus flags. Tokenising is delegated to {@link tokenizeFlags} (Node's `parseArgs`) with
+ * positionals kept as the question; this module adds the value validators (positive-int, fraction, …).
+ * Pure — errors are accumulated, not thrown.
  */
+import { tokenizeFlags } from '../parseFlags.js'
 
 export interface QueryArgs {
   readonly home?: string
@@ -44,6 +46,12 @@ function positiveNumber({ raw, label, errors }: { raw: string; label: string; er
   return undefined
 }
 
+/** Read a string-valued flag from the tokenised values (booleans/absent ⇒ undefined). */
+function stringValue({ values, key }: { values: Readonly<Record<string, string | boolean>>; key: string }): string | undefined {
+  const value = values[key]
+  return typeof value === 'string' ? value : undefined
+}
+
 /**
  * Parse a query verb's argv tail into a question + flags.
  *
@@ -52,46 +60,27 @@ function positiveNumber({ raw, label, errors }: { raw: string; label: string; er
  * @returns the parsed args (with accumulated `errors`)
  */
 export function parseQueryArgs({ rest, defaultLimit }: { rest: readonly string[]; defaultLimit: number }): QueryArgs {
-  const errors: string[] = []
-  const values: Record<string, string> = {}
-  const valueFlags = new Set(['home', 'corpus', 'limit', 'alpha', 'half-life-days'])
-  const questionParts: string[] = []
-  let semantic = true
-  let json = false
-
-  for (let i = 0; i < rest.length; i += 1) {
-    const token = rest[i] ?? ''
-    if (token === '--no-semantic') {
-      semantic = false
-    } else if (token === '--json') {
-      json = true
-    } else if (token.startsWith('--')) {
-      const key = token.slice(2)
-      if (!valueFlags.has(key)) {
-        errors.push(`unknown flag: ${token}`)
-        continue
-      }
-      const value = rest[i + 1]
-      if (value === undefined || value.startsWith('--')) {
-        errors.push(`${token} requires a value`)
-      } else {
-        values[key] = value
-        i += 1
-      }
-    } else {
-      questionParts.push(token)
-    }
-  }
+  const { values, positionals, errors: tokenErrors } = tokenizeFlags({
+    args: rest,
+    spec: { string: ['home', 'corpus', 'limit', 'alpha', 'half-life-days'], boolean: ['no-semantic', 'json'] },
+    allowPositionals: true,
+  })
+  const errors = [...tokenErrors]
+  const home = stringValue({ values, key: 'home' })
+  const corpus = stringValue({ values, key: 'corpus' })
+  const limitRaw = stringValue({ values, key: 'limit' })
+  const alphaRaw = stringValue({ values, key: 'alpha' })
+  const halfLifeRaw = stringValue({ values, key: 'half-life-days' })
 
   return {
-    ...(values.home !== undefined ? { home: values.home } : {}),
-    ...(values.corpus !== undefined ? { corpus: values.corpus } : {}),
-    limit: values.limit !== undefined ? positiveInt({ raw: values.limit, label: '--limit', errors, fallback: defaultLimit }) : defaultLimit,
-    ...(values.alpha !== undefined ? { alpha: fraction({ raw: values.alpha, label: '--alpha', errors }) } : {}),
-    semantic,
-    json,
-    ...(values['half-life-days'] !== undefined ? { halfLifeDays: positiveNumber({ raw: values['half-life-days'], label: '--half-life-days', errors }) } : {}),
-    question: questionParts.join(' '),
+    ...(home !== undefined ? { home } : {}),
+    ...(corpus !== undefined ? { corpus } : {}),
+    limit: limitRaw !== undefined ? positiveInt({ raw: limitRaw, label: '--limit', errors, fallback: defaultLimit }) : defaultLimit,
+    ...(alphaRaw !== undefined ? { alpha: fraction({ raw: alphaRaw, label: '--alpha', errors }) } : {}),
+    semantic: values['no-semantic'] !== true,
+    json: values.json === true,
+    ...(halfLifeRaw !== undefined ? { halfLifeDays: positiveNumber({ raw: halfLifeRaw, label: '--half-life-days', errors }) } : {}),
+    question: positionals.join(' '),
     errors,
   }
 }

@@ -8,7 +8,7 @@
  * Pure: no I/O. Caller passes the registry (`NOUN_GROUPS`) so this stays trivially testable.
  */
 import { type CommandMeta, hasCommandMeta } from './defineCommand.js'
-import { isManifestEntry } from './manifest.js'
+import { DEFAULT_VERB, isManifestEntry } from './manifest.js'
 import type { NounGroups } from './router.js'
 
 export interface DiscoveredCommand {
@@ -31,9 +31,9 @@ export function discoverCommands({ groups }: { groups: NounGroups }): readonly D
     const verbs = groups[noun] ?? {}
     for (const verb of Object.keys(verbs)) {
       const entry = verbs[verb]
-      // The `''` default-verb key is an alias for a real named verb (e.g. doctor '' -> run); skip it so
+      // The DEFAULT_VERB key is an alias for a real named verb (e.g. doctor default -> run); skip it so
       // the catalog enumerates each command once, not a phantom blank-verb entry.
-      if (entry === undefined || verb === '') {
+      if (entry === undefined || verb === DEFAULT_VERB) {
         continue
       }
       // A lazy manifest entry exposes its meta WITHOUT importing the command module — enumeration of a

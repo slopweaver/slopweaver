@@ -10,7 +10,7 @@
  *    the records it cited, how many were right? A miss here WITH a slice hit is the LLM having the
  *    record and not using it.
  */
-import { isRecord } from '../lib/parsers.js'
+import { z } from 'zod'
 
 /**
  * The four question classes the golden set spans, so a scoreboard can be read by class — each stresses
@@ -100,32 +100,23 @@ export function scoreGrounding({
   }
 }
 
+/** Parse-edge schema: extra fields (on a ref or the whole payload) are stripped, matching the projection intent. */
+const scorableAnswerSchema = z.object({
+  retrievedRefs: z.array(z.object({ sourceId: z.string(), token: z.string() })),
+  citedTokens: z.array(z.string()),
+})
+
 /**
  * Narrow an arbitrary parsed `ask --json` value to the fields the scorer needs, or null if the shape is
- * wrong. Keeps the unknown-parsing pure and testable, so the promptfoo assertion edge stays thin.
+ * wrong. Keeps the unknown-parsing pure and testable, so the promptfoo assertion edge stays thin. Zod
+ * strips the extra fields (e.g. a ref's `url`), reproducing the old projection exactly.
  *
  * @param value a JSON value (typically the provider's parsed stdout)
  * @returns the scorable projection, or null when `retrievedRefs`/`citedTokens` are missing or malformed
  */
 export function parseScorableAnswer({ value }: { value: unknown }): ScorableAnswer | null {
-  if (!isRecord(value)) {
-    return null
-  }
-  const { retrievedRefs, citedTokens } = value
-  if (!Array.isArray(retrievedRefs) || !Array.isArray(citedTokens)) {
-    return null
-  }
-  const refs: { sourceId: string; token: string }[] = []
-  for (const ref of retrievedRefs) {
-    if (!isRecord(ref) || typeof ref.sourceId !== 'string' || typeof ref.token !== 'string') {
-      return null
-    }
-    refs.push({ sourceId: ref.sourceId, token: ref.token })
-  }
-  if (!citedTokens.every((token): token is string => typeof token === 'string')) {
-    return null
-  }
-  return { retrievedRefs: refs, citedTokens }
+  const parsed = scorableAnswerSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
 }
 
 /**

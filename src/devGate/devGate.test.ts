@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { composeGate, evalRegressionResult, gateLogLines, prFormatResult, type GateCheckResult } from './devGate.js'
+import { composeGate, evalRegressionResult, gateLogLines, prFormatResult, runDevGate, type GateCheckResult } from './devGate.js'
 import { fixturePath, loadBaseline, loadFixtureRecords } from '../eval/regression.js'
+import { EXIT_USAGE } from '../cli/exitCodes.js'
 import { isRecord } from '../lib/parsers.js'
 
 /** Parse a JSONL line to a record, THROWING if it is not one — keeps assertions conditional-free. */
@@ -53,6 +54,13 @@ describe('evalRegressionResult', () => {
     // Deterministic: the frozen fixture is PR-number-sorted, so the first 8 records keep the (early) #2
     // recency records but drop the aggregation/cross-cutting support — an exact, stable set of failures.
     expect(diff.failures.map((f) => f.scope)).toEqual(['overall', 'single-fact', 'aggregation', 'cross-cutting'])
+  })
+})
+
+describe('runDevGate arg rejection', () => {
+  it('rejects an unknown flag with EXIT_USAGE before running any check', () => {
+    // argv: [node, cli, dev, gate, --bogus] — parse fails first, so no ledger/check I/O happens.
+    expect(runDevGate(['node', 'cli', 'dev', 'gate', '--bogus'])).toBe(EXIT_USAGE)
   })
 })
 

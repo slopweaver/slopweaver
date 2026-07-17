@@ -16,6 +16,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
+import { z } from 'zod'
+
 import { buildRetrievalIndex, search } from '../retrieval/retrievalIndex.js'
 import { decayParamsFromDays } from '../retrieval/recencyDecay.js'
 import type { CorpusRecord } from '../corpus/types.js'
@@ -209,15 +211,36 @@ export function buildBaseline(
   }
 }
 
+/** Parse-edge schema for the committed baseline — turns a corrupt/out-of-shape file into a loud throw. */
+const recallBaselineSchema = z.object({
+  schemaVersion: z.number(),
+  metric: z.string(),
+  retrieval: z.string(),
+  fixture: z.string(),
+  nowIso: z.string(),
+  halfLifeDays: z.number(),
+  k: z.number(),
+  overallFloor: z.number(),
+  clusterFloors: z.record(z.string(), z.number()),
+  cases: z.array(z.object({
+    question: z.string(),
+    kind: z.enum(['single-fact', 'aggregation', 'recency', 'cross-cutting']),
+    recall: z.number(),
+    hits: z.number(),
+    expected: z.number(),
+  })),
+  reason: z.string(),
+})
+
 /**
- * Load + parse the committed baseline. Effectful edge.
+ * Load + parse + validate the committed baseline. Effectful edge. A malformed baseline throws here (at the
+ * edge) instead of silently poisoning the gate — the schema replaces the old unchecked cast.
  *
  * @param path the baseline path (defaults to {@link baselinePath})
  * @returns the parsed baseline
  */
 export function loadBaseline({ path = baselinePath() }: { path?: string } = {}): RecallBaseline {
-  // `as`: eval/baseline.recall.json is our own committed artifact, written only by `buildBaseline`.
-  return JSON.parse(readFileSync(path, 'utf8')) as RecallBaseline
+  return recallBaselineSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
 }
 
 /**

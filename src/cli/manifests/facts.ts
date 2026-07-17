@@ -1,7 +1,7 @@
 /**
  * Lazy manifest for the `facts` noun — bare-noun + `run` share one loader.
  */
-import { lazy, type VerbManifestEntry } from '../manifest.js'
+import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 
 const factsMeta = {
   summary: 'Retrieve the ranked record slice for a question (no LLM)',
@@ -12,6 +12,6 @@ const factsMeta = {
 const loadFacts = () => import('../commands/facts/run.js').then((m) => m.factsRunCommand)
 
 export const factsManifest: Readonly<Record<string, VerbManifestEntry>> = {
-  '': lazy({ meta: factsMeta, load: loadFacts }),
+  [DEFAULT_VERB]: lazy({ meta: factsMeta, load: loadFacts }),
   run: lazy({ meta: factsMeta, load: loadFacts }),
 }
