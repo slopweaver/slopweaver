@@ -3,8 +3,8 @@
  * files diff cleanly) and a tolerant read that returns undefined rather than throwing on a
  * missing/corrupt file. The effectful edge; pure logic stays in the stage modules.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 /**
  * Write `value` as pretty JSON, creating parent dirs.
@@ -13,8 +13,8 @@ import { dirname } from 'node:path'
  * @param value the JSON-serialisable value
  */
 export function writeJsonFile({ path, value }: { path: string; value: unknown }): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 /**
@@ -25,8 +25,8 @@ export function writeJsonFile({ path, value }: { path: string; value: unknown })
  */
 export function readJsonFile({ path }: { path: string }): unknown {
   try {
-    return JSON.parse(readFileSync(path, 'utf8'))
+    return JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    return undefined
+    return undefined;
   }
 }

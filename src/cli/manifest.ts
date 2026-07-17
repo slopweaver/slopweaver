@@ -10,15 +10,15 @@
  * Pure: no I/O, no console, no global state — just the type + the wrap. The `import()` inside a `lazy`
  * loader fires only when `load()` is awaited.
  */
-import { isRecord } from '../lib/parsers.js'
-import type { CommandMeta, CommandRun } from './defineCommand.js'
+import { isRecord } from "../lib/parsers.js";
+import type { CommandMeta, CommandRun } from "./defineCommand.js";
 
 /**
  * The registry key for a noun's DEFAULT verb — the handler that runs on a bare noun (`slopweaver doctor`)
  * or that owns a free-text tail (`slopweaver ask "…"`). It is the empty string (an alias distinct from any
  * real verb name), named here so the convention reads intentionally instead of as a bare `''` literal.
  */
-export const DEFAULT_VERB = ''
+export const DEFAULT_VERB = "";
 
 /**
  * A verb described by its metadata alone, with its run function deferred behind `load()`. Enumeration
@@ -27,9 +27,9 @@ export const DEFAULT_VERB = ''
  */
 export interface VerbManifestEntry {
   /** Same metadata `defineCommand` carries, lifted onto the registry entry so enumeration is import-free. */
-  readonly meta: CommandMeta
+  readonly meta: CommandMeta;
   /** Deferred fetch of the verb's run function. The wrapped `import()` fires only when this is awaited. */
-  readonly load: () => Promise<CommandRun>
+  readonly load: () => Promise<CommandRun>;
 }
 
 /**
@@ -44,7 +44,7 @@ export interface VerbManifestEntry {
  *   lazy({ meta: doctorMeta, load: () => import('./commands/doctor/run.js').then((m) => m.doctorRunCommand) })
  */
 export function lazy({ meta, load }: { meta: CommandMeta; load: () => Promise<CommandRun> }): VerbManifestEntry {
-  return Object.freeze({ meta, load })
+  return Object.freeze({ load, meta });
 }
 
 /**
@@ -56,11 +56,11 @@ export function lazy({ meta, load }: { meta: CommandMeta; load: () => Promise<Co
  */
 export interface NounManifestModule {
   /** The noun this module registers (e.g. `doctor`). Becomes a key in `NOUN_GROUPS`. */
-  readonly noun: string
+  readonly noun: string;
   /** The `slopweaver <noun>` one-line summary, folded into `NOUN_SUMMARIES`. */
-  readonly summary: string
+  readonly summary: string;
   /** The noun's verbs as lazy entries — spread under `noun` in `NOUN_GROUPS`. */
-  readonly verbs: Readonly<Record<string, VerbManifestEntry>>
+  readonly verbs: Readonly<Record<string, VerbManifestEntry>>;
 }
 
 /**
@@ -69,9 +69,9 @@ export interface NounManifestModule {
  * `isRecord` rejects the function-typed legacy handlers, so the two shapes never collide.
  */
 export function isManifestEntry(value: unknown): value is VerbManifestEntry {
-  return isRecord(value) && 'load' in value && typeof value.load === 'function' && isCommandMeta(value.meta)
+  return isRecord(value) && "load" in value && typeof value["load"] === "function" && isCommandMeta(value["meta"]);
 }
 
 function isCommandMeta(value: unknown): value is CommandMeta {
-  return isRecord(value) && typeof value.summary === 'string' && typeof value.usage === 'string'
+  return isRecord(value) && typeof value["summary"] === "string" && typeof value["usage"] === "string";
 }

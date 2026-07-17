@@ -1,0 +1,52 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Bug-catching categories only (seeded from the archive's curated base) — format is Biome's job,
+  // type-aware rules are ESLint's. React/browser rules are kept enabled for when React lands (harmless now).
+  "categories": { "correctness": "warn", "perf": "warn", "suspicious": "warn" },
+  "env": { "browser": true, "es2022": true, "node": true },
+  "ignorePatterns": ["**/coverage/**", "**/dist/**", "**/node_modules/**", "**/.yarn/**"],
+  "overrides": [
+    {
+      "files": ["**/*.test.ts"],
+      "rules": {
+        // Tests deliberately split string literals (e.g. "gh" + " pr merge") so a scanner/checker under
+        // test doesn't match its OWN fixtures — that concat is intentional, not useless.
+        "no-useless-concat": "allow",
+        "require-await": "allow",
+        "typescript/no-explicit-any": "allow",
+        "typescript/no-non-null-assertion": "allow"
+      }
+    },
+    {
+      "files": ["**/*.cjs"],
+      "rules": { "typescript/no-require-imports": "allow" }
+    }
+  ],
+  "plugins": ["eslint", "import", "jsx-a11y", "node", "oxc", "promise", "react", "typescript", "unicorn", "vitest"],
+  "rules": {
+    "array-callback-return": "warn",
+    "import/no-named-as-default": "allow",
+    "import/no-unassigned-import": "allow",
+    "no-await-in-loop": "allow",
+    "no-constructor-return": "warn",
+    // Duplicate imports are merged by Biome's organizeImports; unused locals/params are caught by tsc
+    // (noUnusedLocals/noUnusedParameters) and unused imports by Biome — no triple coverage (matches archive base).
+    "no-duplicate-imports": "allow",
+    "no-fallthrough": "warn",
+    "no-self-compare": "warn",
+    "no-unused-vars": "allow",
+    // Off by design: our records are immutable values ("never mutated in place"), so the optional-field
+    // spread `...(cond ? { author } : {})` inside `.map()` is deliberate copy-on-write, not an oversight.
+    // The rule's own note sanctions disabling when copy-on-write is required — its Object.assign autofix
+    // mutates + would break this idiom.
+    "oxc/no-map-spread": "allow",
+    "react/button-has-type": "warn",
+    "react/react-in-jsx-scope": "allow",
+    "unicorn/consistent-function-scoping": "allow",
+    "unicorn/no-negation-in-equality-check": "warn",
+    "unicorn/no-process-exit": "allow",
+    "unicorn/no-useless-promise-resolve-reject": "warn",
+    "vitest/no-disabled-tests": "warn",
+    "vitest/no-focused-tests": "error"
+  }
+}

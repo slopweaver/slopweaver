@@ -5,11 +5,11 @@
  * uses it yet (slopweaver is read-only), so in PR2 it is a tested, no-op-safe contract — the guarantee
  * that when actions arrive they are gated by construction.
  */
-import { randomUUID } from 'node:crypto'
+import { randomUUID } from "node:crypto";
 
-import { admitDoor } from './door.js'
-import { recordDoorDecision } from './ledger.js'
-import type { DoorDecision, DoorGate, DoorRequest } from './types.js'
+import { admitDoor } from "./door.js";
+import { recordDoorDecision } from "./ledger.js";
+import type { DoorDecision, DoorGate, DoorRequest } from "./types.js";
 
 /**
  * The outcome of routing an effect through the door — a discriminated union so `result` EXISTS iff the
@@ -17,7 +17,7 @@ import type { DoorDecision, DoorGate, DoorRequest } from './types.js'
  */
 export type ThroughDoorResult<T> =
   | { readonly decision: DoorDecision; readonly performed: true; readonly result: T }
-  | { readonly decision: DoorDecision; readonly performed: false }
+  | { readonly decision: DoorDecision; readonly performed: false };
 
 /**
  * Route a side effect through the door: admit → record → perform only on `pass`. `gates` is REQUIRED (the
@@ -34,27 +34,33 @@ export type ThroughDoorResult<T> =
  * @param nowIso the timestamp to record (defaults to now)
  * @returns the decision + whether the effect ran + (iff it ran) its result
  */
-export async function throughDoor<T>(
-  { request, perform, gates, env = process.env, home, runId, nowIso }: {
-    request: DoorRequest
-    perform: () => Promise<T> | T
-    gates: readonly DoorGate[]
-    env?: Readonly<Record<string, string | undefined>>
-    home?: string
-    runId?: string
-    nowIso?: string
-  },
-): Promise<ThroughDoorResult<T>> {
-  const decision = admitDoor({ request, env, gates })
+export async function throughDoor<T>({
+  request,
+  perform,
+  gates,
+  env = process.env,
+  home,
+  runId,
+  nowIso,
+}: {
+  request: DoorRequest;
+  perform: () => Promise<T> | T;
+  gates: readonly DoorGate[];
+  env?: Readonly<Record<string, string | undefined>>;
+  home?: string;
+  runId?: string;
+  nowIso?: string;
+}): Promise<ThroughDoorResult<T>> {
+  const decision = admitDoor({ env, gates, request });
   recordDoorDecision({
-    request,
     decision,
+    request,
     runId: runId ?? randomUUID(),
     tsIso: nowIso ?? new Date().toISOString(),
     ...(home !== undefined ? { home } : {}),
-  })
-  if (decision.status === 'pass') {
-    return { decision, performed: true, result: await perform() }
+  });
+  if (decision.status === "pass") {
+    return { decision, performed: true, result: await perform() };
   }
-  return { decision, performed: false }
+  return { decision, performed: false };
 }

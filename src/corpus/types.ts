@@ -14,19 +14,19 @@
  * markdown read back as records (so distilled findings are retrievable/citable alongside bronze). The
  * union widens as connectors are added.
  */
-export type CorpusSource = 'github' | 'gold'
+export type CorpusSource = "github" | "gold";
 
 /**
  * The sources the refresh loop fetches + watermarks. `gold` is deliberately excluded — it's synthesised
  * by the gold stage, never fetched or written to bronze. Kept as a value so callers can iterate it.
  */
-export const CORPUS_SOURCES: readonly CorpusSource[] = ['github']
+export const CORPUS_SOURCES: readonly CorpusSource[] = ["github"];
 
 /** The unit a record represents. GitHub produces the first four; `finding` is a gold section. */
-export type CorpusKind = 'pr' | 'issue' | 'comment' | 'review' | 'finding'
+export type CorpusKind = "pr" | "issue" | "comment" | "review" | "finding";
 
 /** Runtime mirror of {@link CorpusKind} for round-trip validation when reading records back. */
-export const CORPUS_KINDS: readonly CorpusKind[] = ['pr', 'issue', 'comment', 'review', 'finding']
+export const CORPUS_KINDS: readonly CorpusKind[] = ["pr", "issue", "comment", "review", "finding"];
 
 /**
  * One durable unit of activity, normalised. Every field is `readonly` — records are values, never
@@ -35,45 +35,39 @@ export const CORPUS_KINDS: readonly CorpusKind[] = ['pr', 'issue', 'comment', 'r
  */
 export interface CorpusRecord {
   /** Origin system. */
-  readonly source: CorpusSource
+  readonly source: CorpusSource;
   /**
    * Stable per-source id — the dedup + watermark key. GitHub uses `#<number>` for the atom and
    * structured child suffixes (`#<n>:review:<i>`, `#<n>:comment:<i>`, `#<n>:state`) so a re-fetch
    * collapses onto the same ids.
    */
-  readonly sourceId: string
+  readonly sourceId: string;
   /** Permalink, for citations. */
-  readonly url: string
+  readonly url: string;
   /** ISO-8601 timestamp of when the unit happened. Drives the export window + the per-source watermark. */
-  readonly tsIso: string
+  readonly tsIso: string;
   /** What kind of unit this is. */
-  readonly kind: CorpusKind
+  readonly kind: CorpusKind;
   /** Low-cardinality grouping: for GitHub the `owner/repo`. */
-  readonly container: string
+  readonly container: string;
   /** Resolved author handle, when known. */
-  readonly author?: string
+  readonly author?: string;
   /** Title, when the unit has one (PRs/issues do; comments/reviews usually don't). */
-  readonly title?: string
+  readonly title?: string;
   /** The content. */
-  readonly text: string
+  readonly text: string;
   /** Cross-refs extracted from the content (`#123`, `@mentions`, URLs) — the raw material for the graph. */
-  readonly refs: readonly string[]
-}
-
-/** A point-in-time read of the corpus, with the wall-clock load time (a staleness signal for callers). */
-export interface CorpusSnapshot {
-  readonly records: readonly CorpusRecord[]
-  readonly loadedAtMs: number
+  readonly refs: readonly string[];
 }
 
 /** An inclusive ISO window `[since, until]` for an export. */
 export interface ExportWindow {
-  readonly since: string
-  readonly until: string
+  readonly since: string;
+  readonly until: string;
 }
 
 /** Per-source incremental cursor: the max observed `tsIso`, so the next refresh resumes from there. */
 export interface SourceWatermark {
-  readonly source: CorpusSource
-  readonly cursor: string
+  readonly source: CorpusSource;
+  readonly cursor: string;
 }

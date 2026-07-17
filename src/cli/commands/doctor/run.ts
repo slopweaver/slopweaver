@@ -7,65 +7,66 @@
  * v0.1 has no hard native dependencies, so a healthy env exits 0; the `diagnostic` meta reserves the
  * non-zero-is-a-finding channel for the probes later PRs add.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { readJsonFile } from "../../../lib/jsonFile.js";
+import { logger } from "../../../lib/logger.js";
+import { isRecord } from "../../../lib/parsers.js";
+import { parseProfile } from "../../../profile.js";
+import { stateHomePaths } from "../../../stateHome.js";
+import { defineCommand } from "../../defineCommand.js";
+import { EXIT_OK } from "../../exitCodes.js";
 
-import { isRecord } from '../../../lib/parsers.js'
-import { readJsonFile } from '../../../lib/jsonFile.js'
-import { logger } from '../../../lib/logger.js'
-import { parseProfile } from '../../../profile.js'
-import { stateHomePaths } from '../../../stateHome.js'
-import { defineCommand } from '../../defineCommand.js'
-import { EXIT_OK } from '../../exitCodes.js'
-
-const USAGE = 'usage: slopweaver doctor'
+const USAGE = "usage: slopweaver doctor";
 
 /** Read the plugin version from the package manifest at the repo root (resolves identically under tsx + dist). */
 function pluginVersion(): string {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8'))
-    return isRecord(parsed) && typeof parsed.version === 'string' ? parsed.version : 'unknown'
+    const parsed: unknown = JSON.parse(readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"));
+    return isRecord(parsed) && typeof parsed["version"] === "string" ? parsed["version"] : "unknown";
   } catch {
-    return 'unknown'
+    return "unknown";
   }
 }
 
 /** `exists` + `(empty)` when a present directory has no entries — reveals scaffolded-but-unpopulated dirs. */
 function dirStatus({ path }: { path: string }): string {
   if (!existsSync(path)) {
-    return 'missing'
+    return "missing";
   }
   try {
-    return readdirSync(path).length === 0 ? 'exists (empty)' : 'exists'
+    return readdirSync(path).length === 0 ? "exists (empty)" : "exists";
   } catch {
-    return 'exists'
+    return "exists";
   }
 }
 
 /** The home-version marker's value, or a not-initialised note. */
 function homeVersionLine({ path }: { path: string }): string {
-  const parsed = readJsonFile({ path })
-  if (isRecord(parsed) && typeof parsed.version === 'number') {
-    return `home version: ${String(parsed.version)}`
+  const parsed = readJsonFile({ path });
+  if (isRecord(parsed) && typeof parsed["version"] === "number") {
+    return `home version: ${String(parsed["version"])}`;
   }
-  return 'home version: not initialised — run `slopweaver init`'
+  return "home version: not initialised — run `slopweaver init`";
 }
 
 /** Parse-status of profile.json: missing / valid / invalid (with the reason), never its contents. */
 function profileLine({ path }: { path: string }): string {
   if (!existsSync(path)) {
-    return 'profile.json: missing — run `slopweaver init`'
+    return "profile.json: missing — run `slopweaver init`";
   }
-  const result = parseProfile({ value: readJsonFile({ path }) })
-  return result.ok ? 'profile.json: present (valid)' : `profile.json: present (INVALID: ${result.errors.join('; ')})`
+  const result = parseProfile({ value: readJsonFile({ path }) });
+  return result.ok ? "profile.json: present (valid)" : `profile.json: present (INVALID: ${result.errors.join("; ")})`;
 }
 
 /** Parse-status of identity.json: the identity map is a JSON array; report present/valid/invalid only. */
 function identityLine({ path }: { path: string }): string {
   if (!existsSync(path)) {
-    return 'identity.json: missing — run `slopweaver init`'
+    return "identity.json: missing — run `slopweaver init`";
   }
-  return Array.isArray(readJsonFile({ path })) ? 'identity.json: present (valid)' : 'identity.json: present (INVALID: not a JSON array)'
+  return Array.isArray(readJsonFile({ path }))
+    ? "identity.json: present (valid)"
+    : "identity.json: present (INVALID: not a JSON array)";
 }
 
 /**
@@ -77,8 +78,16 @@ function identityLine({ path }: { path: string }): string {
  * @param version the plugin version string
  * @returns the report lines, in display order
  */
-export function doctorReport({ home, envHome, version }: { home: string; envHome: string | undefined; version: string }): readonly string[] {
-  const paths = stateHomePaths({ home })
+export function doctorReport({
+  home,
+  envHome,
+  version,
+}: {
+  home: string;
+  envHome: string | undefined;
+  version: string;
+}): readonly string[] {
+  const paths = stateHomePaths({ home });
   const lines = [
     `slopweaver v${version}`,
     `SLOPWEAVER_HOME: ${envHome !== undefined && envHome.length > 0 ? envHome : `unset — using default ${paths.root}`}`,
@@ -88,39 +97,41 @@ export function doctorReport({ home, envHome, version }: { home: string; envHome
     `ledgers: ${dirStatus({ path: paths.ledgers })}`,
     identityLine({ path: paths.identityJson }),
     profileLine({ path: paths.profileJson }),
-    `hygiene-denylist.txt: ${existsSync(paths.hygieneDenylist) ? 'present' : 'missing (no private denylist)'}`,
-  ]
+    `hygiene-denylist.txt: ${existsSync(paths.hygieneDenylist) ? "present" : "missing (no private denylist)"}`,
+  ];
   // A pre-rename home has an orphaned `warehouse/`; the medallion root is `corpus/` now. Heads-up, not a fault.
-  if (existsSync(join(paths.root, 'warehouse'))) {
-    lines.push('note: a legacy `warehouse/` dir is present — the corpus root is now `corpus/`; re-run refresh/derive/distil to repopulate it.')
+  if (existsSync(join(paths.root, "warehouse"))) {
+    lines.push(
+      "note: a legacy `warehouse/` dir is present — the corpus root is now `corpus/`; re-run refresh/derive/distil to repopulate it.",
+    );
   }
-  lines.push('ok')
-  return lines
+  lines.push("ok");
+  return lines;
 }
 
 export function runDoctor(argv: readonly string[]): number {
-  const rest = argv.slice(3)
-  if (rest.includes('--help') || rest.includes('-h')) {
-    logger.out(USAGE)
-    return EXIT_OK
+  const rest = new Set(argv.slice(3));
+  if (rest.has("--help") || rest.has("-h")) {
+    logger.out(USAGE);
+    return EXIT_OK;
   }
-  const envHome = process.env.SLOPWEAVER_HOME
-  for (const line of doctorReport({ home: stateHomePaths().root, envHome, version: pluginVersion() })) {
-    logger.out(line)
+  const envHome = process.env["SLOPWEAVER_HOME"];
+  for (const line of doctorReport({ envHome, home: stateHomePaths().root, version: pluginVersion() })) {
+    logger.out(line);
   }
-  return EXIT_OK
+  return EXIT_OK;
 }
 
 export const doctorRunCommand = defineCommand({
-  summary: 'Env preflight: plugin version + the resolved state home and its layout',
-  usage: USAGE,
-  example: 'slopweaver doctor',
-  parseRejectIsIoFree: true,
-  diagnostic: true,
-  effect: 'none',
-  requiresApproval: false,
   createsWorkItem: false,
+  diagnostic: true,
   doorRouted: false,
   dryParseSafe: false,
+  effect: "none",
+  example: "slopweaver doctor",
+  parseRejectIsIoFree: true,
+  requiresApproval: false,
   run: runDoctor,
-})
+  summary: "Env preflight: plugin version + the resolved state home and its layout",
+  usage: USAGE,
+});

@@ -1,7 +1,7 @@
 # Eval
 
 How Slopweaver turns "is retrieval any good?" into a repeatable number, so every future retrieval or
-model change has to *move that number* to earn its place. The harness only **measures** — it ships no
+model change has to _move that number_ to earn its place. The harness only **measures** — it ships no
 change to embeddings, retrieval, or the model. It runs locally and keyless, on [promptfoo](https://promptfoo.dev).
 
 ## What it measures
@@ -11,11 +11,11 @@ retrieved slice. `ask --json` also exposes the slice itself (`retrievedRefs`) ap
 cited (`citedTokens`), so we can grade at **two points** and keep them distinct:
 
 - **Retrieval recall@k** — did the expected records reach the candidate slice at all?
-  `|expected ∩ slice| / |expected|`. A miss here is the *retriever* dropping a record before grounding
+  `|expected ∩ slice| / |expected|`. A miss here is the _retriever_ dropping a record before grounding
   ever saw it (e.g. recency decay burying an old-but-relevant record).
 - **Answer recall + citation precision** — of the expected records, how many did the answer cite
   (`|expected ∩ cited| / |expected|`), and of what it cited, how much was right
-  (`|expected ∩ cited| / |cited|`)? A miss here *with* a slice hit is the model having the record and
+  (`|expected ∩ cited| / |cited|`)? A miss here _with_ a slice hit is the model having the record and
   not using it.
 
 Separating them is what makes a red case **actionable** instead of just "worse".
@@ -24,8 +24,8 @@ Retrieval recall is **deterministic** (fixed corpus + fixed query ⇒ the same s
 **headline gate**. Answer recall and citation precision are **stochastic** (the model chooses what to
 cite), so they are advisory and reported as a median over reps with the observed range.
 
-> Answer recall can *exceed* retrieval recall. That is not a bug: `ask` lets an answer cite a record a
-> gold digest *mentions* (grounded by the digest, not the record's own retrieval), so a record can be
+> Answer recall can _exceed_ retrieval recall. That is not a bug: `ask` lets an answer cite a record a
+> gold digest _mentions_ (grounded by the digest, not the record's own retrieval), so a record can be
 > cited without being individually retrieved. The deterministic gate counts only records that actually
 > reached the slice, so it is unaffected.
 
@@ -39,12 +39,12 @@ the retriever's own opinion of what is relevant.
 
 12 questions span four classes (three each), because each stresses retrieval differently:
 
-| Class | What it stresses |
-|---|---|
-| `single-fact` | one specific record holds the answer |
-| `aggregation` | a correct answer must rest on several records at once |
-| `recency` | the answer lives in an **old** record — recency decay is the adversary |
-| `cross-cutting` | one design thread running through several PRs |
+| Class           | What it stresses                                                       |
+| --------------- | ---------------------------------------------------------------------- |
+| `single-fact`   | one specific record holds the answer                                   |
+| `aggregation`   | a correct answer must rest on several records at once                  |
+| `recency`       | the answer lives in an **old** record — recency decay is the adversary |
+| `cross-cutting` | one design thread running through several PRs                          |
 
 The corpus is Slopweaver's own public GitHub history, ingested into the local corpus store — public, so the
 scoreboard is reproducible by anyone.
@@ -55,7 +55,7 @@ Three tiers, by competence:
 
 1. **Objective gate** — deterministic recall/precision vs the labels we own. No model, so it can't drift
    from them. This is the only thing that gates.
-2. **Advisory faithfulness** *(arrives in PR4)* — one LLM check that every claim is backed by a cited
+2. **Advisory faithfulness** _(arrives in PR4)_ — one LLM check that every claim is backed by a cited
    record. It flags; it never gates. Bias mitigations (A/B-order swap, mask the baseline, a different
    judge model where the CLI allows) are documented there — an LLM judge is the one place misalignment
    can creep in, so it is deliberately kept off the gate.
@@ -88,7 +88,7 @@ See [docs/eval-baseline.md](./eval-baseline.md) for the full per-case scoreboard
 - **broad `aggregation` is weak** — "what shipped across v0.1?" scores 20% (1 of 5 PR records reaches the
   slice); retrieval favours a few records over the full set a "what shipped" answer needs.
 
-v0.2 only *reproduces* this — the fix (decay half-life / slice-cap tuning) is a retrieval change, so it
+v0.2 only _reproduces_ this — the fix (decay half-life / slice-cap tuning) is a retrieval change, so it
 belongs to v0.3 and must justify itself by **moving this number**.
 
 ## The deterministic regression gate

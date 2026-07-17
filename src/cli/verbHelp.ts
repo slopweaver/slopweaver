@@ -7,7 +7,7 @@
  * agent or human spends probing an unfamiliar verb. Pure: no I/O, no clock; index.ts sends the rendered
  * string to stdout (help is data, not a diagnostic).
  */
-import type { CommandMeta } from './defineCommand.js'
+import type { CommandMeta } from "./defineCommand.js";
 
 /**
  * Whether `argv` (full process argv: [node, cli, noun, verb, ...]) is a help request: `--help` or `-h`
@@ -17,7 +17,7 @@ import type { CommandMeta } from './defineCommand.js'
  * @returns true when the tail requests help
  */
 export function wantsHelp({ argv }: { argv: readonly string[] }): boolean {
-  return argv.slice(3).some((arg) => arg === '--help' || arg === '-h')
+  return argv.slice(3).some((arg) => arg === "--help" || arg === "-h");
 }
 
 /**
@@ -27,9 +27,9 @@ export function wantsHelp({ argv }: { argv: readonly string[] }): boolean {
  * @returns the rendered help block
  */
 export function renderVerbHelp({ meta }: { meta: CommandMeta }): string {
-  const lines = [meta.summary, meta.usage]
+  const lines = [meta.summary, meta.usage];
   if (meta.example !== null) {
-    lines.push('', `example: ${meta.example}`)
+    lines.push("", `example: ${meta.example}`);
   }
-  return lines.join('\n')
+  return lines.join("\n");
 }

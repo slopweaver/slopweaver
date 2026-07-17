@@ -37,13 +37,13 @@ have it). Then run `/slopweaver:onboard` to build your first world model.
 
 ## The pipeline
 
-| Command | Stage | What it does |
-|---|---|---|
+| Command               | Stage      | What it does                                                                                                                |
+| --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `/slopweaver:refresh` | **bronze** | Ingest recent GitHub activity (PRs, issues, reviews, comments) into a local corpus. Incremental — resumes from a watermark. |
-| `/slopweaver:derive` | **silver** | Free, deterministic synthesis: a people/container directory, a cross-ref graph, and opportunity detection. |
-| `/slopweaver:distil` | **gold** | LLM map-reduce into grounded markdown digests (via your Claude session; caches per batch, so re-runs are cheap). |
-| `/slopweaver:ask` | **query** | A grounded, cited answer over hybrid retrieval (on-device semantic ⊕ keyword, fail-soft to keyword). |
-| `/slopweaver:facts` | **query** | The raw ranked record slice, no LLM — for feeding a subagent or eyeballing the corpus. |
+| `/slopweaver:derive`  | **silver** | Free, deterministic synthesis: a people/container directory, a cross-ref graph, and opportunity detection.                  |
+| `/slopweaver:distil`  | **gold**   | LLM map-reduce into grounded markdown digests (via your Claude session; caches per batch, so re-runs are cheap).            |
+| `/slopweaver:ask`     | **query**  | A grounded, cited answer over hybrid retrieval (on-device semantic ⊕ keyword, fail-soft to keyword).                        |
+| `/slopweaver:facts`   | **query**  | The raw ranked record slice, no LLM — for feeding a subagent or eyeballing the corpus.                                      |
 
 To update: re-run `refresh → derive → distil`. `refresh` pulls only new activity; `distil` only
 re-synthesises batches whose content changed.

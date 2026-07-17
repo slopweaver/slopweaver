@@ -3,19 +3,20 @@
  * so verbs never hand-roll a `--flag value` loop again; this module keeps the small VALUE validators
  * (positive-integer, etc.) that turn a raw flag string into a checked number with a domain error.
  */
-import { parseFlags } from './parseFlags.js'
-import { err, ok, type Result } from '../lib/result.js'
+
+import { err, ok, type Result } from "../lib/result.js";
+import { parseFlags } from "./parseFlags.js";
 
 export interface FlagTailSpec {
   /** Flag names (without the `--`) that take a value. */
-  readonly value: readonly string[]
+  readonly value: readonly string[];
   /** Flag names (without the `--`) that are boolean switches. */
-  readonly boolean?: readonly string[]
+  readonly boolean?: readonly string[];
 }
 
 export interface ParsedFlagTail {
-  readonly values: Readonly<Record<string, string>>
-  readonly flags: ReadonlySet<string>
+  readonly values: Readonly<Record<string, string>>;
+  readonly flags: ReadonlySet<string>;
 }
 
 /**
@@ -28,20 +29,24 @@ export interface ParsedFlagTail {
  * @returns the parsed `{ values, flags }`, or an error listing every rejection
  */
 export function parseFlagTail({ rest, spec }: { rest: readonly string[]; spec: FlagTailSpec }): Result<ParsedFlagTail> {
-  const parsed = parseFlags({ args: rest, spec: { string: spec.value, boolean: spec.boolean ?? [] }, allowPositionals: false })
+  const parsed = parseFlags({
+    allowPositionals: false,
+    args: rest,
+    spec: { boolean: spec.boolean ?? [], string: spec.value },
+  });
   if (parsed.ok === false) {
-    return err(parsed.errors)
+    return err(parsed.errors);
   }
-  const values: Record<string, string> = {}
-  const flags = new Set<string>()
+  const values: Record<string, string> = {};
+  const flags = new Set<string>();
   for (const [key, value] of Object.entries(parsed.value.values)) {
-    if (typeof value === 'string') {
-      values[key] = value
+    if (typeof value === "string") {
+      values[key] = value;
     } else {
-      flags.add(key)
+      flags.add(key);
     }
   }
-  return ok({ values, flags })
+  return ok({ flags, values });
 }
 
 /**
@@ -53,11 +58,19 @@ export function parseFlagTail({ rest, spec }: { rest: readonly string[]; spec: F
  * @param errors the error accumulator to push into
  * @returns the parsed positive integer, or `50` as a fallback
  */
-export function parsePositiveInteger({ value, label, errors }: { value: string; label: string; errors: string[] }): number {
-  const parsed = Number(value)
+export function parsePositiveInteger({
+  value,
+  label,
+  errors,
+}: {
+  value: string;
+  label: string;
+  errors: string[];
+}): number {
+  const parsed = Number(value);
   if (Number.isInteger(parsed) && parsed > 0) {
-    return parsed
+    return parsed;
   }
-  errors.push(`${label} must be a positive integer`)
-  return 50
+  errors.push(`${label} must be a positive integer`);
+  return 50;
 }

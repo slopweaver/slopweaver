@@ -4,10 +4,10 @@
  * this via `tests: file://./cases.ts`; the default export (an array of test cases) is the framework
  * contract. Labels live in GOLDEN_CASES (single source of truth); the assertion resolves them by question.
  */
-import { GOLDEN_CASES } from '../src/eval/scorer.js'
+import { GOLDEN_CASES } from "../src/eval/scorer.js";
 
 export default GOLDEN_CASES.map((golden) => ({
+  assert: [{ type: "javascript", value: "file://./groundingAssertion.ts" }],
   description: golden.question,
   vars: { question: golden.question },
-  assert: [{ type: 'javascript', value: 'file://./groundingAssertion.ts' }],
-}))
+}));

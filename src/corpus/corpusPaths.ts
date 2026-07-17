@@ -12,11 +12,11 @@
  *   ├── .cache/distil/batches.json              # content-hash digest cache (rebuildable)
  *   └── .watermark.json                         # per-source resume cursor
  */
-import { join } from 'node:path'
+import { join } from "node:path";
 
-import { slopweaverHome } from '../config.js'
-import { stateHomePaths } from '../stateHome.js'
-import type { CorpusSource, ExportWindow } from './types.js'
+import { slopweaverHome } from "../config.js";
+import { stateHomePaths } from "../stateHome.js";
+import type { CorpusSource, ExportWindow } from "./types.js";
 
 /**
  * The bronze root (all sources) under the home.
@@ -25,7 +25,7 @@ import type { CorpusSource, ExportWindow } from './types.js'
  * @returns the absolute bronze directory path
  */
 export function bronzeDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return stateHomePaths({ home }).corpus.bronze
+  return stateHomePaths({ home }).corpus.bronze;
 }
 
 /**
@@ -36,12 +36,12 @@ export function bronzeDir({ home = slopweaverHome() }: { home?: string } = {}): 
  * @returns the absolute per-source bronze directory path
  */
 export function bronzeSourceDir({ source, home = slopweaverHome() }: { source: CorpusSource; home?: string }): string {
-  return join(bronzeDir({ home }), source)
+  return join(bronzeDir({ home }), source);
 }
 
 /** Make an ISO/date string safe as a filename segment (`:` and `.` are illegal on some filesystems). */
 function safeSegment({ value }: { value: string }): string {
-  return value.replace(/[:.]/g, '-')
+  return value.replace(/[:.]/g, "-");
 }
 
 /**
@@ -52,11 +52,17 @@ function safeSegment({ value }: { value: string }): string {
  * @param home the world-model home (defaults to {@link slopweaverHome})
  * @returns the absolute bronze JSONL file path
  */
-export function bronzeFile(
-  { source, window, home = slopweaverHome() }: { source: CorpusSource; window: ExportWindow; home?: string },
-): string {
-  const name = `${safeSegment({ value: window.since })}_${safeSegment({ value: window.until })}.jsonl`
-  return join(bronzeSourceDir({ source, home }), name)
+export function bronzeFile({
+  source,
+  window,
+  home = slopweaverHome(),
+}: {
+  source: CorpusSource;
+  window: ExportWindow;
+  home?: string;
+}): string {
+  const name = `${safeSegment({ value: window.since })}_${safeSegment({ value: window.until })}.jsonl`;
+  return join(bronzeSourceDir({ home, source }), name);
 }
 
 /**
@@ -66,7 +72,7 @@ export function bronzeFile(
  * @returns the absolute watermark file path
  */
 export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return stateHomePaths({ home }).corpus.watermark
+  return stateHomePaths({ home }).corpus.watermark;
 }
 
 /**
@@ -76,7 +82,7 @@ export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {
  * @returns the absolute silver index directory path
  */
 export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(stateHomePaths({ home }).corpus.silver, 'index')
+  return join(stateHomePaths({ home }).corpus.silver, "index");
 }
 
 /**
@@ -86,7 +92,7 @@ export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = 
  * @returns the absolute silver graph directory path
  */
 export function silverGraphDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(stateHomePaths({ home }).corpus.silver, 'graph')
+  return join(stateHomePaths({ home }).corpus.silver, "graph");
 }
 
 /**
@@ -96,7 +102,7 @@ export function silverGraphDir({ home = slopweaverHome() }: { home?: string } = 
  * @returns the absolute silver digests directory path
  */
 export function silverDigestsDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(stateHomePaths({ home }).corpus.silver, 'digests')
+  return join(stateHomePaths({ home }).corpus.silver, "digests");
 }
 
 /**
@@ -106,7 +112,7 @@ export function silverDigestsDir({ home = slopweaverHome() }: { home?: string } 
  * @returns the absolute gold directory path
  */
 export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return stateHomePaths({ home }).corpus.gold
+  return stateHomePaths({ home }).corpus.gold;
 }
 
 /**
@@ -116,7 +122,7 @@ export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): st
  * @returns the absolute cache directory path
  */
 export function cacheDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return stateHomePaths({ home }).corpus.cache
+  return stateHomePaths({ home }).corpus.cache;
 }
 
 /**
@@ -126,5 +132,5 @@ export function cacheDir({ home = slopweaverHome() }: { home?: string } = {}): s
  * @returns the absolute distil cache file path
  */
 export function distilCachePath({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(cacheDir({ home }), 'distil', 'batches.json')
+  return join(cacheDir({ home }), "distil", "batches.json");
 }

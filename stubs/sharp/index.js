@@ -3,5 +3,5 @@
 // a native dep whose binary breaks cross-platform installs. This no-op keeps the import working; it
 // throws only if an image pipeline is actually used (never, here).
 export default function sharp() {
-  throw new Error('sharp is stubbed in slopweaver: image pipelines are not supported (text embeddings only)')
+  throw new Error("sharp is stubbed in slopweaver: image pipelines are not supported (text embeddings only)");
 }

@@ -6,28 +6,28 @@
  * when dispatched. Pure: declaring this manifest imports no command module — the `import()` fires only on
  * a verb's `load()`.
  */
-import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
+import { DEFAULT_VERB, lazy, type VerbManifestEntry } from "../manifest.js";
 
 /** Shared meta for the bare-noun + `run` verb; both resolve to the same preflight handler. */
 const doctorMeta = {
-  summary: 'Env preflight: plugin version + the resolved state home and its layout',
-  usage: 'usage: slopweaver doctor',
-  effect: 'none',
-  requiresApproval: false,
   createsWorkItem: false,
+  diagnostic: true,
   doorRouted: false,
   dryParseSafe: false,
-  example: 'slopweaver doctor',
+  effect: "none",
+  example: "slopweaver doctor",
   // The reject path is I/O-free; a non-zero exit REPORTS a broken env (a finding), not a broken tool.
   parseRejectIsIoFree: true,
-  diagnostic: true,
-} as const
+  requiresApproval: false,
+  summary: "Env preflight: plugin version + the resolved state home and its layout",
+  usage: "usage: slopweaver doctor",
+} as const;
 
 /** Lazy loader for the shared doctor handler — one module fetch, reused across the bare-noun + `run` verb. */
-const loadDoctor = () => import('../commands/doctor/run.js').then((m) => m.doctorRunCommand)
+const loadDoctor = () => import("../commands/doctor/run.js").then((m) => m.doctorRunCommand);
 
 /** The `doctor` noun's verbs as lazy manifest entries. */
 export const doctorManifest: Readonly<Record<string, VerbManifestEntry>> = {
-  [DEFAULT_VERB]: lazy({ meta: doctorMeta, load: loadDoctor }),
-  run: lazy({ meta: doctorMeta, load: loadDoctor }),
-}
+  [DEFAULT_VERB]: lazy({ load: loadDoctor, meta: doctorMeta }),
+  run: lazy({ load: loadDoctor, meta: doctorMeta }),
+};

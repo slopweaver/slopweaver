@@ -3,6 +3,6 @@
  * The scanner logic + its exports live in `scan.ts`; this file existing IS the invocation, so there is no
  * `isDirectInvocation` guard.
  */
-import { runScan } from './scan.js'
+import { runScan } from "./scan.js";
 
-process.exit(runScan())
+process.exit(runScan());

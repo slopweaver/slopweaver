@@ -9,61 +9,62 @@
  * Pure: importing the barrel imports only manifest modules (metadata-only — no command module loads).
  * The first command `import()` fires only on a verb's `load()`.
  */
-import { askManifest } from './ask.js'
-import { catalogManifest } from './catalog.js'
-import { deriveManifest } from './derive.js'
-import { devManifest } from './dev.js'
-import { distilManifest } from './distil.js'
-import { doctorManifest } from './doctor.js'
-import { factsManifest } from './facts.js'
-import { initManifest } from './init.js'
-import { refreshManifest } from './refresh.js'
-import type { NounManifestModule } from '../manifest.js'
+
+import type { NounManifestModule } from "../manifest.js";
+import { askManifest } from "./ask.js";
+import { catalogManifest } from "./catalog.js";
+import { deriveManifest } from "./derive.js";
+import { devManifest } from "./dev.js";
+import { distilManifest } from "./distil.js";
+import { doctorManifest } from "./doctor.js";
+import { factsManifest } from "./facts.js";
+import { initManifest } from "./init.js";
+import { refreshManifest } from "./refresh.js";
 
 export const MANIFEST_MODULES: readonly NounManifestModule[] = [
   {
-    noun: 'doctor',
-    summary: 'Env preflight: plugin version + the resolved state home and its layout',
+    noun: "doctor",
+    summary: "Env preflight: plugin version + the resolved state home and its layout",
     verbs: doctorManifest,
   },
   {
-    noun: 'init',
-    summary: 'Scaffold $SLOPWEAVER_HOME (idempotent): corpus/beliefs/ledgers dirs + seed files',
+    noun: "init",
+    summary: "Scaffold $SLOPWEAVER_HOME (idempotent): corpus/beliefs/ledgers dirs + seed files",
     verbs: initManifest,
   },
   {
-    noun: 'refresh',
-    summary: 'Ingest recent GitHub activity into the local bronze corpus',
+    noun: "refresh",
+    summary: "Ingest recent GitHub activity into the local bronze corpus",
     verbs: refreshManifest,
   },
   {
-    noun: 'derive',
-    summary: 'Derive deterministic silver (directory + graph + opportunities) from the corpus',
+    noun: "derive",
+    summary: "Derive deterministic silver (directory + graph + opportunities) from the corpus",
     verbs: deriveManifest,
   },
   {
-    noun: 'distil',
-    summary: 'Distil the corpus into gold (LLM map-reduce; caches per batch)',
+    noun: "distil",
+    summary: "Distil the corpus into gold (LLM map-reduce; caches per batch)",
     verbs: distilManifest,
   },
   {
-    noun: 'ask',
-    summary: 'Ask a grounded question of your local world model',
+    noun: "ask",
+    summary: "Ask a grounded question of your local world model",
     verbs: askManifest,
   },
   {
-    noun: 'facts',
-    summary: 'Retrieve the ranked record slice for a question (no LLM)',
+    noun: "facts",
+    summary: "Retrieve the ranked record slice for a question (no LLM)",
     verbs: factsManifest,
   },
   {
-    noun: 'dev',
-    summary: 'Repo-development verbs (the PR gate)',
+    noun: "dev",
+    summary: "Repo-development verbs (the PR gate)",
     verbs: devManifest,
   },
   {
-    noun: 'catalog',
-    summary: 'List the command surface (human, --json, or --capabilities) from the registry',
+    noun: "catalog",
+    summary: "List the command surface (human, --json, or --capabilities) from the registry",
     verbs: catalogManifest,
   },
-]
+];

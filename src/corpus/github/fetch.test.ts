@@ -1,49 +1,77 @@
-import { describe, expect, it } from 'vitest'
-import { makeGithubFetchItems, type SearchIssues } from './fetch.js'
-import type { GithubActivity } from './activity.js'
-import { err, ok, type Result, unwrap } from '../../lib/result.js'
+import { describe, expect, it } from "vitest";
+import { err, ok, type Result, unwrap } from "../../lib/result.js";
+import type { GithubActivity } from "./activity.js";
+import { makeGithubFetchItems, type SearchIssues } from "./fetch.js";
 
-const repo = { owner: 'o', repo: 'r' }
-const window = { since: '2024-01-01', until: '2024-01-03' }
+const repo = { owner: "o", repo: "r" };
+const window = { since: "2024-01-01", until: "2024-01-03" };
 
 const hit = ({ n, isPr }: { n: number; isPr: boolean }): unknown => ({
-  number: n, title: `t${String(n)}`, html_url: `url${String(n)}`,
-  created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-02T00:00:00Z',
-  user: { login: 'u' }, ...(isPr ? { pull_request: {} } : {}),
-})
+  created_at: "2024-01-01T00:00:00Z",
+  html_url: `url${String(n)}`,
+  number: n,
+  title: `t${String(n)}`,
+  updated_at: "2024-01-02T00:00:00Z",
+  user: { login: "u" },
+  ...(isPr ? { pull_request: {} } : {}),
+});
 
 /** page 1 returns `items`, later pages are empty (a short page stops the loop). */
-const search = (items: readonly unknown[]): SearchIssues =>
-  async ({ page }) => ({ data: { items: page === 1 ? items : [] } })
+const search =
+  (items: readonly unknown[]): SearchIssues =>
+  async ({ page }) => ({ data: { items: page === 1 ? items : [] } });
 
 const activityStub: GithubActivity = {
-  state: 'OPEN', updatedAtIso: '2024-01-02T00:00:00Z', reviews: [], comments: [], timeline: [],
-}
+  comments: [],
+  reviews: [],
+  state: "OPEN",
+  timeline: [],
+  updatedAtIso: "2024-01-02T00:00:00Z",
+};
 
-describe('makeGithubFetchItems', () => {
-  it('maps hits to items, discriminating PR vs issue', async () => {
-    const fetchItems = makeGithubFetchItems({ searchIssues: search([hit({ n: 1, isPr: true }), hit({ n: 2, isPr: false })]) })
-    const result = await fetchItems({ repo, window })
-    expect(unwrap(result).map((i) => i.kind)).toEqual(['pr', 'issue'])
-  })
+describe("makeGithubFetchItems", () => {
+  it("maps hits to items, discriminating PR vs issue", async () => {
+    const fetchItems = makeGithubFetchItems({
+      searchIssues: search([hit({ isPr: true, n: 1 }), hit({ isPr: false, n: 2 })]),
+    });
+    const result = await fetchItems({ repo, window });
+    expect(unwrap(result).map((i) => i.kind)).toEqual(["pr", "issue"]);
+  });
 
-  it('attaches activity on enrich success and ships the item bare on enrich failure', async () => {
+  it("attaches activity on enrich success and ships the item bare on enrich failure", async () => {
     const fetchActivity = async ({ number }: { number: number }): Promise<Result<GithubActivity>> =>
-      number === 1 ? ok(activityStub) : err(['no activity'])
-    const fetchItems = makeGithubFetchItems({ searchIssues: search([hit({ n: 1, isPr: true }), hit({ n: 2, isPr: true })]), fetchActivity })
-    const items = unwrap(await fetchItems({ repo, window }))
-    expect(items[0].activity).toBeDefined()
-    expect(items[1].activity).toBeUndefined()
-  })
+      number === 1 ? ok(activityStub) : err(["no activity"]);
+    const fetchItems = makeGithubFetchItems({
+      fetchActivity,
+      searchIssues: search([hit({ isPr: true, n: 1 }), hit({ isPr: true, n: 2 })]),
+    });
+    const items = unwrap(await fetchItems({ repo, window }));
+    expect(items[0]!.activity).toBeDefined();
+    expect(items[1]!.activity).toBeUndefined();
+  });
 
-  it('a search failure is fatal (err), not a partial write', async () => {
-    const fetchItems = makeGithubFetchItems({ searchIssues: async () => { throw new Error('boom') } })
-    expect((await fetchItems({ repo, window })).ok).toBe(false)
-  })
+  it("a search failure is fatal (err), not a partial write", async () => {
+    const fetchItems = makeGithubFetchItems({
+      searchIssues: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect((await fetchItems({ repo, window })).ok).toBe(false);
+  });
 
-  it('honours the page cap', async () => {
-    const items = [hit({ n: 1, isPr: true }), hit({ n: 2, isPr: true }), hit({ n: 3, isPr: true })]
-    const fetchItems = makeGithubFetchItems({ searchIssues: search(items), pageCap: 2 })
-    expect(unwrap(await fetchItems({ repo, window }))).toHaveLength(2)
-  })
-})
+  it("drops a hit missing a core field and surfaces the skip count (never silent)", async () => {
+    const missingTitle = { html_url: "url9", number: 9, updated_at: "2024-01-02T00:00:00Z" }; // no title
+    const fetchItems = makeGithubFetchItems({
+      searchIssues: search([hit({ isPr: true, n: 1 }), missingTitle]),
+    });
+    const result = await fetchItems({ repo, window });
+    expect(unwrap(result).map((i) => i.number)).toEqual([1]);
+    expect(result.warnings.some((w) => w.includes("skipped 1"))).toBe(true);
+  });
+
+  it("honours the page cap", async () => {
+    const items = [hit({ isPr: true, n: 1 }), hit({ isPr: true, n: 2 }), hit({ isPr: true, n: 3 })];
+    const fetchItems = makeGithubFetchItems({ pageCap: 2, searchIssues: search(items) });
+    expect(unwrap(await fetchItems({ repo, window }))).toHaveLength(2);
+  });
+});

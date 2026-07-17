@@ -9,60 +9,65 @@
  *     no `.jsonl`, closing the "wrong path looked empty" footgun before a reader ever gets there.
  *  3. Only records whose `source`/`kind` are in the known unions survive; anything else is dropped.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
-import { isErrno, isOneOf, isRecord } from '../lib/parsers.js'
-import { err, ok, type Result } from '../lib/result.js'
-import { bronzeDir, bronzeSourceDir } from './corpusPaths.js'
-import { CORPUS_KINDS, CORPUS_SOURCES, type CorpusRecord } from './types.js'
+import { isErrno, isOneOf, isRecord } from "../lib/parsers.js";
+import { err, ok, type Result } from "../lib/result.js";
+import { bronzeDir } from "./corpusPaths.js";
+import { CORPUS_KINDS, CORPUS_SOURCES, type CorpusRecord } from "./types.js";
 
 /** Type guard: a non-empty string. Positional — TS1230 forbids destructuring in a type predicate. */
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
+  return typeof value === "string" && value.length > 0;
 }
 
 /** Parse one JSONL line into a record, or return an error string describing why it was rejected. */
 function parseRow({ line }: { line: string }): { record: CorpusRecord } | { error: string } {
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(line)
+    parsed = JSON.parse(line);
   } catch {
-    return { error: 'invalid JSON' }
+    return { error: "invalid JSON" };
   }
   if (!isRecord(parsed)) {
-    return { error: 'not a JSON object' }
+    return { error: "not a JSON object" };
   }
-  const { source, sourceId, url, tsIso, kind, container, text, refs, author, title } = parsed
-  if (typeof source !== 'string' || !isOneOf(source, CORPUS_SOURCES)) {
-    return { error: `unknown source: ${String(source)}` }
+  const { source, sourceId, url, tsIso, kind, container, text, refs, author, title } = parsed;
+  if (typeof source !== "string" || !isOneOf(source, CORPUS_SOURCES)) {
+    return { error: `unknown source: ${String(source)}` };
   }
-  if (typeof kind !== 'string' || !isOneOf(kind, CORPUS_KINDS)) {
-    return { error: `unknown kind: ${String(kind)}` }
+  if (typeof kind !== "string" || !isOneOf(kind, CORPUS_KINDS)) {
+    return { error: `unknown kind: ${String(kind)}` };
   }
-  if (!isNonEmptyString(sourceId) || !isNonEmptyString(tsIso) || !isNonEmptyString(container) || !isNonEmptyString(text)) {
-    return { error: 'missing required field (sourceId/tsIso/container/text)' }
+  if (
+    !isNonEmptyString(sourceId) ||
+    !isNonEmptyString(tsIso) ||
+    !isNonEmptyString(container) ||
+    !isNonEmptyString(text)
+  ) {
+    return { error: "missing required field (sourceId/tsIso/container/text)" };
   }
-  if (typeof url !== 'string') {
-    return { error: 'url must be a string' }
+  if (typeof url !== "string") {
+    return { error: "url must be a string" };
   }
-  if (!Array.isArray(refs) || !refs.every((r) => typeof r === 'string')) {
-    return { error: 'refs must be a string array' }
+  if (!Array.isArray(refs) || !refs.every((r) => typeof r === "string")) {
+    return { error: "refs must be a string array" };
   }
   return {
     record: {
+      container,
+      kind,
+      refs,
       source,
       sourceId,
-      url,
-      tsIso,
-      kind,
-      container,
       text,
-      refs,
+      tsIso,
+      url,
       ...(isNonEmptyString(author) ? { author } : {}),
       ...(isNonEmptyString(title) ? { title } : {}),
     },
-  }
+  };
 }
 
 /**
@@ -72,40 +77,40 @@ function parseRow({ line }: { line: string }): { record: CorpusRecord } | { erro
  * @returns the parsed records (always `ok`; rejected lines become warnings)
  */
 export function parseCorpusRecords({ content }: { content: string }): Result<readonly CorpusRecord[]> {
-  const records: CorpusRecord[] = []
-  const warnings: string[] = []
-  content.split('\n').forEach((line, index) => {
+  const records: CorpusRecord[] = [];
+  const warnings: string[] = [];
+  content.split("\n").forEach((line, index) => {
     if (line.trim().length === 0) {
-      return
+      return;
     }
-    const result = parseRow({ line })
-    if ('record' in result) {
-      records.push(result.record)
+    const result = parseRow({ line });
+    if ("record" in result) {
+      records.push(result.record);
     } else {
-      warnings.push(`line ${String(index + 1)}: ${result.error}`)
+      warnings.push(`line ${String(index + 1)}: ${result.error}`);
     }
-  })
-  return ok(records, warnings)
+  });
+  return ok(records, warnings);
 }
 
 /** Every `.jsonl` file under `dir`, recursively. */
 function jsonlFiles({ dir }: { dir: string }): readonly string[] {
-  let entries: readonly string[]
+  let entries: readonly string[];
   try {
-    entries = readdirSync(dir)
+    entries = readdirSync(dir);
   } catch {
-    return []
+    return [];
   }
-  const files: string[] = []
+  const files: string[] = [];
   for (const entry of entries) {
-    const full = join(dir, entry)
+    const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
-      files.push(...jsonlFiles({ dir: full }))
-    } else if (entry.endsWith('.jsonl')) {
-      files.push(full)
+      files.push(...jsonlFiles({ dir: full }));
+    } else if (entry.endsWith(".jsonl")) {
+      files.push(full);
     }
   }
-  return files
+  return files;
 }
 
 /**
@@ -115,33 +120,33 @@ function jsonlFiles({ dir }: { dir: string }): readonly string[] {
  * @returns the records, with a warning per corrupt line or a treated-as-empty missing dir
  */
 export function readCorpusDir({ dir }: { dir: string }): Result<readonly CorpusRecord[]> {
-  let exists = false
+  let exists = false;
   try {
-    exists = statSync(dir).isDirectory()
+    exists = statSync(dir).isDirectory();
   } catch (error: unknown) {
-    if (isErrno(error) && error.code === 'ENOENT') {
-      return ok([], [`corpus dir not found (treated as empty): ${dir}`])
+    if (isErrno(error) && error.code === "ENOENT") {
+      return ok([], [`corpus dir not found (treated as empty): ${dir}`]);
     }
-    return err([error instanceof Error ? error.message : `failed to stat ${dir}`])
+    return err([error instanceof Error ? error.message : `failed to stat ${dir}`]);
   }
   if (!exists) {
-    return ok([], [`not a directory (treated as empty): ${dir}`])
+    return ok([], [`not a directory (treated as empty): ${dir}`]);
   }
-  const records: CorpusRecord[] = []
-  const warnings: string[] = []
+  const records: CorpusRecord[] = [];
+  const warnings: string[] = [];
   for (const file of jsonlFiles({ dir })) {
-    const parsed = parseCorpusRecords({ content: readFileSync(file, 'utf8') })
+    const parsed = parseCorpusRecords({ content: readFileSync(file, "utf8") });
     if (parsed.ok) {
-      records.push(...parsed.value)
-      warnings.push(...parsed.warnings.map((w) => `${file}: ${w}`))
+      records.push(...parsed.value);
+      warnings.push(...parsed.warnings.map((w) => `${file}: ${w}`));
     }
   }
-  return ok(records, warnings)
+  return ok(records, warnings);
 }
 
 /** Count `.jsonl` files under `dir` (0 when the dir is absent). */
 function countJsonlFiles({ dir }: { dir: string }): number {
-  return jsonlFiles({ dir }).length
+  return jsonlFiles({ dir }).length;
 }
 
 /**
@@ -154,9 +159,9 @@ function countJsonlFiles({ dir }: { dir: string }): number {
  * @returns the resolved dir, or an error when it's absent/empty
  */
 export function resolveCorpusDir({ home, corpus }: { home?: string; corpus?: string }): Result<string> {
-  const dir = corpus ?? bronzeDir({ home })
+  const dir = corpus ?? (home !== undefined ? bronzeDir({ home }) : bronzeDir({}));
   if (countJsonlFiles({ dir }) === 0) {
-    return err([`no corpus found at ${dir} — run \`slopweaver refresh\` first`])
+    return err([`no corpus found at ${dir} — run \`slopweaver refresh\` first`]);
   }
-  return ok(dir)
+  return ok(dir);
 }

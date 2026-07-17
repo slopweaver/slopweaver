@@ -6,16 +6,16 @@
  * default path is the user's existing `gh` CLI login — so most users need no token at all. Nothing here
  * reads or writes secrets to disk.
  */
-import { execFileSync } from 'node:child_process'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-import { err, ok, type Result } from './lib/result.js'
+import { err, ok, type Result } from "./lib/result.js";
 
 /** A GitHub repository coordinate. */
 export interface Repository {
-  readonly owner: string
-  readonly repo: string
+  readonly owner: string;
+  readonly repo: string;
 }
 
 /**
@@ -25,8 +25,8 @@ export interface Repository {
  * @returns the absolute home directory path
  */
 export function slopweaverHome(): string {
-  const fromEnv = process.env.SLOPWEAVER_HOME
-  return fromEnv != null && fromEnv.trim().length > 0 ? fromEnv : join(homedir(), '.slopweaver')
+  const fromEnv = process.env["SLOPWEAVER_HOME"];
+  return fromEnv != null && fromEnv.trim().length > 0 ? fromEnv : join(homedir(), ".slopweaver");
 }
 
 /**
@@ -38,14 +38,14 @@ export function slopweaverHome(): string {
  * @returns the parsed repository, or an error when it can't be shaped
  */
 export function repositoryFromGitRemote({ remoteUrl }: { remoteUrl: string }): Result<Repository> {
-  const url = remoteUrl.trim()
-  const ssh = /^(?:ssh:\/\/)?git@[^:/]+[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(url)
-  const https = /^https?:\/\/[^/]+\/([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(url)
-  const match = ssh ?? https
-  if (match == null || match[1] == null || match[2] == null) {
-    return err([`could not parse owner/repo from git remote: ${remoteUrl}`])
+  const url = remoteUrl.trim();
+  const ssh = /^(?:ssh:\/\/)?git@[^:/]+[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(url);
+  const https = /^https?:\/\/[^/]+\/([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(url);
+  const match = ssh ?? https;
+  if (match?.[1] == null || match[2] == null) {
+    return err([`could not parse owner/repo from git remote: ${remoteUrl}`]);
   }
-  return ok({ owner: match[1], repo: match[2] })
+  return ok({ owner: match[1], repo: match[2] });
 }
 
 /**
@@ -55,11 +55,11 @@ export function repositoryFromGitRemote({ remoteUrl }: { remoteUrl: string }): R
  * @returns the parsed repository, or an error when malformed
  */
 export function parseRepositorySlug({ slug }: { slug: string }): Result<Repository> {
-  const parts = slug.trim().split('/')
+  const parts = slug.trim().split("/");
   if (parts.length !== 2 || parts[0] == null || parts[1] == null || parts[0].length === 0 || parts[1].length === 0) {
-    return err([`expected owner/repo, got: ${slug}`])
+    return err([`expected owner/repo, got: ${slug}`]);
   }
-  return ok({ owner: parts[0], repo: parts[1] })
+  return ok({ owner: parts[0], repo: parts[1] });
 }
 
 /**
@@ -69,22 +69,25 @@ export function parseRepositorySlug({ slug }: { slug: string }): Result<Reposito
  * @returns the repository, or an error when there's no usable `origin` remote
  */
 export function resolveRepository({ cwd = process.cwd() }: { cwd?: string } = {}): Result<Repository> {
-  let remoteUrl: string
+  let remoteUrl: string;
   try {
-    remoteUrl = execFileSync('git', ['-C', cwd, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim()
+    remoteUrl = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], { encoding: "utf8" }).trim();
   } catch {
-    return err(['no `origin` git remote found — pass --repo owner/repo, or run inside a git checkout'])
+    return err(["no `origin` git remote found — pass --repo owner/repo, or run inside a git checkout"]);
   }
-  return repositoryFromGitRemote({ remoteUrl })
+  return repositoryFromGitRemote({ remoteUrl });
 }
 
 /** `gh auth token`, or undefined if the gh CLI is absent / not logged in. */
 function tokenFromGhCli(): string | undefined {
   try {
-    const token = execFileSync('gh', ['auth', 'token'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-    return token.length > 0 ? token : undefined
+    const token = execFileSync("gh", ["auth", "token"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return token.length > 0 ? token : undefined;
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
@@ -96,9 +99,9 @@ function tokenFromGhCli(): string | undefined {
  * @returns the token, or undefined when unauthenticated
  */
 export function githubToken(): string | undefined {
-  const fromEnv = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
+  const fromEnv = process.env["GITHUB_TOKEN"] ?? process.env["GH_TOKEN"];
   if (fromEnv != null && fromEnv.trim().length > 0) {
-    return fromEnv.trim()
+    return fromEnv.trim();
   }
-  return tokenFromGhCli()
+  return tokenFromGhCli();
 }

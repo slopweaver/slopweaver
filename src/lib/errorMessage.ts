@@ -9,5 +9,5 @@
  * @returns a display string for it
  */
 export function errorMessage({ error }: { error: unknown }): string {
-  return error instanceof Error ? error.message : String(error)
+  return error instanceof Error ? error.message : String(error);
 }

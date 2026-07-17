@@ -8,35 +8,34 @@
  * `serialiseRecord` fixes the key order and computes the fingerprint over everything EXCEPT `tsIso`, so
  * two captures of the same content at different times share a fingerprint and collapse.
  */
-import { appendFileSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
-
-import { ok, type Result } from '../lib/result.js'
-import { slopweaverHome } from '../config.js'
-import { bronzeFile, bronzeSourceDir } from './corpusPaths.js'
-import { readCorpusDir } from './corpusStore.js'
-import { redactText } from './redact.js'
-import { CORPUS_SOURCES, type CorpusRecord, type CorpusSource, type ExportWindow } from './types.js'
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { slopweaverHome } from "../config.js";
+import { ok, type Result } from "../lib/result.js";
+import { bronzeFile, bronzeSourceDir } from "./corpusPaths.js";
+import { readCorpusDir } from "./corpusStore.js";
+import { redactText } from "./redact.js";
+import { CORPUS_SOURCES, type CorpusRecord, type CorpusSource, type ExportWindow } from "./types.js";
 
 /** Fixed-key-order object for a record; optional fields appended only when set (stable serialisation). */
 function orderedRecord({ record }: { record: CorpusRecord }): Record<string, unknown> {
   const ordered: Record<string, unknown> = {
+    container: record.container,
+    kind: record.kind,
+    refs: record.refs,
     source: record.source,
     sourceId: record.sourceId,
-    url: record.url,
-    tsIso: record.tsIso,
-    kind: record.kind,
-    container: record.container,
     text: record.text,
-    refs: record.refs,
-  }
+    tsIso: record.tsIso,
+    url: record.url,
+  };
   if (record.author !== undefined) {
-    ordered.author = record.author
+    ordered["author"] = record.author;
   }
   if (record.title !== undefined) {
-    ordered.title = record.title
+    ordered["title"] = record.title;
   }
-  return ordered
+  return ordered;
 }
 
 /**
@@ -46,12 +45,12 @@ function orderedRecord({ record }: { record: CorpusRecord }): Record<string, unk
  * @returns the JSON line (no trailing newline)
  */
 export function serialiseRecord({ record }: { record: CorpusRecord }): string {
-  return JSON.stringify(orderedRecord({ record }))
+  return JSON.stringify(orderedRecord({ record }));
 }
 
 /** Content fingerprint = the serialisation with `tsIso` blanked, so time-only differences don't count. */
 function contentFingerprint({ record }: { record: CorpusRecord }): string {
-  return serialiseRecord({ record: { ...record, tsIso: '' } })
+  return serialiseRecord({ record: { ...record, tsIso: "" } });
 }
 
 /**
@@ -65,51 +64,51 @@ export function redactRecord({ record }: { record: CorpusRecord }): CorpusRecord
     ...record,
     text: redactText({ text: record.text }).text,
     ...(record.title !== undefined ? { title: redactText({ text: record.title }).text } : {}),
-  }
+  };
 }
 
 interface StoredEntity {
-  newestTs: string
-  readonly fingerprints: Set<string>
+  newestTs: string;
+  readonly fingerprints: Set<string>;
 }
 
 /** Build the per-`sourceId` dedup index from whatever is already stored for a source. */
 function storedIndex({ source, home }: { source: CorpusSource; home: string }): Map<string, StoredEntity> {
-  const index = new Map<string, StoredEntity>()
-  const stored = readCorpusDir({ dir: bronzeSourceDir({ source, home }) })
-  for (const record of (stored.ok ? stored.value : [])) {
-    const entity = index.get(record.sourceId) ?? { newestTs: '', fingerprints: new Set<string>() }
-    entity.fingerprints.add(contentFingerprint({ record }))
+  const index = new Map<string, StoredEntity>();
+  const stored = readCorpusDir({ dir: bronzeSourceDir({ home, source }) });
+  for (const record of stored.ok ? stored.value : []) {
+    const entity = index.get(record.sourceId) ?? { fingerprints: new Set<string>(), newestTs: "" };
+    entity.fingerprints.add(contentFingerprint({ record }));
     if (record.tsIso > entity.newestTs) {
-      entity.newestTs = record.tsIso
+      entity.newestTs = record.tsIso;
     }
-    index.set(record.sourceId, entity)
+    index.set(record.sourceId, entity);
   }
-  return index
+  return index;
 }
 
 /** True when `record` should be written: new fingerprint for its id AND not older than what's stored. */
 function isFresh({ record, index }: { record: CorpusRecord; index: Map<string, StoredEntity> }): boolean {
-  const entity = index.get(record.sourceId)
-  const fingerprint = contentFingerprint({ record })
+  const entity = index.get(record.sourceId);
+  const fingerprint = contentFingerprint({ record });
   if (entity === undefined) {
-    index.set(record.sourceId, { newestTs: record.tsIso, fingerprints: new Set([fingerprint]) })
-    return true
+    index.set(record.sourceId, { fingerprints: new Set([fingerprint]), newestTs: record.tsIso });
+    return true;
   }
   if (entity.fingerprints.has(fingerprint) || record.tsIso < entity.newestTs) {
-    return false
+    return false;
   }
-  entity.fingerprints.add(fingerprint)
+  entity.fingerprints.add(fingerprint);
   if (record.tsIso > entity.newestTs) {
-    entity.newestTs = record.tsIso
+    entity.newestTs = record.tsIso;
   }
-  return true
+  return true;
 }
 
 export interface WriteResult {
-  readonly written: number
-  readonly deduped: number
-  readonly bySource: Readonly<Record<string, number>>
+  readonly written: number;
+  readonly deduped: number;
+  readonly bySource: Readonly<Record<string, number>>;
 }
 
 /**
@@ -120,29 +119,35 @@ export interface WriteResult {
  * @param home the world-model home (defaults to {@link slopweaverHome})
  * @returns the write stats: `written` (new lines), `deduped` (collapsed inputs), `bySource`
  */
-export function writeCorpusRecords(
-  { records, window, home = slopweaverHome() }: { records: readonly CorpusRecord[]; window: ExportWindow; home?: string },
-): Result<WriteResult> {
-  const redacted = records.map((record) => redactRecord({ record }))
-  const bySource: Record<string, number> = {}
-  let written = 0
+export function writeCorpusRecords({
+  records,
+  window,
+  home = slopweaverHome(),
+}: {
+  records: readonly CorpusRecord[];
+  window: ExportWindow;
+  home?: string;
+}): Result<WriteResult> {
+  const redacted = records.map((record) => redactRecord({ record }));
+  const bySource: Record<string, number> = {};
+  let written = 0;
 
   for (const source of CORPUS_SOURCES) {
-    const bucket = redacted.filter((record) => record.source === source)
+    const bucket = redacted.filter((record) => record.source === source);
     if (bucket.length === 0) {
-      continue
+      continue;
     }
-    const index = storedIndex({ source, home })
-    const fresh = bucket.filter((record) => isFresh({ record, index }))
+    const index = storedIndex({ home, source });
+    const fresh = bucket.filter((record) => isFresh({ index, record }));
     if (fresh.length === 0) {
-      continue
+      continue;
     }
-    const file = bronzeFile({ source, window, home })
-    mkdirSync(dirname(file), { recursive: true })
-    appendFileSync(file, `${fresh.map((record) => serialiseRecord({ record })).join('\n')}\n`, 'utf8')
-    bySource[source] = fresh.length
-    written += fresh.length
+    const file = bronzeFile({ home, source, window });
+    mkdirSync(dirname(file), { recursive: true });
+    appendFileSync(file, `${fresh.map((record) => serialiseRecord({ record })).join("\n")}\n`, "utf8");
+    bySource[source] = fresh.length;
+    written += fresh.length;
   }
 
-  return ok({ written, deduped: records.length - written, bySource })
+  return ok({ bySource, deduped: records.length - written, written });
 }

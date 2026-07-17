@@ -3,14 +3,14 @@
  * ranker — so retrieval is deterministic and testable. A record's weight halves every `halfLifeMs`.
  */
 
-const MS_PER_DAY = 86_400_000
-export const DEFAULT_HALF_LIFE_MS = 7 * MS_PER_DAY
+const MS_PER_DAY = 86_400_000;
+export const DEFAULT_HALF_LIFE_MS = 7 * MS_PER_DAY;
 /** A record with no timestamp is floored just above 0 rather than dropped. */
-const MISSING_TS_EPSILON = 1e-6
+const MISSING_TS_EPSILON = 1e-6;
 
 export interface DecayParams {
-  readonly nowMs: number
-  readonly halfLifeMs?: number
+  readonly nowMs: number;
+  readonly halfLifeMs?: number;
 }
 
 /**
@@ -21,12 +21,16 @@ export interface DecayParams {
  * @param halfLifeMs the half-life in ms (default {@link DEFAULT_HALF_LIFE_MS})
  * @returns the decay weight
  */
-export function decayWeight({ tsMs, nowMs, halfLifeMs = DEFAULT_HALF_LIFE_MS }: { tsMs: number } & DecayParams): number {
+export function decayWeight({
+  tsMs,
+  nowMs,
+  halfLifeMs = DEFAULT_HALF_LIFE_MS,
+}: { tsMs: number } & DecayParams): number {
   if (halfLifeMs <= 0) {
-    return 1
+    return 1;
   }
-  const ageMs = Math.max(0, nowMs - tsMs)
-  return 0.5 ** (ageMs / halfLifeMs)
+  const ageMs = Math.max(0, nowMs - tsMs);
+  return 0.5 ** (ageMs / halfLifeMs);
 }
 
 /**
@@ -37,13 +41,15 @@ export function decayWeight({ tsMs, nowMs, halfLifeMs = DEFAULT_HALF_LIFE_MS }: 
  * @param halfLifeMs the half-life in ms (default {@link DEFAULT_HALF_LIFE_MS})
  * @returns the decay weight
  */
-export function recordDecayWeight(
-  { tsMs, nowMs, halfLifeMs = DEFAULT_HALF_LIFE_MS }: { tsMs: number | undefined } & DecayParams,
-): number {
+export function recordDecayWeight({
+  tsMs,
+  nowMs,
+  halfLifeMs = DEFAULT_HALF_LIFE_MS,
+}: { tsMs: number | undefined } & DecayParams): number {
   if (tsMs === undefined) {
-    return MISSING_TS_EPSILON
+    return MISSING_TS_EPSILON;
   }
-  return decayWeight({ tsMs, nowMs, halfLifeMs })
+  return decayWeight({ halfLifeMs, nowMs, tsMs });
 }
 
 /**
@@ -53,8 +59,8 @@ export function recordDecayWeight(
  * @returns ms since epoch, or undefined
  */
 export function tsIsoToMs({ tsIso }: { tsIso: string }): number | undefined {
-  const ms = Date.parse(tsIso)
-  return Number.isNaN(ms) ? undefined : ms
+  const ms = Date.parse(tsIso);
+  return Number.isNaN(ms) ? undefined : ms;
 }
 
 /**
@@ -65,5 +71,5 @@ export function tsIsoToMs({ tsIso }: { tsIso: string }): number | undefined {
  * @returns the decay params
  */
 export function decayParamsFromDays({ days, nowMs }: { days: number | undefined; nowMs: number }): DecayParams {
-  return days !== undefined && days > 0 ? { nowMs, halfLifeMs: days * MS_PER_DAY } : { nowMs }
+  return days !== undefined && days > 0 ? { halfLifeMs: days * MS_PER_DAY, nowMs } : { nowMs };
 }

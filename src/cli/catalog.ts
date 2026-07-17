@@ -9,20 +9,24 @@
  * Pure: take the discovered list, return a string. No I/O.
  */
 
-import type { DiscoveredCommand, DocumentedCommand } from './discoverCommands.js'
+import type { DiscoveredCommand, DocumentedCommand } from "./discoverCommands.js";
 
 /** Group commands by noun, preserving the (already noun,verb-sorted) order. */
-function byNoun<T extends { readonly noun: string }>({ commands }: { commands: readonly T[] }): readonly (readonly [string, readonly T[]])[] {
-  const groups = new Map<string, T[]>()
+function byNoun<T extends { readonly noun: string }>({
+  commands,
+}: {
+  commands: readonly T[];
+}): readonly (readonly [string, readonly T[]])[] {
+  const groups = new Map<string, T[]>();
   for (const command of commands) {
-    const bucket = groups.get(command.noun) ?? []
-    bucket.push(command)
-    groups.set(command.noun, bucket)
+    const bucket = groups.get(command.noun) ?? [];
+    bucket.push(command);
+    groups.set(command.noun, bucket);
   }
-  return [...groups.entries()]
+  return [...groups.entries()];
 }
 
-const PAD = 16
+const PAD = 16;
 
 /**
  * Human recall view: every verb under its noun, summary or `(undocumented)`, plus a coverage footer.
@@ -31,18 +35,18 @@ const PAD = 16
  * @returns the rendered catalog text
  */
 export function renderCatalog({ commands }: { commands: readonly DiscoveredCommand[] }): string {
-  const documented = commands.filter((c) => c.meta !== null).length
-  const nouns = byNoun({ commands })
-  const header = `slopweaver — ${String(commands.length)} commands across ${String(nouns.length)} nouns (${String(documented)} documented)`
-  const lines: string[] = [header]
+  const documented = commands.filter((c) => c.meta !== null).length;
+  const nouns = byNoun({ commands });
+  const header = `slopweaver — ${String(commands.length)} commands across ${String(nouns.length)} nouns (${String(documented)} documented)`;
+  const lines: string[] = [header];
   for (const [noun, verbs] of nouns) {
-    lines.push('', noun)
+    lines.push("", noun);
     for (const command of verbs) {
-      const summary = command.meta?.summary ?? '(undocumented)'
-      lines.push(`  ${command.verb.padEnd(PAD)} ${summary}`)
+      const summary = command.meta?.summary ?? "(undocumented)";
+      lines.push(`  ${command.verb.padEnd(PAD)} ${summary}`);
     }
   }
-  return lines.join('\n')
+  return lines.join("\n");
 }
 
 /**
@@ -54,33 +58,33 @@ export function renderCatalog({ commands }: { commands: readonly DiscoveredComma
 export function renderCatalogJson({ commands }: { commands: readonly DiscoveredCommand[] }): string {
   return JSON.stringify(
     commands.map((c) => ({
+      documented: c.meta !== null,
       noun: c.noun,
       verb: c.verb,
-      documented: c.meta !== null,
       ...(c.meta === null
         ? {}
         : {
-          summary: c.meta.summary,
-          ...(c.meta.example === null ? {} : { example: c.meta.example }),
-          requiresApproval: c.meta.requiresApproval === true,
-          createsWorkItem: c.meta.createsWorkItem === true,
-        }),
+            summary: c.meta.summary,
+            ...(c.meta.example === null ? {} : { example: c.meta.example }),
+            createsWorkItem: c.meta.createsWorkItem === true,
+            requiresApproval: c.meta.requiresApproval === true,
+          }),
     })),
     null,
     2,
-  )
+  );
 }
 
 /** A capability flag suffix: which documented verbs mutate (approval) or create tracked work. */
 function flags({ command }: { command: DocumentedCommand }): string {
-  const parts: string[] = []
+  const parts: string[] = [];
   if (command.meta.requiresApproval === true) {
-    parts.push('approval')
+    parts.push("approval");
   }
   if (command.meta.createsWorkItem === true) {
-    parts.push('creates-work-item')
+    parts.push("creates-work-item");
   }
-  return parts.length === 0 ? '' : `  [${parts.join(', ')}]`
+  return parts.length === 0 ? "" : `  [${parts.join(", ")}]`;
 }
 
 /**
@@ -91,18 +95,18 @@ function flags({ command }: { command: DocumentedCommand }): string {
  * @returns the rendered capabilities text
  */
 export function renderCapabilities({ commands }: { commands: readonly DiscoveredCommand[] }): string {
-  const documented = commands.filter((c): c is DocumentedCommand => c.meta !== null)
-  const undocumented = commands.length - documented.length
+  const documented = commands.filter((c): c is DocumentedCommand => c.meta !== null);
+  const undocumented = commands.length - documented.length;
   if (documented.length === 0) {
-    return 'No commands are self-described yet.'
+    return "No commands are self-described yet.";
   }
-  const header = `I can run ${String(documented.length)} described commands${undocumented > 0 ? ` (+${String(undocumented)} more not yet self-described)` : ''}:`
-  const lines: string[] = [header]
+  const header = `I can run ${String(documented.length)} described commands${undocumented > 0 ? ` (+${String(undocumented)} more not yet self-described)` : ""}:`;
+  const lines: string[] = [header];
   for (const [noun, verbs] of byNoun({ commands: documented })) {
-    lines.push('', noun)
+    lines.push("", noun);
     for (const command of verbs) {
-      lines.push(`  ${command.verb.padEnd(PAD)} ${command.meta.summary}${flags({ command })}`)
+      lines.push(`  ${command.verb.padEnd(PAD)} ${command.meta.summary}${flags({ command })}`);
     }
   }
-  return lines.join('\n')
+  return lines.join("\n");
 }

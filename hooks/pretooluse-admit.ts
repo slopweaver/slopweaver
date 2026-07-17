@@ -5,17 +5,22 @@
  * invocation, so there is no `isDirectInvocation` guard — and an unhandled error exits 2 (fail closed),
  * never a silent allow.
  */
-import { errorMessage } from '../src/lib/errorMessage.js'
-import { readStdin, runPreToolUseAdmit } from '../src/admit/pretooluseAdmit.js'
+
+import { readStdin, runPreToolUseAdmit } from "../src/admit/pretooluseAdmit.js";
+import { errorMessage } from "../src/lib/errorMessage.js";
 
 runPreToolUseAdmit({
-  readStdin,
   env: process.env,
-  writeError: (line) => { process.stderr.write(line) },
-}).then(
-  (code) => { process.exit(code) },
-  (error: unknown) => {
-    process.stderr.write(`pretooluse-admit: ${errorMessage({ error })} — blocking (fail closed)\n`)
-    process.exit(2)
+  readStdin,
+  writeError: (line) => {
+    process.stderr.write(line);
   },
-)
+}).then(
+  (code) => {
+    process.exit(code);
+  },
+  (error: unknown) => {
+    process.stderr.write(`pretooluse-admit: ${errorMessage({ error })} — blocking (fail closed)\n`);
+    process.exit(2);
+  },
+);

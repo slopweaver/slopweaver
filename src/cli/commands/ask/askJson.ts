@@ -3,18 +3,18 @@
  * no `Date`, deterministic given its input. `retrievedRefs` is what lets the harness score retrieval
  * recall (did the right records get retrieved) apart from citation precision (did the answer cite them).
  */
-import type { Answer } from '../../../retrieval/answerFromSlice.js'
+import type { Answer } from "../../../retrieval/answerFromSlice.js";
 
 export interface AskJson {
-  readonly question: string
-  readonly tldr: string
-  readonly details: string | null
-  readonly answer: string
-  readonly citations: readonly string[]
-  readonly citedTokens: readonly string[]
-  readonly retrievedRefs: Answer['retrievedRefs']
-  readonly retrieved: number
-  readonly used: number
+  readonly question: string;
+  readonly tldr: string;
+  readonly details: string | null;
+  readonly answer: string;
+  readonly citations: readonly string[];
+  readonly citedTokens: readonly string[];
+  readonly retrievedRefs: Answer["retrievedRefs"];
+  readonly retrieved: number;
+  readonly used: number;
 }
 
 /**
@@ -26,15 +26,15 @@ export interface AskJson {
  */
 export function renderAskJson({ question, answer }: { question: string; answer: Answer }): string {
   const payload: AskJson = {
-    question,
-    tldr: answer.tldr,
-    details: answer.details ?? null,
     answer: answer.answer,
     citations: answer.citations,
     citedTokens: answer.citedTokens,
-    retrievedRefs: answer.retrievedRefs,
+    details: answer.details ?? null,
+    question,
     retrieved: answer.retrieved,
+    retrievedRefs: answer.retrievedRefs,
+    tldr: answer.tldr,
     used: answer.used,
-  }
-  return JSON.stringify(payload, null, 2)
+  };
+  return JSON.stringify(payload, null, 2);
 }

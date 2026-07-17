@@ -22,20 +22,20 @@ concealment).
 Two gates enforce this, by design kept apart:
 
 - **Public hygiene gate** (`src/hygiene/scan.ts`, run via `scripts/check-hygiene.sh`) — ships in the
-  repo and CI. It names no organisation. It detects generic leak *classes*: absolute home paths,
+  repo and CI. It names no organisation. It detects generic leak _classes_: absolute home paths,
   token shapes, raw workspace-ID patterns.
 - **Private denylist** — the actual org-specific words live only in `$SLOPWEAVER_HOME/hygiene-denylist.txt`,
   which is **never committed**. The gate reads it at runtime. This keeps the scanner from having to
-  *contain* the very words it guards against.
+  _contain_ the very words it guards against.
 
-A gitignored local `pre-push` hook runs the gate before anything leaves the machine. **Run the gate
-before every push** and never weaken it to get a green.
+The committed lefthook `pre-push` hook runs the full gate (`yarn validate`, which includes hygiene) before
+anything leaves the machine — see the Toolchain section. **Never weaken the gate to get a green.**
 
 ## Porting from private sources
 
 Parts of this engine were designed against private, internal codebases. When you port a design:
 re-implement it in this repo's own clean idiom, re-skin every name, and keep the gate green. Port
-the *design*, never the code or naming verbatim.
+the _design_, never the code or naming verbatim.
 
 ## How we work
 
@@ -69,12 +69,48 @@ linker (not PnP) for maximum tooling compatibility. Node version is pinned in `.
 ```bash
 yarn install                # deps
 yarn slopweaver doctor      # smoke-test the CLI end-to-end
+yarn format                 # apply Biome (code) + Prettier (docs) formatting in place
+yarn lint                   # `slopweaver dev lint` — the whole static-analysis bar (see below)
 yarn typecheck              # tsc --noEmit (must be clean)
 yarn test:unit              # vitest (must pass)
-yarn hygiene                # the public hygiene gate (must be clean)
+yarn validate               # lint + typecheck + test:unit — the full local gate; run it before every push
 ```
 
-Standalone toolchain: TypeScript + vitest + oxlint, no monorepo tooling.
+`yarn lint` runs `slopweaver dev lint`, one door over every static-analysis check. It runs them ALL (no
+short-circuit — one run tells you everything wrong) and exits non-zero if any failed:
+
+- **Biome** (`biome.jsonc`) — the formatter of record for JS/TS/JSON (double quotes, semicolons, 2-space, LF,
+  width 120), plus import organisation and a small set of critical bug rules. `yarn format` writes it.
+- **Prettier** (`.prettierrc`) — formats only the doc formats Biome leaves alone (`.md`/`.yaml`/…); its
+  `.prettierignore` hands all code/JSON to Biome so the two never fight.
+- **oxlint** (`.oxlintrc.jsonc`) — fast syntactic AST/bug rules, zero warnings tolerated (`--deny-warnings`).
+- **ESLint** (`eslint.config.js`) — the type-aware lane oxlint can't cover (`no-floating-promises`,
+  `no-misused-promises`, switch-exhaustiveness, `only-throw-error`, ReDoS/sonarjs), plus the house rules as
+  `no-restricted-syntax` selectors: no `?? ""`, no `isDirectInvocation`, no `process.argv[1]`, no `as any`/double
+  casts. Run with `--max-warnings 0` — advisory `warn` severities are kept, but ANY warning fails the gate.
+  Runs over `tsconfig.eslint.json`.
+- **knip** (`knip.json`) — dead files / unused exports / unlisted deps.
+- **constraints** (`yarn.config.cjs`) — every dependency exact-pinned; `packageManager` always set.
+- **hygiene** + **door-coverage** — the public leak gate and the admit-door seam ratchet (see `docs/`).
+
+`yarn validate` is the one-command local CI (the equivalent of the archive's `local-ci`): it's exactly what
+the CI `build` job runs. Run it before every push (the pre-push hook does too — see below).
+
+### Git hooks (lefthook)
+
+`lefthook` installs two hooks automatically on `yarn install` (via the `prepare` script); config in `lefthook.yml`:
+
+- **pre-commit** — auto-formats the _staged_ files (Biome for code/JSON, Prettier for docs) and re-stages
+  them, so every commit is already formatted + import-sorted the way CI checks.
+- **pre-push** — runs `yarn validate` (the full gate), so a red tree never reaches CI. Bypass in a genuine
+  emergency with `git push --no-verify`.
+
+TypeScript is pinned to the latest **5.9** (not 7.x): typescript-eslint peer-requires TypeScript `<6.1`, so
+staying on 5.9 keeps the full type-aware ESLint lane. `tsconfig.json` is the strict config ported from the
+archive — `strict` plus `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature`,
+`noImplicitReturns`, `noUnusedLocals`/`noUnusedParameters`, `allowUnreachableCode:false`, `allowUnusedLabels:false`.
+Standalone toolchain — TypeScript + vitest + Biome + Prettier + oxlint + ESLint + knip + yarn constraints +
+lefthook, no monorepo tooling.
 
 ## Pull requests
 

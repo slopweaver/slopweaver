@@ -17,16 +17,16 @@
  */
 
 /** Success. */
-export const EXIT_OK = 0
+export const EXIT_OK = 0;
 
 /** A genuine runtime fault. */
-export const EXIT_ERROR = 1
+export const EXIT_ERROR = 1;
 
 /** Arg/usage rejection: the verb refused a wrong/incomplete invocation before its act phase. */
-export const EXIT_USAGE = 2
+export const EXIT_USAGE = 2;
 
 /**
  * Expected-empty / nothing-to-do / prerequisite-absent / legitimate-non-success-status. The verb ran
  * correctly; the non-zero exit is a deliberate signal, not a fault.
  */
-export const EXIT_EXPECTED_EMPTY = 3
+export const EXIT_EXPECTED_EMPTY = 3;
