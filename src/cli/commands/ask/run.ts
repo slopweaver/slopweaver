@@ -105,5 +105,12 @@ export const askRunCommand = defineCommand({
   summary: 'Ask a grounded question of your local world model',
   usage: USAGE,
   example: 'slopweaver ask "what changed in the refresh pipeline?"',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  parseRejectIsIoFree: false,
+  diagnostic: false,
   run: runAsk,
 })

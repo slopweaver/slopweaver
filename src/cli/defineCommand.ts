@@ -10,43 +10,52 @@
  *
  * Kept tiny + pure: no I/O, no console, no global state — just the wrap.
  */
+import type { DoorEffect } from '../admit/types.js'
 import { isRecord } from '../lib/parsers.js'
 import type { VerbHandler } from './router.js'
 
 /**
- * Typed, machine-enumerable description of a verb. `summary`/`usage`/`example` drive help + the
- * generated catalog; the optional flags are registry hints a planner can read without running the verb.
+ * Typed, machine-enumerable description of a verb. EVERY field is required — a verb spells out its full
+ * contract at the call site (no optional flag silently reading as false, masking a side effect or a
+ * capability). `example` is `string | null` (null = "no example", stated explicitly).
  */
 export interface CommandMeta {
   /** One line: what the verb does. Feeds `catalog` + help. */
   readonly summary: string
   /** Single `usage: slopweaver <noun> <verb> [...]` line. Printed on a parse error. */
   readonly usage: string
-  /** Optional copy-pasteable invocation, for help + the catalog. */
-  readonly example?: string
-  /** True when running this verb performs a gated/approval-requiring side effect (write, publish). */
-  readonly requiresApproval?: boolean
-  /** True when running this verb creates a tracked work item. */
-  readonly createsWorkItem?: boolean
+  /** A copy-pasteable invocation for help + the catalog, or `null` when there isn't one. */
+  readonly example: string | null
+  /** Whether running this verb performs a gated/approval-requiring side effect (write, publish). */
+  readonly requiresApproval: boolean
+  /** Whether running this verb creates a tracked work item. */
+  readonly createsWorkItem: boolean
   /**
-   * True when invoking this verb with NO args, `--help`, or an unknown flag prints usage / a parse
-   * error and returns WITHOUT any side effect (no network, no fs write, no process spawn) — i.e. its
-   * parse phase is provably separable from its act phase. Default undefined = treat as unproven.
+   * What this verb does to the world (the door's coverage axis). `none`/`external-read` touch nothing
+   * persistent; `local-state` writes only under `$SLOPWEAVER_HOME` (the product working normally);
+   * `external-write` MUTATES something outside the machine and MUST be `doorRouted`.
    */
-  readonly dryParseSafe?: boolean
+  readonly effect: DoorEffect
+  /** Whether an `external-write` verb routes its effect through the door (`throughDoor`). Coverage requires it. */
+  readonly doorRouted: boolean
   /**
-   * True when the verb's arg/usage REJECT path (unknown flag, missing value, malformed arg →
-   * `EXIT_USAGE`) is provably I/O-free, EVEN THOUGH a valid bare invocation may do I/O. The narrower
-   * sibling of {@link dryParseSafe}. A `dryParseSafe` verb already satisfies this, so set only ONE.
+   * Whether invoking this verb with NO args, `--help`, or an unknown flag prints usage / a parse error
+   * and returns WITHOUT any side effect (no network, no fs write, no process spawn) — its parse phase is
+   * provably separable from its act phase.
    */
-  readonly parseRejectIsIoFree?: boolean
+  readonly dryParseSafe: boolean
   /**
-   * True when this verb is a DIAGNOSTIC / health-check whose non-zero exit REPORTS A FINDING rather
-   * than signalling a broken tool (e.g. `doctor` exits non-zero when the env is unhealthy — it worked
-   * perfectly, it found a fault). A THROWN error is still a real bug. Leave undefined for any verb
-   * whose non-zero exit means "the tool failed to do its job".
+   * Whether the verb's arg/usage REJECT path (unknown flag, missing value, malformed arg → `EXIT_USAGE`)
+   * is provably I/O-free, EVEN THOUGH a valid bare invocation may do I/O. The narrower sibling of
+   * {@link dryParseSafe}; a `dryParseSafe` verb already satisfies it.
    */
-  readonly diagnostic?: boolean
+  readonly parseRejectIsIoFree: boolean
+  /**
+   * Whether this verb is a DIAGNOSTIC / health-check whose non-zero exit REPORTS A FINDING rather than
+   * signalling a broken tool (e.g. `doctor` exits non-zero when the env is unhealthy — it worked
+   * perfectly, it found a fault). A THROWN error is still a real bug.
+   */
+  readonly diagnostic: boolean
 }
 
 /** The argv->exit-code run function a verb supplies. Identical contract to a bare `VerbHandler`. */

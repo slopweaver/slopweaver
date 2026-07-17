@@ -9,4 +9,4 @@ if [ ! -x "$TSX" ]; then
   echo "check-hygiene: tsx not found — run install first" >&2
   exit 1
 fi
-exec "$TSX" "$ROOT/src/hygiene/scan.ts"
+exec "$TSX" "$ROOT/src/hygiene/scan.entry.ts"

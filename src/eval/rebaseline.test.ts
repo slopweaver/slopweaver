@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decideRebaseline } from './rebaseline.js'
+import { decideRebaseline } from './rebaselineCore.js'
 import { unwrap, unwrapErr } from '../lib/result.js'
 
 describe('decideRebaseline authorisation', () => {

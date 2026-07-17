@@ -8,7 +8,14 @@ import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 const refreshMeta = {
   summary: 'Ingest recent GitHub activity into the local bronze corpus',
   usage: 'usage: slopweaver refresh [--repo owner/repo] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--lookback-days N] [--no-enrich]',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
   example: 'slopweaver refresh --repo octocat/Hello-World',
+  parseRejectIsIoFree: false,
+  diagnostic: false,
 } as const
 
 const loadRefresh = () => import('../commands/refresh/run.js').then((m) => m.refreshRunCommand)

@@ -117,5 +117,10 @@ export const doctorRunCommand = defineCommand({
   example: 'slopweaver doctor',
   parseRejectIsIoFree: true,
   diagnostic: true,
+  effect: 'none',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
   run: runDoctor,
 })

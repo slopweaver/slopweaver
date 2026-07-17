@@ -7,6 +7,14 @@
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/slopweaver\" init >/dev/null 2>&1 || true" }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/pretooluse-admit.sh\"" }
+        ]
+      }
     ]
   }
 }

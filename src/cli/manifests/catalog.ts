@@ -7,8 +7,14 @@ import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 const catalogMeta = {
   summary: 'List the command surface (human, --json, or --capabilities) from the registry',
   usage: 'usage: slopweaver catalog [--json] [--capabilities]',
+  effect: 'none',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
   example: 'slopweaver catalog --json',
   parseRejectIsIoFree: true,
+  diagnostic: false,
 } as const
 
 const loadCatalog = () => import('../commands/catalog/run.js').then((m) => m.catalogRunCommand)

@@ -50,5 +50,11 @@ export const catalogRunCommand = defineCommand({
   usage: USAGE,
   example: 'slopweaver catalog --json',
   parseRejectIsIoFree: true,
+  effect: 'none',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  diagnostic: false,
   run: runCatalog,
 })

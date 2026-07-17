@@ -29,5 +29,12 @@ export const devGateCommand = defineCommand({
   summary: 'Run the PR gate: hygiene + PR-format + eval-regression (single non-zero exit + a ledger)',
   usage: USAGE,
   example: 'slopweaver dev gate --pr-body-file pr.md',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  parseRejectIsIoFree: false,
+  diagnostic: false,
   run: runDevCommand,
 })

@@ -4,7 +4,11 @@ import { lazy } from './manifest.js'
 import { isNoun, resolveNoun } from './router.js'
 import type { NounGroups } from './router.js'
 
-const meta = { summary: 's', usage: 'u' } as const
+const meta = {
+  summary: 's', usage: 'u', example: null,
+  requiresApproval: false, createsWorkItem: false, effect: 'none', doorRouted: false,
+  dryParseSafe: false, parseRejectIsIoFree: false, diagnostic: false,
+} as const
 const groups: NounGroups = {
   doctor: {
     '': lazy({ meta, load: () => Promise.resolve(() => 0) }),

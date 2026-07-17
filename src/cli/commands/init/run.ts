@@ -50,5 +50,11 @@ export const initRunCommand = defineCommand({
   example: 'slopweaver init',
   // Parse rejects (`--home` with no value, unknown flags) exit before any write — the reject path is I/O-free.
   parseRejectIsIoFree: true,
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  diagnostic: false,
   run: runInitCommand,
 })
