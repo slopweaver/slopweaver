@@ -10,6 +10,7 @@
  * The first command `import()` fires only on a verb's `load()`.
  */
 import { askManifest } from './ask.js'
+import { catalogManifest } from './catalog.js'
 import { deriveManifest } from './derive.js'
 import { devManifest } from './dev.js'
 import { distilManifest } from './distil.js'
@@ -59,5 +60,10 @@ export const MANIFEST_MODULES: readonly NounManifestModule[] = [
     noun: 'dev',
     summary: 'Repo-development verbs (the PR gate)',
     verbs: devManifest,
+  },
+  {
+    noun: 'catalog',
+    summary: 'List the command surface (human, --json, or --capabilities) from the registry',
+    verbs: catalogManifest,
   },
 ]

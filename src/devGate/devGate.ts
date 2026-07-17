@@ -15,6 +15,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { validatePrBody } from '../prformat/check.js'
+import { EXIT_USAGE } from '../cli/exitCodes.js'
+import { parseFlags } from '../cli/parseFlags.js'
 import { runScan } from '../hygiene/scan.js'
 import { stateHomePaths } from '../stateHome.js'
 import type { CorpusRecord } from '../corpus/types.js'
@@ -38,9 +40,10 @@ export interface GateCheckResult {
   readonly summary: string
 }
 
-/** Whole-percent helper for summaries. */
+/** One-decimal percent formatter for summaries — the built-in `Intl.NumberFormat`, no hand-rolled maths. */
+const PERCENT_FORMAT = new Intl.NumberFormat('en', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 })
 function pct({ ratio }: { ratio: number }): string {
-  return `${(ratio * 100).toFixed(1)}%`
+  return PERCENT_FORMAT.format(ratio)
 }
 
 /**
@@ -103,30 +106,22 @@ export function gateLogLines(
   return results.map((r) => JSON.stringify({ schemaVersion: 1, runId, tsIso, check: r.name, status: r.ok ? 'pass' : 'fail', summary: r.summary }))
 }
 
-/** Extract the PR body from `--pr-body-file <path>` (wins) or `$PR_BODY`; undefined when neither is usable. */
-function resolvePrBody({ args }: { args: readonly string[] }): string | undefined {
-  const fileFlag = args.indexOf('--pr-body-file')
-  if (fileFlag !== -1) {
-    const path = args[fileFlag + 1]
-    if (path !== undefined && !path.startsWith('-')) {
-      try {
-        return readFileSync(path, 'utf8')
-      } catch {
-        return undefined
-      }
+/** Read a string flag from tokenised values (absent/boolean ⇒ undefined). */
+function flagValue({ values, key }: { values: Readonly<Record<string, string | boolean>>; key: string }): string | undefined {
+  const value = values[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+/** Read the PR body from a `--pr-body-file` path (wins) or `$PR_BODY`; undefined when neither is usable. */
+function readPrBody({ bodyFile }: { bodyFile: string | undefined }): string | undefined {
+  if (bodyFile !== undefined) {
+    try {
+      return readFileSync(bodyFile, 'utf8')
+    } catch {
+      return undefined
     }
   }
   return process.env.PR_BODY
-}
-
-/** Read `--home <dir>`, or undefined to use the resolved default home. */
-function resolveHomeFlag({ args }: { args: readonly string[] }): string | undefined {
-  const flag = args.indexOf('--home')
-  if (flag === -1) {
-    return undefined
-  }
-  const value = args[flag + 1]
-  return value !== undefined && !value.startsWith('-') ? value : undefined
 }
 
 /**
@@ -137,8 +132,15 @@ function resolveHomeFlag({ args }: { args: readonly string[] }): string | undefi
  * @returns the process exit code (0 all-clear, 1 any failure)
  */
 export function runDevGate(argv: readonly string[]): number {
-  const args = argv.slice(3)
-  const home = resolveHomeFlag({ args })
+  // Positionals allowed (and ignored) so the `dev gate` verb token in the tail doesn't trip parsing.
+  const parsed = parseFlags({ args: argv.slice(3), spec: { string: ['home', 'pr-body-file'] }, allowPositionals: true })
+  if (parsed.ok === false) {
+    parsed.errors.forEach((e) => { process.stderr.write(`dev gate: ${e}\n`) })
+    process.stderr.write('usage: slopweaver dev gate [--home <dir>] [--pr-body-file <path>]\n')
+    return EXIT_USAGE
+  }
+  const { values } = parsed.value
+  const home = flagValue({ values, key: 'home' })
   const paths = stateHomePaths(home !== undefined ? { home } : {})
 
   // 1) hygiene — the real repo scan (reads the private denylist from $SLOPWEAVER_HOME). Prints its own hits.
@@ -149,7 +151,7 @@ export function runDevGate(argv: readonly string[]): number {
   const { result: evalResult, diff } = evalRegressionResult({ records: loadFixtureRecords({ path: fixturePath() }), baseline: loadBaseline() })
 
   // 3) pr-format — the description schema.
-  const prFormat = prFormatResult({ body: resolvePrBody({ args }) })
+  const prFormat = prFormatResult({ body: readPrBody({ bodyFile: flagValue({ values, key: 'pr-body-file' }) }) })
 
   const results = [hygiene, prFormat, evalResult]
   const runId = randomUUID()

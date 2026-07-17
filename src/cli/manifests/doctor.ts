@@ -6,7 +6,7 @@
  * when dispatched. Pure: declaring this manifest imports no command module — the `import()` fires only on
  * a verb's `load()`.
  */
-import { lazy, type VerbManifestEntry } from '../manifest.js'
+import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 
 /** Shared meta for the bare-noun + `run` verb; both resolve to the same preflight handler. */
 const doctorMeta = {
@@ -23,6 +23,6 @@ const loadDoctor = () => import('../commands/doctor/run.js').then((m) => m.docto
 
 /** The `doctor` noun's verbs as lazy manifest entries. */
 export const doctorManifest: Readonly<Record<string, VerbManifestEntry>> = {
-  '': lazy({ meta: doctorMeta, load: loadDoctor }),
+  [DEFAULT_VERB]: lazy({ meta: doctorMeta, load: loadDoctor }),
   run: lazy({ meta: doctorMeta, load: loadDoctor }),
 }

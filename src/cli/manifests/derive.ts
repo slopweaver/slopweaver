@@ -2,7 +2,7 @@
  * Lazy manifest for the `derive` noun — bare-noun + `run` share one loader, so the module loads only
  * when dispatched.
  */
-import { lazy, type VerbManifestEntry } from '../manifest.js'
+import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 
 const deriveMeta = {
   summary: 'Derive deterministic silver (directory + graph + opportunities) from the corpus',
@@ -13,6 +13,6 @@ const deriveMeta = {
 const loadDerive = () => import('../commands/derive/run.js').then((m) => m.deriveRunCommand)
 
 export const deriveManifest: Readonly<Record<string, VerbManifestEntry>> = {
-  '': lazy({ meta: deriveMeta, load: loadDerive }),
+  [DEFAULT_VERB]: lazy({ meta: deriveMeta, load: loadDerive }),
   run: lazy({ meta: deriveMeta, load: loadDerive }),
 }
