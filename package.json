@@ -13,7 +13,8 @@
     "hygiene": "bash scripts/check-hygiene.sh",
     "check:pr-format": "tsx src/prformat/check.ts",
     "eval": "promptfoo eval -c eval/promptfooconfig.yaml",
-    "eval:view": "promptfoo view -y"
+    "eval:view": "promptfoo view -y",
+    "eval:scoreboard": "tsx eval/scoreboardRun.ts"
   },
   "devDependencies": {
     "@types/node": "^24.10",
