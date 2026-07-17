@@ -12,6 +12,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { stateHomePaths } from '../stateHome.js'
+
 export interface Hit {
   readonly path: string
   readonly line: number
@@ -49,7 +51,7 @@ export function loadDenylist({ home }: { home: string | undefined }): readonly s
     return []
   }
   try {
-    return readFileSync(join(home, 'hygiene-denylist.txt'), 'utf8')
+    return readFileSync(stateHomePaths({ home }).hygieneDenylist, 'utf8')
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && !l.startsWith('#'))

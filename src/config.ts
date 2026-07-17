@@ -30,16 +30,6 @@ export function slopweaverHome(): string {
 }
 
 /**
- * The corpus root (bronze/silver/gold + caches) under the home — the on-disk medallion store.
- *
- * @param home the world-model home (defaults to {@link slopweaverHome})
- * @returns the absolute corpus directory path
- */
-export function corpusDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(home, 'corpus')
-}
-
-/**
  * Parse an `owner/repo` out of a git remote URL. Tolerant of HTTPS, SSH, `ssh://`, and SSH **host
  * aliases** (e.g. `git@github-personal:owner/repo.git`) so a repo cloned through a per-account alias
  * still resolves.

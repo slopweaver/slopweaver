@@ -1,6 +1,7 @@
 /**
- * On-disk layout of the corpus. One place that knows where bronze lines and the watermark live, so
- * the writer and reader can never disagree. v0.1 is corpus-only — no legacy layout to tolerate.
+ * Leaf paths within the corpus (per-source, per-window). The corpus ROOTS (bronze/silver/gold/cache/
+ * watermark) come from the one home-path contract, {@link stateHomePaths} — this module only builds the
+ * finer paths under them, so the writer and reader can never disagree and no home path is derived twice.
  *
  *   $SLOPWEAVER_HOME/corpus/
  *   ├── bronze/<source>/<since>_<until>.jsonl   # CorpusRecord lines
@@ -13,7 +14,8 @@
  */
 import { join } from 'node:path'
 
-import { slopweaverHome, corpusDir } from '../config.js'
+import { slopweaverHome } from '../config.js'
+import { stateHomePaths } from '../stateHome.js'
 import type { CorpusSource, ExportWindow } from './types.js'
 
 /**
@@ -23,7 +25,7 @@ import type { CorpusSource, ExportWindow } from './types.js'
  * @returns the absolute bronze directory path
  */
 export function bronzeDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(corpusDir({ home }), 'bronze')
+  return stateHomePaths({ home }).corpus.bronze
 }
 
 /**
@@ -64,7 +66,7 @@ export function bronzeFile(
  * @returns the absolute watermark file path
  */
 export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(corpusDir({ home }), '.watermark.json')
+  return stateHomePaths({ home }).corpus.watermark
 }
 
 /**
@@ -74,7 +76,7 @@ export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {
  * @returns the absolute silver index directory path
  */
 export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(corpusDir({ home }), 'silver', 'index')
+  return join(stateHomePaths({ home }).corpus.silver, 'index')
 }
 
 /**
@@ -84,7 +86,7 @@ export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = 
  * @returns the absolute silver graph directory path
  */
 export function silverGraphDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(corpusDir({ home }), 'silver', 'graph')
+  return join(stateHomePaths({ home }).corpus.silver, 'graph')
 }
 
 /**
@@ -94,7 +96,7 @@ export function silverGraphDir({ home = slopweaverHome() }: { home?: string } = 
  * @returns the absolute silver digests directory path
  */
 export function silverDigestsDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(corpusDir({ home }), 'silver', 'digests')
+  return join(stateHomePaths({ home }).corpus.silver, 'digests')
 }
 
 /**
@@ -104,7 +106,7 @@ export function silverDigestsDir({ home = slopweaverHome() }: { home?: string } 
  * @returns the absolute gold directory path
  */
 export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(corpusDir({ home }), 'gold')
+  return stateHomePaths({ home }).corpus.gold
 }
 
 /**
@@ -114,7 +116,7 @@ export function goldDir({ home = slopweaverHome() }: { home?: string } = {}): st
  * @returns the absolute cache directory path
  */
 export function cacheDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(corpusDir({ home }), '.cache')
+  return stateHomePaths({ home }).corpus.cache
 }
 
 /**

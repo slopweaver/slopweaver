@@ -11,17 +11,24 @@
  */
 import { askManifest } from './ask.js'
 import { deriveManifest } from './derive.js'
+import { devManifest } from './dev.js'
 import { distilManifest } from './distil.js'
 import { doctorManifest } from './doctor.js'
 import { factsManifest } from './facts.js'
+import { initManifest } from './init.js'
 import { refreshManifest } from './refresh.js'
 import type { NounManifestModule } from '../manifest.js'
 
 export const MANIFEST_MODULES: readonly NounManifestModule[] = [
   {
     noun: 'doctor',
-    summary: 'Env preflight: print the plugin version + resolved SLOPWEAVER_HOME',
+    summary: 'Env preflight: plugin version + the resolved state home and its layout',
     verbs: doctorManifest,
+  },
+  {
+    noun: 'init',
+    summary: 'Scaffold $SLOPWEAVER_HOME (idempotent): corpus/beliefs/ledgers dirs + seed files',
+    verbs: initManifest,
   },
   {
     noun: 'refresh',
@@ -47,5 +54,10 @@ export const MANIFEST_MODULES: readonly NounManifestModule[] = [
     noun: 'facts',
     summary: 'Retrieve the ranked record slice for a question (no LLM)',
     verbs: factsManifest,
+  },
+  {
+    noun: 'dev',
+    summary: 'Repo-development verbs (the PR gate)',
+    verbs: devManifest,
   },
 ]
