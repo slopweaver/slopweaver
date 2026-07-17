@@ -12,6 +12,11 @@ import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 const doctorMeta = {
   summary: 'Env preflight: plugin version + the resolved state home and its layout',
   usage: 'usage: slopweaver doctor',
+  effect: 'none',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
   example: 'slopweaver doctor',
   // The reject path is I/O-free; a non-zero exit REPORTS a broken env (a finding), not a broken tool.
   parseRejectIsIoFree: true,

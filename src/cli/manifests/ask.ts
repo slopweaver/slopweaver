@@ -6,8 +6,15 @@ import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 
 const askMeta = {
   summary: 'Ask a grounded question of your local world model',
-  usage: 'usage: slopweaver ask <question> [--limit N] [--no-semantic] [--alpha 0..1] [--half-life-days N] [--home <dir>] [--corpus <dir>]',
+  usage: 'usage: slopweaver ask <question> [--limit N] [--no-semantic] [--alpha 0..1] [--half-life-days N] [--json] [--home <dir>] [--corpus <dir>]',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
   example: 'slopweaver ask "what changed in the refresh pipeline?"',
+  parseRejectIsIoFree: false,
+  diagnostic: false,
 } as const
 
 const loadAsk = () => import('../commands/ask/run.js').then((m) => m.askRunCommand)

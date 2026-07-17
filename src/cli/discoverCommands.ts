@@ -14,9 +14,12 @@ import type { NounGroups } from './router.js'
 export interface DiscoveredCommand {
   readonly noun: string
   readonly verb: string
-  /** Present once the verb carries `defineCommand`/manifest metadata; undefined for bare handlers. */
-  readonly meta?: CommandMeta
+  /** The verb's metadata, or `null` for a bare handler (stated explicitly, not an absent field). */
+  readonly meta: CommandMeta | null
 }
+
+/** A discovered command that is known to carry metadata (a documented verb). */
+export type DocumentedCommand = DiscoveredCommand & { readonly meta: CommandMeta }
 
 /**
  * Enumerate every registered noun/verb in the registry, attaching metadata where present. Sorted by
@@ -42,7 +45,7 @@ export function discoverCommands({ groups }: { groups: NounGroups }): readonly D
         commands.push({ noun, verb, meta: entry.meta })
         continue
       }
-      commands.push(hasCommandMeta(entry) ? { noun, verb, meta: entry.meta } : { noun, verb })
+      commands.push(hasCommandMeta(entry) ? { noun, verb, meta: entry.meta } : { noun, verb, meta: null })
     }
   }
   return commands.sort((a, b) => (a.noun === b.noun ? a.verb.localeCompare(b.verb) : a.noun.localeCompare(b.noun)))
@@ -54,10 +57,10 @@ export function discoverCommands({ groups }: { groups: NounGroups }): readonly D
  * @param groups the noun registry
  * @returns the discovered commands that have `meta`
  */
-export function migratedCommands({ groups }: { groups: NounGroups }): readonly Required<DiscoveredCommand>[] {
-  const migrated: Required<DiscoveredCommand>[] = []
+export function migratedCommands({ groups }: { groups: NounGroups }): readonly DocumentedCommand[] {
+  const migrated: DocumentedCommand[] = []
   for (const command of discoverCommands({ groups })) {
-    if (command.meta !== undefined) {
+    if (command.meta !== null) {
       migrated.push({ noun: command.noun, verb: command.verb, meta: command.meta })
     }
   }

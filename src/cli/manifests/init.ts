@@ -7,8 +7,14 @@ import { DEFAULT_VERB, lazy, type VerbManifestEntry } from '../manifest.js'
 const initMeta = {
   summary: 'Scaffold $SLOPWEAVER_HOME (idempotent): corpus/beliefs/ledgers dirs + seed files',
   usage: 'usage: slopweaver init [--home <dir>]',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
   example: 'slopweaver init',
   parseRejectIsIoFree: true,
+  diagnostic: false,
 } as const
 
 const loadInit = () => import('../commands/init/run.js').then((m) => m.initRunCommand)

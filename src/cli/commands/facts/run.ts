@@ -91,5 +91,12 @@ export const factsRunCommand = defineCommand({
   summary: 'Retrieve the ranked record slice for a question (no LLM)',
   usage: USAGE,
   example: 'slopweaver facts "auth flow"',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  parseRejectIsIoFree: false,
+  diagnostic: false,
   run: runFacts,
 })

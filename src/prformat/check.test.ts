@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { countWords, MAX_WORDS, validatePrBody } from './check.js'
+import { countWords, MAX_WORDS, validatePrBody } from './checkCore.js'
 
-const badges = '![CI](https://img.shields.io/badge/CI-passing-2ea44f) ![proof](https://img.shields.io/badge/proof-silver-9ea7ad)'
+/** Badge row for a given proof grade. */
+function badges({ grade = 'bronze' }: { grade?: 'bronze' | 'silver' | 'gold' } = {}): string {
+  return `![CI](https://img.shields.io/badge/CI-passing-2ea44f) ![proof](https://img.shields.io/badge/proof-${grade}-9ea7ad)`
+}
 
 /** Build a canonical HTML-table PR body. */
-function body({ problem, solution, proof = 'ok', withBadges = true }: {
+function body({ problem, solution, proof = 'ok', grade = 'bronze', withBadges = true }: {
   problem: string
   solution: string
   proof?: string
+  grade?: 'bronze' | 'silver' | 'gold'
   withBadges?: boolean
 }): string {
   return [
-    withBadges ? badges : '(no badges)',
+    withBadges ? badges({ grade }) : '(no badges)',
     '',
     '<table>',
     `<tr><td><strong>Problem</strong></td><td>${problem}</td></tr>`,
@@ -30,13 +34,8 @@ describe('countWords', () => {
 })
 
 describe('validatePrBody', () => {
-  it('accepts a conforming HTML body', () => {
+  it('accepts a conforming bronze body with terse proof', () => {
     expect(validatePrBody({ body: body({ problem: words(10), solution: words(40) }) })).toEqual({ ok: true, errors: [] })
-  })
-
-  it('accepts an image embedded in the Proof cell without counting it as words', () => {
-    const proof = 'ran it <img src="https://user-images.githubusercontent.com/x.png">'
-    expect(validatePrBody({ body: body({ problem: words(3), solution: words(3), proof }) }).ok).toBe(true)
   })
 
   it('accepts exactly MAX_WORDS', () => {
@@ -56,19 +55,46 @@ describe('validatePrBody', () => {
   })
 
   it('rejects a missing Solution row', () => {
-    const noSolution = `${badges}\n<table>\n<tr><td><strong>Problem</strong></td><td>${words(3)}</td></tr>\n<tr><td><strong>Proof</strong></td><td>ok</td></tr>\n</table>`
+    const noSolution = `${badges()}\n<table>\n<tr><td><strong>Problem</strong></td><td>${words(3)}</td></tr>\n<tr><td><strong>Proof</strong></td><td>ok</td></tr>\n</table>`
     const result = validatePrBody({ body: noSolution })
     expect(result.ok).toBe(false)
     expect(result.errors.some((e) => e.includes('Solution'))).toBe(true)
   })
 
   it('rejects a missing Proof row', () => {
-    const noProof = `${badges}\n<table>\n<tr><td><strong>Problem</strong></td><td>${words(3)}</td></tr>\n<tr><td><strong>Solution</strong></td><td>${words(3)}</td></tr>\n</table>`
+    const noProof = `${badges()}\n<table>\n<tr><td><strong>Problem</strong></td><td>${words(3)}</td></tr>\n<tr><td><strong>Solution</strong></td><td>${words(3)}</td></tr>\n</table>`
     expect(validatePrBody({ body: noProof }).errors.some((e) => e.includes('Proof'))).toBe(true)
   })
 
   it('still accepts the markdown-table fallback', () => {
-    const md = `${badges}\n\n| | |\n|---|---|\n| **Problem** | ${words(3)} |\n| **Solution** | ${words(3)} |\n| **Proof** | ok |`
+    const md = `${badges()}\n\n| | |\n|---|---|\n| **Problem** | ${words(3)} |\n| **Solution** | ${words(3)} |\n| **Proof** | ok |`
     expect(validatePrBody({ body: md }).ok).toBe(true)
+  })
+
+  it('rejects a silver proof with no evidence (terse "ok" in the Proof cell)', () => {
+    const result = validatePrBody({ body: body({ problem: words(3), solution: words(3), proof: 'ok', grade: 'silver' }) })
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.includes('Proof') && e.includes('evidence'))).toBe(true)
+  })
+
+  it('accepts a silver proof with a transcript/run link in the Proof cell', () => {
+    const proof = 'silver — terminal transcript: https://github.com/x/y/pull/1#issuecomment-123'
+    expect(validatePrBody({ body: body({ problem: words(3), solution: words(3), proof, grade: 'silver' }) }).ok).toBe(true)
+  })
+
+  it('accepts a silver proof with an embedded image in the Proof cell', () => {
+    const proof = 'ran it <img src="https://user-images.githubusercontent.com/x.png">'
+    expect(validatePrBody({ body: body({ problem: words(3), solution: words(3), proof, grade: 'silver' }) }).ok).toBe(true)
+  })
+
+  it('rejects a gold proof with no evidence in the Proof cell', () => {
+    const result = validatePrBody({ body: body({ problem: words(3), solution: words(3), proof: 'ok', grade: 'gold' }) })
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.includes('Proof') && e.includes('evidence'))).toBe(true)
+  })
+
+  it('accepts a gold proof with a run link in the Proof cell', () => {
+    const proof = 'gold — end-to-end run: https://github.com/x/y/actions/runs/1'
+    expect(validatePrBody({ body: body({ problem: words(3), solution: words(3), proof, grade: 'gold' }) }).ok).toBe(true)
   })
 })

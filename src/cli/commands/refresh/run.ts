@@ -124,5 +124,12 @@ export const refreshRunCommand = defineCommand({
   summary: 'Ingest recent GitHub activity into the local bronze corpus',
   usage: USAGE,
   example: 'slopweaver refresh --repo octocat/Hello-World',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  parseRejectIsIoFree: false,
+  diagnostic: false,
   run: runRefresh,
 })

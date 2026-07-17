@@ -85,5 +85,12 @@ export const deriveRunCommand = defineCommand({
   summary: 'Derive deterministic silver (directory + graph + opportunities) from the corpus',
   usage: USAGE,
   example: 'slopweaver derive',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  parseRejectIsIoFree: false,
+  diagnostic: false,
   run: runDerive,
 })

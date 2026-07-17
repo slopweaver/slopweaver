@@ -28,7 +28,7 @@ export function wantsHelp({ argv }: { argv: readonly string[] }): boolean {
  */
 export function renderVerbHelp({ meta }: { meta: CommandMeta }): string {
   const lines = [meta.summary, meta.usage]
-  if (meta.example !== undefined) {
+  if (meta.example !== null) {
     lines.push('', `example: ${meta.example}`)
   }
   return lines.join('\n')

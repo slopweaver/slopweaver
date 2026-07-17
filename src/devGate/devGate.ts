@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { validatePrBody } from '../prformat/check.js'
+import { validatePrBody } from '../prformat/checkCore.js'
 import { EXIT_USAGE } from '../cli/exitCodes.js'
 import { parseFlags } from '../cli/parseFlags.js'
 import { runScan } from '../hygiene/scan.js'

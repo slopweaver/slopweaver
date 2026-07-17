@@ -132,5 +132,12 @@ export const distilRunCommand = defineCommand({
   summary: 'Distil the corpus into gold (LLM map-reduce; caches per batch)',
   usage: USAGE,
   example: 'slopweaver distil --dry-run',
+  effect: 'local-state',
+  requiresApproval: false,
+  createsWorkItem: false,
+  doorRouted: false,
+  dryParseSafe: false,
+  parseRejectIsIoFree: false,
+  diagnostic: false,
   run: runDistil,
 })

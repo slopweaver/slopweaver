@@ -9,7 +9,7 @@
  * Pure: take the discovered list, return a string. No I/O.
  */
 
-import type { DiscoveredCommand } from './discoverCommands.js'
+import type { DiscoveredCommand, DocumentedCommand } from './discoverCommands.js'
 
 /** Group commands by noun, preserving the (already noun,verb-sorted) order. */
 function byNoun<T extends { readonly noun: string }>({ commands }: { commands: readonly T[] }): readonly (readonly [string, readonly T[]])[] {
@@ -31,7 +31,7 @@ const PAD = 16
  * @returns the rendered catalog text
  */
 export function renderCatalog({ commands }: { commands: readonly DiscoveredCommand[] }): string {
-  const documented = commands.filter((c) => c.meta !== undefined).length
+  const documented = commands.filter((c) => c.meta !== null).length
   const nouns = byNoun({ commands })
   const header = `slopweaver — ${String(commands.length)} commands across ${String(nouns.length)} nouns (${String(documented)} documented)`
   const lines: string[] = [header]
@@ -56,12 +56,12 @@ export function renderCatalogJson({ commands }: { commands: readonly DiscoveredC
     commands.map((c) => ({
       noun: c.noun,
       verb: c.verb,
-      documented: c.meta !== undefined,
-      ...(c.meta === undefined
+      documented: c.meta !== null,
+      ...(c.meta === null
         ? {}
         : {
           summary: c.meta.summary,
-          ...(c.meta.example === undefined ? {} : { example: c.meta.example }),
+          ...(c.meta.example === null ? {} : { example: c.meta.example }),
           requiresApproval: c.meta.requiresApproval === true,
           createsWorkItem: c.meta.createsWorkItem === true,
         }),
@@ -72,7 +72,7 @@ export function renderCatalogJson({ commands }: { commands: readonly DiscoveredC
 }
 
 /** A capability flag suffix: which documented verbs mutate (approval) or create tracked work. */
-function flags({ command }: { command: Required<DiscoveredCommand> }): string {
+function flags({ command }: { command: DocumentedCommand }): string {
   const parts: string[] = []
   if (command.meta.requiresApproval === true) {
     parts.push('approval')
@@ -91,7 +91,7 @@ function flags({ command }: { command: Required<DiscoveredCommand> }): string {
  * @returns the rendered capabilities text
  */
 export function renderCapabilities({ commands }: { commands: readonly DiscoveredCommand[] }): string {
-  const documented = commands.filter((c): c is Required<DiscoveredCommand> => c.meta !== undefined)
+  const documented = commands.filter((c): c is DocumentedCommand => c.meta !== null)
   const undocumented = commands.length - documented.length
   if (documented.length === 0) {
     return 'No commands are self-described yet.'

@@ -140,9 +140,3 @@ export function runScan(): number {
   }
   return 1
 }
-
-const isDirectInvocation = import.meta.url.endsWith(process.argv[1] ?? '')
-  || import.meta.url === `file://${process.argv[1] ?? ''}`
-if (isDirectInvocation) {
-  process.exit(runScan())
-}
