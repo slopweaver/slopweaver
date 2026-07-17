@@ -91,8 +91,26 @@ See [docs/eval-baseline.md](./eval-baseline.md) for the full per-case scoreboard
 v0.2 only *reproduces* this — the fix (decay half-life / slice-cap tuning) is a retrieval change, so it
 belongs to v0.3 and must justify itself by **moving this number**.
 
+## The deterministic regression gate
+
+The scoreboard above is the **semantic** picture (hybrid BM25⊕cosine) — it needs the on-device embedder,
+so it is human-run and advisory. The gate that actually **blocks a PR** is a separate, **deterministic**
+measurement so it can run hermetically in CI (no embedder, no Claude, no live GitHub, no wall clock):
+
+- **Retrieval:** BM25 × recency-decay only (the lexical floor a code change can silently regress).
+- **Corpus:** a frozen, hygiene-audited fixture — [`eval/fixtures/corpus.bronze.jsonl`](../eval/fixtures/corpus.bronze.jsonl)
+  (the golden set's own records; the two early porting PRs are excluded as they reference private terms).
+- **Time:** a pinned reference instant, so recency decay never drifts.
+- **Baseline:** [`eval/baseline.recall.json`](../eval/baseline.recall.json) — an **overall floor + per-cluster
+  floors** (per-cluster catches a recency/aggregation drop a mean would hide). It is byte-reproducible:
+  `scoreRecall` over the fixture equals the stored floors exactly.
+
+`slopweaver dev gate` composes this regression check with the hygiene gate and the PR-format check into
+one non-zero-exit gate, writing a JSONL run log + a baseline↔candidate diff under `$SLOPWEAVER_HOME/ledgers/`.
+The floors move **only** through `yarn eval:rebaseline --write --reason "…"` (refused in CI without an
+explicit override) — never from the gate itself. See [dev-gate.md](./dev-gate.md).
+
 ## Not yet here
 
-The advisory faithfulness judge + human review surface (PR4), and the two-ref baseline↔candidate diff
-with a non-zero-exit regression gate and a JSONL run log (PR5). v0.2 is the measurement; the gate that
-blocks a regression lands last.
+The advisory faithfulness judge + human review surface, and a semantic (embedder) regression track, are
+later PRs. This gate is the deterministic lexical floor; the semantic scoreboard stays the advisory companion.

@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  ci:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,3 +20,26 @@ jobs:
         run: yarn test:unit
       - name: Hygiene gate
         run: yarn hygiene
+
+  # The composed PR gate — hygiene + PR-format + eval-regression — via the SAME `yarn dev:gate` path used
+  # locally. PR-only: it needs the PR body, and an unvalidated body is a failure, not a skip.
+  dev-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - run: corepack enable
+      - run: yarn install --immutable
+      - name: Set state home
+        # $RUNNER_TEMP is a step-context env var (the `runner.*` context is not available in job-level env).
+        run: echo "SLOPWEAVER_HOME=$RUNNER_TEMP/slopweaver-home" >> "$GITHUB_ENV"
+      - name: Init state home
+        run: yarn slopweaver init
+      - name: Dev gate
+        env:
+          # Passed as an env var (not shell-interpolated) so the body can't inject into the command.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: yarn dev:gate

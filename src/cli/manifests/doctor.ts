@@ -10,7 +10,7 @@ import { lazy, type VerbManifestEntry } from '../manifest.js'
 
 /** Shared meta for the bare-noun + `run` verb; both resolve to the same preflight handler. */
 const doctorMeta = {
-  summary: 'Env preflight: print the plugin version + resolved SLOPWEAVER_HOME',
+  summary: 'Env preflight: plugin version + the resolved state home and its layout',
   usage: 'usage: slopweaver doctor',
   example: 'slopweaver doctor',
   // The reject path is I/O-free; a non-zero exit REPORTS a broken env (a finding), not a broken tool.
