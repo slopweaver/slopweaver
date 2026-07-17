@@ -8,7 +8,7 @@ already make in Claude Code.
 
 A single-package Claude Code plugin — no MCP server, no monorepo. A bundled CLI (the verb framework
 under `src/cli/`) does the work; markdown slash-commands shell that CLI. State lives in a medallion
-warehouse under `$SLOPWEAVER_HOME`.
+corpus under `$SLOPWEAVER_HOME`.
 
 ```
 GitHub  ──refresh──▶  bronze  ──derive──▶  silver  ──distil──▶  gold

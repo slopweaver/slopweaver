@@ -20,7 +20,7 @@ export interface Repository {
 
 /**
  * The world-model home. `$SLOPWEAVER_HOME` if set, else `~/.slopweaver`. Everything on disk (the
- * warehouse cache, the private hygiene denylist) lives under here; it never leaves the machine.
+ * corpus cache, the private hygiene denylist) lives under here; it never leaves the machine.
  *
  * @returns the absolute home directory path
  */
@@ -30,13 +30,13 @@ export function slopweaverHome(): string {
 }
 
 /**
- * The warehouse root (bronze/silver/gold + caches) under the home.
+ * The corpus root (bronze/silver/gold + caches) under the home — the on-disk medallion store.
  *
  * @param home the world-model home (defaults to {@link slopweaverHome})
- * @returns the absolute warehouse directory path
+ * @returns the absolute corpus directory path
  */
-export function warehouseDir({ home = slopweaverHome() }: { home?: string } = {}): string {
-  return join(home, 'warehouse')
+export function corpusDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(home, 'corpus')
 }
 
 /**

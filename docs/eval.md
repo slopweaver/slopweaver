@@ -46,7 +46,7 @@ the retriever's own opinion of what is relevant.
 | `recency` | the answer lives in an **old** record — recency decay is the adversary |
 | `cross-cutting` | one design thread running through several PRs |
 
-The corpus is Slopweaver's own public GitHub history, ingested into the local warehouse — public, so the
+The corpus is Slopweaver's own public GitHub history, ingested into the local corpus store — public, so the
 scoreboard is reproducible by anyone.
 
 ## Who judges (the alignment guard)
