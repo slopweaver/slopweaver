@@ -10,7 +10,7 @@ const PATTERNS: readonly RegExp[] = [
   /@[A-Za-z0-9][A-Za-z0-9-]{0,38}/g, // @mentions (GitHub-login shaped)
   /\b[A-Z][A-Z0-9]+-\d+\b/g, // ticket keys (TEAM-123)
   /https?:\/\/[^\s)<>"']+/g, // bare URLs
-]
+];
 
 /**
  * Every distinct cross-reference in the text.
@@ -19,11 +19,11 @@ const PATTERNS: readonly RegExp[] = [
  * @returns the deduped references (grouped by class, then text position)
  */
 export function extractRefs({ text }: { text: string }): readonly string[] {
-  const seen = new Set<string>()
+  const seen = new Set<string>();
   for (const re of PATTERNS) {
     for (const match of text.matchAll(re)) {
-      seen.add(match[0])
+      seen.add(match[0]);
     }
   }
-  return [...seen]
+  return [...seen];
 }

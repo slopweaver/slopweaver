@@ -2,6 +2,7 @@
 description: Set up your local world model — ingest a repo, build silver/gold, ask a question
 argument-hint: "[owner/repo]"
 ---
+
 Guide the user through first-time Slopweaver setup, step by step, showing each command's output. The bundled CLI is `"${CLAUDE_PLUGIN_ROOT}/bin/slopweaver"` (also on PATH as `slopweaver`).
 
 1. Run `slopweaver doctor` — show the version + resolved `SLOPWEAVER_HOME` (defaults to `~/.slopweaver` if unset).

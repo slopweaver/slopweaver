@@ -7,55 +7,55 @@
  * All paths come from the one home-path contract ({@link stateHomePaths}); this module never derives a
  * home sub-path itself. It is the effectful edge — the only writer — kept thin over that pure contract.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-import { STATE_HOME_VERSION, stateHomePaths } from '../stateHome.js'
+import { STATE_HOME_VERSION, stateHomePaths } from "../stateHome.js";
 
 /** What a run of {@link runInit} did to one path: made it, or found it already there. */
-export type InitOutcome = 'created' | 'existed'
+export type InitOutcome = "created" | "existed";
 
 /** One path's init result, for the report doctor + the CLI print. */
 export interface InitEntry {
-  readonly path: string
-  readonly kind: 'dir' | 'file'
-  readonly outcome: InitOutcome
+  readonly path: string;
+  readonly kind: "dir" | "file";
+  readonly outcome: InitOutcome;
 }
 
 /** The full report of an init run — every dir + seed file, in a stable order. */
 export interface InitReport {
-  readonly home: string
-  readonly entries: readonly InitEntry[]
+  readonly home: string;
+  readonly entries: readonly InitEntry[];
 }
 
 /** Read a bundled template file (relative to this module), for seeding identity/profile. */
 function readTemplate({ name }: { name: string }): string {
-  return readFileSync(fileURLToPath(new URL(`../../templates/${name}`, import.meta.url)), 'utf8')
+  return readFileSync(fileURLToPath(new URL(`../../templates/${name}`, import.meta.url)), "utf8");
 }
 
 /** The comment-only seed for the private denylist — explains the file without listing any term. */
 const DENYLIST_SEED = [
-  '# Private hygiene denylist — one case-insensitive substring per line.',
-  '# This file is LOCAL to $SLOPWEAVER_HOME and is never committed. The public hygiene gate reads it',
-  '# at runtime so the scanner never has to contain the very words it guards against. Add your',
-  '# org-/project-specific literals below (blank lines and `#` comments are ignored).',
-  '',
-].join('\n')
+  "# Private hygiene denylist — one case-insensitive substring per line.",
+  "# This file is LOCAL to $SLOPWEAVER_HOME and is never committed. The public hygiene gate reads it",
+  "# at runtime so the scanner never has to contain the very words it guards against. Add your",
+  "# org-/project-specific literals below (blank lines and `#` comments are ignored).",
+  "",
+].join("\n");
 
 /** mkdir -p, recording whether it already existed. */
 function ensureDir({ path }: { path: string }): InitEntry {
-  const existed = existsSync(path)
-  mkdirSync(path, { recursive: true })
-  return { path, kind: 'dir', outcome: existed ? 'existed' : 'created' }
+  const existed = existsSync(path);
+  mkdirSync(path, { recursive: true });
+  return { kind: "dir", outcome: existed ? "existed" : "created", path };
 }
 
 /** Write `content` only when `path` is absent (never overwrite), recording the outcome. */
 function seedFile({ path, content }: { path: string; content: string }): InitEntry {
   if (existsSync(path)) {
-    return { path, kind: 'file', outcome: 'existed' }
+    return { kind: "file", outcome: "existed", path };
   }
-  writeFileSync(path, content, 'utf8')
-  return { path, kind: 'file', outcome: 'created' }
+  writeFileSync(path, content, "utf8");
+  return { kind: "file", outcome: "created", path };
 }
 
 /**
@@ -66,7 +66,7 @@ function seedFile({ path, content }: { path: string; content: string }): InitEnt
  * @returns the per-path report (created vs already-present)
  */
 export function runInit({ home }: { home?: string } = {}): InitReport {
-  const paths = stateHomePaths(home !== undefined ? { home } : {})
+  const paths = stateHomePaths(home !== undefined ? { home } : {});
   const entries: InitEntry[] = [
     ensureDir({ path: paths.root }),
     ensureDir({ path: paths.corpus.root }),
@@ -77,10 +77,10 @@ export function runInit({ home }: { home?: string } = {}): InitReport {
     ensureDir({ path: paths.beliefs }),
     ensureDir({ path: paths.ledgers }),
     ensureDir({ path: paths.modelCache }),
-    seedFile({ path: paths.homeVersion, content: `${JSON.stringify({ version: STATE_HOME_VERSION }, null, 2)}\n` }),
-    seedFile({ path: paths.identityJson, content: readTemplate({ name: 'identity.template.json' }) }),
-    seedFile({ path: paths.profileJson, content: readTemplate({ name: 'profile.template.json' }) }),
-    seedFile({ path: paths.hygieneDenylist, content: DENYLIST_SEED }),
-  ]
-  return { home: paths.root, entries }
+    seedFile({ content: `${JSON.stringify({ version: STATE_HOME_VERSION }, null, 2)}\n`, path: paths.homeVersion }),
+    seedFile({ content: readTemplate({ name: "identity.template.json" }), path: paths.identityJson }),
+    seedFile({ content: readTemplate({ name: "profile.template.json" }), path: paths.profileJson }),
+    seedFile({ content: DENYLIST_SEED, path: paths.hygieneDenylist }),
+  ];
+  return { entries, home: paths.root };
 }

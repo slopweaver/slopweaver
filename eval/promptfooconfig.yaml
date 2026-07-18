@@ -7,7 +7,7 @@
 description: Slopweaver ask harness (v0.2)
 
 prompts:
-  - '{{question}}'
+  - "{{question}}"
 
 providers:
   - id: file://./askProvider.ts

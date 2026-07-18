@@ -4,6 +4,6 @@
  * (importable + testable); this file existing IS the direct invocation, so there is no `isDirectInvocation`
  * guard to reason about.
  */
-import { runCliProcess } from './main.js'
+import { runCliProcess } from "./main.js";
 
-void runCliProcess()
+void runCliProcess();

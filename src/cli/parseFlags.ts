@@ -10,25 +10,25 @@
  * Pure: no I/O. `parseArgs` is a stdlib primitive used positionally, so it's exempt from the named-object
  * rule the way `logger.info(msg)` is; everything here otherwise follows the house style.
  */
-import { parseArgs } from 'node:util'
+import { parseArgs } from "node:util";
 
-import { err, ok, type Result } from '../lib/result.js'
+import { err, ok, type Result } from "../lib/result.js";
 
 /** Which flags take a value (`--home x`) vs are boolean switches (`--json`). Names omit the `--`. */
 export interface FlagSpec {
-  readonly string?: readonly string[]
-  readonly boolean?: readonly string[]
+  readonly string?: readonly string[];
+  readonly boolean?: readonly string[];
 }
 
 /** Parsed flags: declared values (string or boolean), plus any positionals (for a free-text tail). */
 export interface ParsedFlags {
-  readonly values: Readonly<Record<string, string | boolean>>
-  readonly positionals: readonly string[]
+  readonly values: Readonly<Record<string, string | boolean>>;
+  readonly positionals: readonly string[];
 }
 
 /** The raw tokenizer result — values + positionals + accumulated errors, WITHOUT short-circuiting. */
 export interface FlagTokens extends ParsedFlags {
-  readonly errors: readonly string[]
+  readonly errors: readonly string[];
 }
 
 /**
@@ -40,47 +40,53 @@ export interface FlagTokens extends ParsedFlags {
  * @param allowPositionals keep positionals (true, for a free-text tail) or reject them as errors (false)
  * @returns `{ values, positionals, errors }`
  */
-export function tokenizeFlags(
-  { args, spec, allowPositionals = false }: { args: readonly string[]; spec: FlagSpec; allowPositionals?: boolean },
-): FlagTokens {
-  const stringKeys = new Set(spec.string ?? [])
-  const boolKeys = new Set(spec.boolean ?? [])
-  const options: Record<string, { type: 'string' | 'boolean' }> = {}
+export function tokenizeFlags({
+  args,
+  spec,
+  allowPositionals = false,
+}: {
+  args: readonly string[];
+  spec: FlagSpec;
+  allowPositionals?: boolean;
+}): FlagTokens {
+  const stringKeys = new Set(spec.string ?? []);
+  const boolKeys = new Set(spec.boolean ?? []);
+  const options: Record<string, { type: "string" | "boolean" }> = {};
   for (const key of stringKeys) {
-    options[key] = { type: 'string' }
+    options[key] = { type: "string" };
   }
   for (const key of boolKeys) {
-    options[key] = { type: 'boolean' }
+    options[key] = { type: "boolean" };
   }
 
   // strict:false ⇒ unknown flags land in `values` (as `true`) and missing string values become `true`,
   // rather than throwing — we turn both into our own domain errors below.
-  const parsed = parseArgs({ args: [...args], options, strict: false, allowPositionals: true })
+  const parsed = parseArgs({ allowPositionals: true, args: [...args], options, strict: false });
 
-  const errors: string[] = []
-  const values: Record<string, string | boolean> = {}
+  const errors: string[] = [];
+  const values: Record<string, string | boolean> = {};
   for (const [key, value] of Object.entries(parsed.values)) {
     if (!stringKeys.has(key) && !boolKeys.has(key)) {
-      errors.push(`unknown flag: --${key}`)
-      continue
+      errors.push(`unknown flag: --${key}`);
+      continue;
     }
     if (value === undefined) {
-      continue
+      continue;
     }
     // A value flag with no value → parseArgs yields `true`; and a value flag that "ate" the NEXT flag
     // (`--home --json` ⇒ home:'--json') is also a missing value. Reject both, matching the prior behaviour.
-    if (stringKeys.has(key) && (typeof value !== 'string' || value.startsWith('--'))) {
-      errors.push(`--${key} requires a value`)
-      continue
+    if (stringKeys.has(key) && (typeof value !== "string" || value.startsWith("--"))) {
+      errors.push(`--${key} requires a value`);
+      continue;
     }
-    values[key] = value
+    values[key] = value;
   }
   if (!allowPositionals) {
     for (const positional of parsed.positionals) {
-      errors.push(`unexpected argument: ${positional}`)
+      errors.push(`unexpected argument: ${positional}`);
     }
   }
-  return { values, positionals: parsed.positionals, errors }
+  return { errors, positionals: parsed.positionals, values };
 }
 
 /**
@@ -92,9 +98,15 @@ export function tokenizeFlags(
  * @param allowPositionals keep positionals (true) or reject them as errors (false)
  * @returns the parsed `{ values, positionals }`, or an error listing every rejection
  */
-export function parseFlags(
-  { args, spec, allowPositionals = false }: { args: readonly string[]; spec: FlagSpec; allowPositionals?: boolean },
-): Result<ParsedFlags> {
-  const { values, positionals, errors } = tokenizeFlags({ args, spec, allowPositionals })
-  return errors.length > 0 ? err(errors) : ok({ values, positionals })
+export function parseFlags({
+  args,
+  spec,
+  allowPositionals = false,
+}: {
+  args: readonly string[];
+  spec: FlagSpec;
+  allowPositionals?: boolean;
+}): Result<ParsedFlags> {
+  const { values, positionals, errors } = tokenizeFlags({ allowPositionals, args, spec });
+  return errors.length > 0 ? err(errors) : ok({ positionals, values });
 }

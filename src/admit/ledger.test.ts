@@ -1,45 +1,53 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from "vitest";
 
-import { doorLedgerLine } from './ledger.js'
-import type { DoorDecision, DoorRequest } from './types.js'
+import { doorLedgerLine } from "./ledger.js";
+import type { DoorDecision, DoorRequest } from "./types.js";
 
 const request: DoorRequest = {
-  action: { kind: 'verb', noun: 'demo', verb: 'run' },
+  action: { kind: "verb", noun: "demo", verb: "run" },
   artifact: {},
-  meta: { effect: 'external-write', requiresApproval: true, createsWorkItem: false, home: null },
-}
+  meta: { createsWorkItem: false, effect: "external-write", home: null, requiresApproval: true },
+};
 
-describe('doorLedgerLine', () => {
-  it('records a warn decision as one exact JSON object', () => {
+describe("doorLedgerLine", () => {
+  it("records a warn decision as one exact JSON object", () => {
     const decision: DoorDecision = {
-      status: 'warn',
-      findings: [{ code: 'demo.warn', severity: 'warn', summary: 's', correction: 'c', override: 'demo.run:v1' }],
+      findings: [{ code: "demo.warn", correction: "c", override: "demo.run:v1", severity: "warn", summary: "s" }],
       overridden: [],
-    }
-    expect(JSON.parse(doorLedgerLine({ request, decision, runId: 'r1', tsIso: '2026-07-14T00:00:00.000Z' }))).toEqual({
+      status: "warn",
+    };
+    expect(JSON.parse(doorLedgerLine({ decision, request, runId: "r1", tsIso: "2026-07-14T00:00:00.000Z" }))).toEqual({
+      action: "verb:demo.run",
+      effect: "external-write",
+      findings: [{ code: "demo.warn", severity: "warn" }],
+      overridden: [],
+      runId: "r1",
       schemaVersion: 1,
-      runId: 'r1',
-      tsIso: '2026-07-14T00:00:00.000Z',
-      action: 'verb:demo.run',
-      effect: 'external-write',
-      status: 'warn',
-      findings: [{ code: 'demo.warn', severity: 'warn' }],
-      overridden: [],
-    })
-  })
+      status: "warn",
+      tsIso: "2026-07-14T00:00:00.000Z",
+    });
+  });
 
-  it('records an overridden pass with the waived finding codes', () => {
-    const decision: DoorDecision = { status: 'pass', findings: [], overridden: [{ code: 'demo.warn', severity: 'warn', summary: 's', correction: 'c', override: 'demo.run:v1' }] }
-    expect(JSON.parse(doorLedgerLine({ request, decision, runId: 'r2', tsIso: 't' })).overridden).toEqual(['demo.warn'])
-  })
+  it("records an overridden pass with the waived finding codes", () => {
+    const decision: DoorDecision = {
+      findings: [],
+      overridden: [{ code: "demo.warn", correction: "c", override: "demo.run:v1", severity: "warn", summary: "s" }],
+      status: "pass",
+    };
+    expect(JSON.parse(doorLedgerLine({ decision, request, runId: "r2", tsIso: "t" })).overridden).toEqual([
+      "demo.warn",
+    ]);
+  });
 
-  it('records a raw-tool action label', () => {
+  it("records a raw-tool action label", () => {
     const rawRequest: DoorRequest = {
-      action: { kind: 'raw-tool', tool: 'gh', command: 'gh pr merge 1' },
+      action: { command: "gh pr merge 1", kind: "raw-tool", tool: "gh" },
       artifact: {},
-      meta: { effect: 'external-write', requiresApproval: true, createsWorkItem: false, home: null },
-    }
-    const decision: DoorDecision = { status: 'hold', findings: [], overridden: [] }
-    expect(JSON.parse(doorLedgerLine({ request: rawRequest, decision, runId: 'r3', tsIso: 't' })).action).toBe('raw-tool:gh')
-  })
-})
+      meta: { createsWorkItem: false, effect: "external-write", home: null, requiresApproval: true },
+    };
+    const decision: DoorDecision = { findings: [], overridden: [], status: "hold" };
+    expect(JSON.parse(doorLedgerLine({ decision, request: rawRequest, runId: "r3", tsIso: "t" })).action).toBe(
+      "raw-tool:gh",
+    );
+  });
+});

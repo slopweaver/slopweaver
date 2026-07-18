@@ -5,54 +5,58 @@
  * `fetch.ts`. `parseActivity` is a pure, defensive parse — a malformed field degrades to empty, never
  * throws, so one weird item can't sink a whole refresh.
  */
-import { isRecord } from '../../lib/parsers.js'
-import { err, ok, type Result } from '../../lib/result.js'
-import type { Repository } from '../../config.js'
+
+import type { Repository } from "../../config.js";
+import { isRecord } from "../../lib/parsers.js";
+import { err, ok, type Result } from "../../lib/result.js";
 
 export interface ActivityReview {
-  readonly author?: string
+  readonly author?: string;
   /** APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED | PENDING */
-  readonly state: string
-  readonly tsIso: string
-  readonly url: string
-  readonly body: string
+  readonly state: string;
+  readonly tsIso: string;
+  readonly url: string;
+  readonly body: string;
 }
 
 export interface ActivityComment {
-  readonly author?: string
-  readonly tsIso: string
-  readonly url: string
-  readonly body: string
+  readonly author?: string;
+  readonly tsIso: string;
+  readonly url: string;
+  readonly body: string;
   /** Present only for review-thread comments: whether the thread is resolved. */
-  readonly resolved?: boolean
+  readonly resolved?: boolean;
 }
 
 export interface ActivityStateEvent {
   /** Timeline `__typename` minus the trailing `Event` (e.g. `Merged`, `Closed`). */
-  readonly type: string
-  readonly tsIso: string
-  readonly actor?: string
+  readonly type: string;
+  readonly tsIso: string;
+  readonly actor?: string;
 }
 
 export interface GithubActivity {
-  readonly state: string
-  readonly isDraft?: boolean
-  readonly reviewDecision?: string
-  readonly mergeable?: string
+  readonly state: string;
+  readonly isDraft?: boolean;
+  readonly reviewDecision?: string;
+  readonly mergeable?: string;
   /** Aggregate CI status-check-rollup state, when the head commit has one. */
-  readonly checks?: string
-  readonly updatedAtIso: string
-  readonly reviews: readonly ActivityReview[]
-  readonly comments: readonly ActivityComment[]
-  readonly timeline: readonly ActivityStateEvent[]
+  readonly checks?: string;
+  readonly updatedAtIso: string;
+  readonly reviews: readonly ActivityReview[];
+  readonly comments: readonly ActivityComment[];
+  readonly timeline: readonly ActivityStateEvent[];
 }
 
 /** The injected GraphQL transport: `(query, variables) => data`. Throws on network / GraphQL error. */
-export type GraphqlRunner = (query: string, variables: Record<string, unknown>) => Promise<unknown>
+export type GraphqlRunner = (query: string, variables: Record<string, unknown>) => Promise<unknown>;
 
 /** Fetch one item's activity. Returns `err` (never throws) so a single bad item is skippable. */
-export type FetchGithubActivity =
-  (input: { repo: Repository; number: number; isPr: boolean }) => Promise<Result<GithubActivity>>
+export type FetchGithubActivity = (input: {
+  repo: Repository;
+  number: number;
+  isPr: boolean;
+}) => Promise<Result<GithubActivity>>;
 
 const PR_ACTIVITY_QUERY = `query($owner:String!,$repo:String!,$number:Int!){
   repository(owner:$owner,name:$repo){
@@ -68,7 +72,7 @@ const PR_ACTIVITY_QUERY = `query($owner:String!,$repo:String!,$number:Int!){
           ... on ClosedEvent{createdAt actor{login}}
           ... on ReopenedEvent{createdAt actor{login}}
           ... on ReadyForReviewEvent{createdAt actor{login}}
-          ... on ConvertToDraftEvent{createdAt actor{login}}}}}}}`
+          ... on ConvertToDraftEvent{createdAt actor{login}}}}}}}`;
 
 const ISSUE_ACTIVITY_QUERY = `query($owner:String!,$repo:String!,$number:Int!){
   repository(owner:$owner,name:$repo){
@@ -78,77 +82,91 @@ const ISSUE_ACTIVITY_QUERY = `query($owner:String!,$repo:String!,$number:Int!){
       timelineItems(first:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT]){
         nodes{__typename
           ... on ClosedEvent{createdAt actor{login}}
-          ... on ReopenedEvent{createdAt actor{login}}}}}}}`
+          ... on ReopenedEvent{createdAt actor{login}}}}}}}`;
 
 /** Coerce an unknown to a string, or `''`. */
 function str({ value }: { value: unknown }): string {
-  return typeof value === 'string' ? value : ''
+  return typeof value === "string" ? value : "";
 }
 
 /** Coerce an unknown to a non-empty string, or `undefined`. */
 function optStr({ value }: { value: unknown }): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /** The `.nodes` array of a GraphQL connection, as records; `[]` for anything unexpected. */
 function nodesOf({ connection }: { connection: unknown }): readonly Record<string, unknown>[] {
-  if (!isRecord(connection) || !Array.isArray(connection.nodes)) {
-    return []
+  if (!isRecord(connection) || !Array.isArray(connection["nodes"])) {
+    return [];
   }
-  return connection.nodes.filter(isRecord)
+  return connection["nodes"].filter(isRecord);
 }
 
 /** The `login` off a GraphQL actor/author object, when present. */
 function login({ actor }: { actor: unknown }): string | undefined {
-  return isRecord(actor) ? optStr({ value: actor.login }) : undefined
+  return isRecord(actor) ? optStr({ value: actor["login"] }) : undefined;
 }
 
 function parseReviews({ node }: { node: Record<string, unknown> }): ActivityReview[] {
-  return nodesOf({ connection: node.reviews }).map((r) => ({
-    author: login({ actor: r.author }),
-    state: str({ value: r.state }),
-    tsIso: str({ value: r.submittedAt }),
-    url: str({ value: r.url }),
-    body: str({ value: r.body }),
-  }))
+  return nodesOf({ connection: node["reviews"] }).map((r) => {
+    const author = login({ actor: r["author"] });
+    return {
+      ...(author !== undefined ? { author } : {}),
+      body: str({ value: r["body"] }),
+      state: str({ value: r["state"] }),
+      tsIso: str({ value: r["submittedAt"] }),
+      url: str({ value: r["url"] }),
+    };
+  });
 }
 
 function parseComments({ node }: { node: Record<string, unknown> }): ActivityComment[] {
-  const issueComments: ActivityComment[] = nodesOf({ connection: node.comments }).map((c) => ({
-    author: login({ actor: c.author }),
-    tsIso: str({ value: c.createdAt }),
-    url: str({ value: c.url }),
-    body: str({ value: c.body }),
-  }))
-  const threadComments: ActivityComment[] = nodesOf({ connection: node.reviewThreads }).flatMap((thread) => {
-    const resolved = thread.isResolved === true
-    return nodesOf({ connection: thread.comments }).map((c) => ({
-      author: login({ actor: c.author }),
-      tsIso: str({ value: c.createdAt }),
-      url: str({ value: c.url }),
-      body: str({ value: c.body }),
-      resolved,
-    }))
-  })
-  return [...issueComments, ...threadComments]
+  const issueComments: ActivityComment[] = nodesOf({ connection: node["comments"] }).map((c) => {
+    const author = login({ actor: c["author"] });
+    return {
+      ...(author !== undefined ? { author } : {}),
+      body: str({ value: c["body"] }),
+      tsIso: str({ value: c["createdAt"] }),
+      url: str({ value: c["url"] }),
+    };
+  });
+  const threadComments: ActivityComment[] = nodesOf({ connection: node["reviewThreads"] }).flatMap((thread) => {
+    const resolved = thread["isResolved"] === true;
+    return nodesOf({ connection: thread["comments"] }).map((c) => {
+      const author = login({ actor: c["author"] });
+      return {
+        ...(author !== undefined ? { author } : {}),
+        body: str({ value: c["body"] }),
+        resolved,
+        tsIso: str({ value: c["createdAt"] }),
+        url: str({ value: c["url"] }),
+      };
+    });
+  });
+  return [...issueComments, ...threadComments];
 }
 
 function parseTimeline({ node }: { node: Record<string, unknown> }): ActivityStateEvent[] {
-  return nodesOf({ connection: node.timelineItems }).map((e) => ({
-    type: str({ value: e.__typename }).replace(/Event$/, ''),
-    tsIso: str({ value: e.createdAt }),
-    actor: login({ actor: e.actor }),
-  })).filter((e) => e.type.length > 0)
+  return nodesOf({ connection: node["timelineItems"] })
+    .map((e) => {
+      const actor = login({ actor: e["actor"] });
+      return {
+        ...(actor !== undefined ? { actor } : {}),
+        tsIso: str({ value: e["createdAt"] }),
+        type: str({ value: e["__typename"] }).replace(/Event$/, ""),
+      };
+    })
+    .filter((e) => e.type.length > 0);
 }
 
 /** The CI rollup state off the last commit, when present. */
 function checksOf({ node }: { node: Record<string, unknown> }): string | undefined {
-  const commit = nodesOf({ connection: node.commits })[0]
-  if (commit === undefined || !isRecord(commit.commit)) {
-    return undefined
+  const commit = nodesOf({ connection: node["commits"] })[0];
+  if (commit === undefined || !isRecord(commit["commit"])) {
+    return undefined;
   }
-  const rollup = commit.commit.statusCheckRollup
-  return isRecord(rollup) ? optStr({ value: rollup.state }) : undefined
+  const rollup = commit["commit"]["statusCheckRollup"];
+  return isRecord(rollup) ? optStr({ value: rollup["state"] }) : undefined;
 }
 
 /**
@@ -159,26 +177,29 @@ function checksOf({ node }: { node: Record<string, unknown> }): string | undefin
  * @returns the parsed activity
  */
 export function parseActivity({ node, isPr }: { node: Record<string, unknown>; isPr: boolean }): GithubActivity {
+  const checks = checksOf({ node });
+  const mergeable = optStr({ value: node["mergeable"] });
+  const reviewDecision = optStr({ value: node["reviewDecision"] });
   return {
-    state: str({ value: node.state }),
-    ...(isPr ? { isDraft: node.isDraft === true } : {}),
-    reviewDecision: optStr({ value: node.reviewDecision }),
-    mergeable: optStr({ value: node.mergeable }),
-    checks: checksOf({ node }),
-    updatedAtIso: str({ value: node.updatedAt }),
-    reviews: isPr ? parseReviews({ node }) : [],
+    state: str({ value: node["state"] }),
+    ...(isPr ? { isDraft: node["isDraft"] === true } : {}),
+    ...(checks !== undefined ? { checks } : {}),
     comments: parseComments({ node }),
+    ...(mergeable !== undefined ? { mergeable } : {}),
+    ...(reviewDecision !== undefined ? { reviewDecision } : {}),
+    reviews: isPr ? parseReviews({ node }) : [],
     timeline: parseTimeline({ node }),
-  }
+    updatedAtIso: str({ value: node["updatedAt"] }),
+  };
 }
 
 /** Pull the item node out of a `repository { pullRequest|issue }` GraphQL response. */
 function pickNode({ data, isPr }: { data: unknown; isPr: boolean }): Record<string, unknown> | undefined {
-  if (!isRecord(data) || !isRecord(data.repository)) {
-    return undefined
+  if (!isRecord(data) || !isRecord(data["repository"])) {
+    return undefined;
   }
-  const node = isPr ? data.repository.pullRequest : data.repository.issue
-  return isRecord(node) ? node : undefined
+  const node = isPr ? data["repository"]["pullRequest"] : data["repository"]["issue"];
+  return isRecord(node) ? node : undefined;
 }
 
 /**
@@ -190,15 +211,18 @@ function pickNode({ data, isPr }: { data: unknown; isPr: boolean }): Record<stri
 export function makeFetchGithubActivity({ graphql }: { graphql: GraphqlRunner }): FetchGithubActivity {
   return async ({ repo, number, isPr }) => {
     try {
-      const data = await graphql(isPr ? PR_ACTIVITY_QUERY : ISSUE_ACTIVITY_QUERY,
-        { owner: repo.owner, repo: repo.repo, number })
-      const node = pickNode({ data, isPr })
+      const data = await graphql(isPr ? PR_ACTIVITY_QUERY : ISSUE_ACTIVITY_QUERY, {
+        number,
+        owner: repo.owner,
+        repo: repo.repo,
+      });
+      const node = pickNode({ data, isPr });
       if (node === undefined) {
-        return err([`no ${isPr ? 'pull request' : 'issue'} #${String(number)} in GraphQL response`])
+        return err([`no ${isPr ? "pull request" : "issue"} #${String(number)} in GraphQL response`]);
       }
-      return ok(parseActivity({ node, isPr }))
+      return ok(parseActivity({ isPr, node }));
     } catch (error: unknown) {
-      return err([error instanceof Error ? error.message : `activity fetch failed for #${String(number)}`])
+      return err([error instanceof Error ? error.message : `activity fetch failed for #${String(number)}`]);
     }
-  }
+  };
 }

@@ -3,6 +3,6 @@
  * All logic + its tests live in `rebaselineCore.ts`; this file existing IS the invocation, so there is no
  * `isDirectInvocation` guard.
  */
-import { runRebaseline } from './rebaselineCore.js'
+import { runRebaseline } from "./rebaselineCore.js";
 
-process.exit(runRebaseline(process.argv))
+process.exit(runRebaseline(process.argv));

@@ -9,15 +9,15 @@
 
 /** What a seam does to the world — the axis the door polices. Local-state (under $SLOPWEAVER_HOME) is the
  * product working normally; only EXTERNAL writes/sends are the thing the door must gate or hold. */
-export type DoorEffect = 'none' | 'local-state' | 'external-read' | 'external-write'
+export type DoorEffect = "none" | "local-state" | "external-read" | "external-write";
 
 /** The action being attempted: a Slopweaver verb, or a raw bypass tool the hook intercepts. */
 export type DoorAction =
-  | { readonly kind: 'verb'; readonly noun: string; readonly verb: string }
-  | { readonly kind: 'raw-tool'; readonly tool: string; readonly command: string }
+  | { readonly kind: "verb"; readonly noun: string; readonly verb: string }
+  | { readonly kind: "raw-tool"; readonly tool: string; readonly command: string };
 
 /** The thing being acted on (a repo slug, a path, a message target …). Free-form, for the record + gates. */
-export type DoorArtifact = Readonly<Record<string, unknown>>
+export type DoorArtifact = Readonly<Record<string, unknown>>;
 
 /**
  * Context the door + gates + ledger need. All fields REQUIRED so a call site states its intent explicitly
@@ -25,28 +25,25 @@ export type DoorArtifact = Readonly<Record<string, unknown>>
  * "the resolved default home", spelled out rather than an absent field.
  */
 export interface DoorMeta {
-  readonly effect: DoorEffect
-  readonly requiresApproval: boolean
-  readonly createsWorkItem: boolean
-  readonly home: string | null
+  readonly effect: DoorEffect;
+  readonly requiresApproval: boolean;
+  readonly createsWorkItem: boolean;
+  readonly home: string | null;
 }
 
 /** One request through the door. `artifact` is required — pass `{}` when there's nothing to describe. */
 export interface DoorRequest {
-  readonly action: DoorAction
-  readonly artifact: DoorArtifact
-  readonly meta: DoorMeta
+  readonly action: DoorAction;
+  readonly artifact: DoorArtifact;
+  readonly meta: DoorMeta;
 }
-
-/** A gate's severity: a `warn` is self-correctable + overridable; a `hold` is the irreversible-harm core. */
-export type DoorSeverity = 'warn' | 'hold'
 
 /** Fields every finding shares — structured so the agent can SELF-CORRECT (not prose-only). */
 interface DoorFindingBase {
-  readonly code: string
-  readonly summary: string
+  readonly code: string;
+  readonly summary: string;
   /** What to change to satisfy the gate. */
-  readonly correction: string
+  readonly correction: string;
 }
 
 /**
@@ -57,22 +54,22 @@ interface DoorFindingBase {
  */
 export type DoorFinding =
   | (DoorFindingBase & {
-    readonly severity: 'warn'
-    /** The per-action override token (e.g. `refresh.run:v1`) that, in `$SLOPWEAVER_DOOR_OVERRIDE`, waives this warn. */
-    readonly override: string
-  })
-  | (DoorFindingBase & { readonly severity: 'hold' })
+      readonly severity: "warn";
+      /** The per-action override token (e.g. `refresh.run:v1`) that, in `$SLOPWEAVER_DOOR_OVERRIDE`, waives this warn. */
+      readonly override: string;
+    })
+  | (DoorFindingBase & { readonly severity: "hold" });
 
 /** The door's verdict. `pass` lets the effect happen; `warn`/`hold` mean the caller MUST NOT perform it. */
-export type DoorStatus = 'pass' | 'warn' | 'hold'
+export type DoorStatus = "pass" | "warn" | "hold";
 
 /** A decision, plus the findings that produced it and any findings an override waived (for the record). */
 export interface DoorDecision {
-  readonly status: DoorStatus
-  readonly findings: readonly DoorFinding[]
+  readonly status: DoorStatus;
+  readonly findings: readonly DoorFinding[];
   /** Findings that fired but were waived by an explicit override token (recorded, never silent). */
-  readonly overridden: readonly DoorFinding[]
+  readonly overridden: readonly DoorFinding[];
 }
 
 /** A gate: pure `request → findings`. The compose seam is EMPTY in PR2; PR9/PR14 fill it. */
-export type DoorGate = (request: DoorRequest) => readonly DoorFinding[]
+export type DoorGate = (request: DoorRequest) => readonly DoorFinding[];

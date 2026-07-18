@@ -1,6 +1,6 @@
 {
+  "exports": "./index.js",
   "name": "sharp",
-  "version": "0.32.6",
   "type": "module",
-  "exports": "./index.js"
+  "version": "0.32.6"
 }

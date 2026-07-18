@@ -10,38 +10,38 @@
 
 /** A JSON-Schema object description for a forced tool's input. */
 export interface JsonObjectSchema {
-  readonly type: 'object'
-  readonly properties?: Readonly<Record<string, unknown>>
-  readonly required?: readonly string[]
+  readonly type: "object";
+  readonly properties?: Readonly<Record<string, unknown>>;
+  readonly required?: readonly string[];
 }
 
 /** A tool the model is forced to call, whose `input` becomes the structured output. */
 export interface LlmTool {
-  readonly name: string
-  readonly description: string
-  readonly inputSchema: JsonObjectSchema
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: JsonObjectSchema;
 }
 
 export interface LlmCreateParams {
-  readonly system: string
-  readonly messages: readonly { readonly role: 'user' | 'assistant'; readonly content: string }[]
-  readonly tools?: readonly LlmTool[]
+  readonly system: string;
+  readonly messages: readonly { readonly role: "user" | "assistant"; readonly content: string }[];
+  readonly tools?: readonly LlmTool[];
   /** Force the model to call this exact tool (structured output). */
-  readonly toolChoice?: { readonly type: 'tool'; readonly name: string }
+  readonly toolChoice?: { readonly type: "tool"; readonly name: string };
 }
 
 /** One block of a model response: a `tool_use` (with `input`) or a `text` block. */
 export interface LlmContentBlock {
-  readonly type: string
-  readonly text?: string
-  readonly input?: unknown
+  readonly type: string;
+  readonly text?: string;
+  readonly input?: unknown;
 }
 
 export interface LlmMessage {
-  readonly content: readonly LlmContentBlock[]
+  readonly content: readonly LlmContentBlock[];
 }
 
 /** The Claude Code transport. `complete` throws on a transport error (spawn, timeout, non-zero exit). */
 export interface LlmClient {
-  complete(params: LlmCreateParams): Promise<LlmMessage>
+  complete(params: LlmCreateParams): Promise<LlmMessage>;
 }

@@ -11,15 +11,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: '.nvmrc'
+          node-version-file: ".nvmrc"
       - run: corepack enable
       - run: yarn install --immutable
+      # One composite (`slopweaver dev lint`), the SAME `yarn lint` run locally: biome + prettier + oxlint +
+      # eslint + knip + constraints + hygiene + door-coverage. Fails on any lint/format/dead-code/pin regression.
+      - name: Lint
+        run: yarn lint
       - name: Typecheck
         run: yarn typecheck
       - name: Unit tests
         run: yarn test:unit
-      - name: Hygiene gate
-        run: yarn hygiene
 
   # The composed PR gate — hygiene + PR-format + eval-regression — via the SAME `yarn dev:gate` path used
   # locally. PR-only: it needs the PR body, and an unvalidated body is a failure, not a skip.
@@ -30,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: '.nvmrc'
+          node-version-file: ".nvmrc"
       - run: corepack enable
       - run: yarn install --immutable
       - name: Set state home

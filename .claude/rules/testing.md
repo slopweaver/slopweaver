@@ -16,7 +16,7 @@ as `*.test.ts` next to the source. Never defer a test run to CI — run it local
 
 - **No `if` / `&&` / `?:` / `?.` in an assertion.** A test that can silently pass for any input is
   worse than no test.
-- A `&&` / `?.` *inside an inline predicate* (`.some(x => a && b)`) is fine — that's a callback.
+- A `&&` / `?.` _inside an inline predicate_ (`.some(x => a && b)`) is fine — that's a callback.
 - To access a `T | undefined` you're sure of, use a non-null assertion: `records.find(…)!`.
 - For a `Result<T>`, assert `expect(result.ok).toBe(true)` then unwrap the value with the throwing
   `unwrap(result)` combinator — never `expect(result.ok && result.value)`.
@@ -25,13 +25,13 @@ as `*.test.ts` next to the source. Never defer a test run to CI — run it local
 
 ```typescript
 // WRONG — too permissive
-expect(result).toBeDefined()
-expect(result).toHaveProperty("id")
-expect(typeof result.name).toBe("string")
+expect(result).toBeDefined();
+expect(result).toHaveProperty("id");
+expect(typeof result.name).toBe("string");
 
 // CORRECT — assert the actual value
-expect(result.id).toBe("abc-123")
-expect(result.ok).toBe(true)
+expect(result.id).toBe("abc-123");
+expect(result.ok).toBe(true);
 ```
 
 Banned: `.toBeTruthy()`/`.toBeFalsy()`, `toHaveProperty("f")` without a value, `expect(typeof …)`.

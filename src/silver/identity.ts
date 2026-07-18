@@ -7,15 +7,15 @@
  * The roster is NEVER committed: an EMPTY `templates/identity.template.json` ships, and a real
  * `identities.json` (if any) is generated into `$SLOPWEAVER_HOME`, off-repo.
  */
-import { isRecord } from '../lib/parsers.js'
+import { isRecord } from "../lib/parsers.js";
 
 export interface IdentityRecord {
-  readonly id: string
-  readonly handle: string
-  readonly name: string
+  readonly id: string;
+  readonly handle: string;
+  readonly name: string;
 }
 
-export type IdentityMap = ReadonlyMap<string, IdentityRecord>
+export type IdentityMap = ReadonlyMap<string, IdentityRecord>;
 
 /**
  * Index identity records by `id` (later entries win on duplicate ids).
@@ -24,7 +24,7 @@ export type IdentityMap = ReadonlyMap<string, IdentityRecord>
  * @returns a map from id to record
  */
 export function buildIdentityMap({ records }: { records: readonly IdentityRecord[] }): IdentityMap {
-  return new Map(records.map((record) => [record.id, record]))
+  return new Map(records.map((record) => [record.id, record]));
 }
 
 /**
@@ -35,24 +35,24 @@ export function buildIdentityMap({ records }: { records: readonly IdentityRecord
  * @returns the parsed identity records
  */
 export function parseIdentityRecords({ content }: { content: string }): readonly IdentityRecord[] {
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(content)
+    parsed = JSON.parse(content);
   } catch {
-    return []
+    return [];
   }
   if (!Array.isArray(parsed)) {
-    return []
+    return [];
   }
-  const records: IdentityRecord[] = []
+  const records: IdentityRecord[] = [];
   for (const entry of parsed) {
-    if (isRecord(entry) && typeof entry.id === 'string' && entry.id.length > 0) {
-      const handle = typeof entry.handle === 'string' && entry.handle.length > 0 ? entry.handle : entry.id
-      const name = typeof entry.name === 'string' && entry.name.length > 0 ? entry.name : handle
-      records.push({ id: entry.id, handle, name })
+    if (isRecord(entry) && typeof entry["id"] === "string" && entry["id"].length > 0) {
+      const handle = typeof entry["handle"] === "string" && entry["handle"].length > 0 ? entry["handle"] : entry["id"];
+      const name = typeof entry["name"] === "string" && entry["name"].length > 0 ? entry["name"] : handle;
+      records.push({ handle, id: entry["id"], name });
     }
   }
-  return records
+  return records;
 }
 
 /**
@@ -64,7 +64,7 @@ export function parseIdentityRecords({ content }: { content: string }): readonly
  * @returns the resolved `@handle`, or `raw` unchanged when unknown
  */
 export function resolveHandle({ map, raw }: { map: IdentityMap; raw: string }): string {
-  const bare = raw.startsWith('@') ? raw.slice(1) : raw
-  const record = map.get(bare)
-  return record !== undefined ? `@${record.handle}` : raw
+  const bare = raw.startsWith("@") ? raw.slice(1) : raw;
+  const record = map.get(bare);
+  return record !== undefined ? `@${record.handle}` : raw;
 }

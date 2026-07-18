@@ -11,28 +11,28 @@
  * list small with each `why` inline. When in doubt, add NO entry.
  */
 
-import { errorMessage } from '../lib/errorMessage.js'
-import { logger } from '../lib/logger.js'
+import { errorMessage } from "../lib/errorMessage.js";
+import { logger } from "../lib/logger.js";
 
 /** The facts a failed run carries at the dispatch edge. `reason` (the message/tail) is the richest signal. */
 export interface FailureFacts {
-  readonly noun: string
+  readonly noun: string;
   /** '' for a flat subcommand with no sub-verb. */
-  readonly verb: string
-  readonly code: number
+  readonly verb: string;
+  readonly code: number;
   /** Constructor name of a thrown error, when the run threw. Absent on a non-throw exit. */
-  readonly errorClass?: string
+  readonly errorClass?: string;
   /** The fault message / output tail. The single most-identifying field. */
-  readonly reason?: string
+  readonly reason?: string;
 }
 
 /** One signature: a predicate over the lowercased haystack + raw facts, and the hint it yields. */
 interface FailureSignature {
-  readonly name: string
+  readonly name: string;
   /** WHY this class maps to its hint — inline so the list is auditable + extendable. */
-  readonly why: string
-  readonly matches: (input: { readonly haystack: string; readonly facts: FailureFacts }) => boolean
-  readonly hint: (input: { readonly facts: FailureFacts }) => string
+  readonly why: string;
+  readonly matches: (input: { readonly haystack: string; readonly facts: FailureFacts }) => boolean;
+  readonly hint: (input: { readonly facts: FailureFacts }) => string;
 }
 
 /**
@@ -41,9 +41,9 @@ interface FailureSignature {
  */
 function envVarFrom({ reason }: { reason: string | undefined }): string | undefined {
   if (reason === undefined) {
-    return undefined
+    return undefined;
   }
-  return reason.match(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/)?.[0]
+  return reason.match(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/)?.[0];
 }
 
 /**
@@ -52,51 +52,57 @@ function envVarFrom({ reason }: { reason: string | undefined }): string | undefi
  */
 const FAILURE_SIGNATURES: readonly FailureSignature[] = [
   {
-    name: 'lock-or-contention',
-    why: 'a DB/file lock held by a concurrent run — the same work passes clean by hand',
+    hint: () => "likely contention — retry once; the referenced lock is held by another run",
     matches: ({ haystack }) =>
-      /conflicting lock|could not (?:set|acquire)\b[^\n]*\block|database is locked|resource temporarily unavailable|\bebusy\b|\beexist\b/.test(haystack),
-    hint: () => 'likely contention — retry once; the referenced lock is held by another run',
+      /conflicting lock|could not (?:set|acquire)\b[^\n]*\block|database is locked|resource temporarily unavailable|\bebusy\b|\beexist\b/.test(
+        haystack,
+      ),
+    name: "lock-or-contention",
+    why: "a DB/file lock held by a concurrent run — the same work passes clean by hand",
   },
   {
-    name: 'benign-not-found',
-    why: 'an API `*_not_found` (repo/resource) — the target is simply absent, not a code fault',
+    hint: () => "benign not-found — the referenced resource is absent, not a fault",
     matches: ({ haystack }) => /\b[a-z]+_not_found\b/.test(haystack),
-    hint: () => 'benign not-found — the referenced resource is absent, not a fault',
+    name: "benign-not-found",
+    why: "an API `*_not_found` (repo/resource) — the target is simply absent, not a code fault",
   },
   {
-    name: 'missing-auth',
-    why: 'an auth credential is absent (token missing / not authed / invalid)',
-    matches: ({ haystack }) =>
-      /token missing|missing token|not_authed|invalid_auth|not authenticated|\bunauthori[sz]ed\b|bad credentials/.test(haystack),
     hint: ({ facts }) => {
-      const env = envVarFrom({ reason: facts.reason })
+      const env = envVarFrom({ reason: facts.reason });
       return env === undefined
-        ? 'missing auth — set the required token env var (the message names which), or run `gh auth login`'
-        : `missing auth — set ${env}, or run \`gh auth login\``
+        ? "missing auth — set the required token env var (the message names which), or run `gh auth login`"
+        : `missing auth — set ${env}, or run \`gh auth login\``;
     },
+    matches: ({ haystack }) =>
+      /token missing|missing token|not_authed|invalid_auth|not authenticated|\bunauthori[sz]ed\b|bad credentials/.test(
+        haystack,
+      ),
+    name: "missing-auth",
+    why: "an auth credential is absent (token missing / not authed / invalid)",
   },
-]
+];
 
 /**
  * Pure: the one-line hint for a failed run, or null when no known signature matches (stay quiet). Never
  * throws; never reads/writes anything.
  */
 export function failureHint(facts: FailureFacts): string | null {
-  const haystack = `${facts.reason ?? ''}\n${facts.errorClass ?? ''}`.toLowerCase()
+  const haystack = [facts.reason, facts.errorClass]
+    .filter((part) => part !== undefined)
+    .join("\n")
+    .toLowerCase();
   for (const signature of FAILURE_SIGNATURES) {
-    if (signature.matches({ haystack, facts })) {
-      return signature.hint({ facts })
+    if (signature.matches({ facts, haystack })) {
+      return signature.hint({ facts });
     }
   }
-  return null
+  return null;
 }
 
 /** noun (argv[2]) and the verb (argv[3] only when it is a real sub-verb, not a flag). */
 function nounVerbOf({ argv }: { argv: readonly string[] }): { readonly noun: string; readonly verb: string } {
-  const noun = argv[2] ?? ''
-  const candidate = argv[3]
-  return { noun, verb: candidate !== undefined && !candidate.startsWith('-') ? candidate : '' }
+  const [, , noun = "", candidate] = argv; // "" is the "no noun given" sentinel, matching `verb` below
+  return { noun, verb: candidate !== undefined && !candidate.startsWith("-") ? candidate : "" };
 }
 
 /**
@@ -104,16 +110,22 @@ function nounVerbOf({ argv }: { argv: readonly string[] }): { readonly noun: str
  * compute the hint, and (if any) print it to stderr AFTER the verb's own output. Best-effort and
  * side-effect-only: it logs at most one line and returns void, so it can NEVER alter the real exit code.
  */
-export function surfaceFailureHint(input: { readonly argv: readonly string[]; readonly code: number; readonly error?: unknown }): void {
-  const { noun, verb } = nounVerbOf({ argv: input.argv })
+export function surfaceFailureHint(input: {
+  readonly argv: readonly string[];
+  readonly code: number;
+  readonly error?: unknown;
+}): void {
+  const { noun, verb } = nounVerbOf({ argv: input.argv });
   const hint = failureHint({
+    code: input.code,
     noun,
     verb,
-    code: input.code,
-    ...(input.error === undefined ? {} : { errorClass: input.error instanceof Error ? input.error.constructor.name : 'unknown' }),
+    ...(input.error === undefined
+      ? {}
+      : { errorClass: input.error instanceof Error ? input.error.constructor.name : "unknown" }),
     ...(input.error === undefined ? {} : { reason: errorMessage({ error: input.error }) }),
-  })
+  });
   if (hint !== null) {
-    logger.error(hint)
+    logger.error(hint);
   }
 }

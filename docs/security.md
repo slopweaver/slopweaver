@@ -16,7 +16,7 @@ and **none of them is your world-model data leaving**:
    using Claude Code. No separate API key.
 3. **A one-time model download** — the first semantic query downloads the open embedding model
    (`nomic-embed-text-v1.5`) from Hugging Face and caches it under `$SLOPWEAVER_HOME`. This fetches
-   model *weights*; it sends none of your data. After that, embeddings run fully offline, on-device.
+   model _weights_; it sends none of your data. After that, embeddings run fully offline, on-device.
 
 There is no telemetry, no account, and no Slopweaver server — there is no Slopweaver server to send
 anything to.

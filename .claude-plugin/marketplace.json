@@ -1,14 +1,14 @@
 {
-  "name": "slopweaver-dev",
   "description": "Local dev marketplace for Slopweaver — the local-first, zero-key org world model as an installable Claude Code plugin.",
+  "name": "slopweaver-dev",
   "owner": {
     "name": "Lachie James"
   },
   "plugins": [
     {
+      "description": "Build a local-first, zero-key org world model from your GitHub history, packaged as an installable Claude Code plugin.",
       "name": "slopweaver",
       "source": "./",
-      "description": "Build a local-first, zero-key org world model from your GitHub history, packaged as an installable Claude Code plugin.",
       "version": "0.1.0"
     }
   ]

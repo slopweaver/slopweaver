@@ -18,49 +18,49 @@
  *   ├── hygiene-denylist.txt      # the private, uncommitted leak denylist
  *   └── .cache/models/            # on-device embedding model weights (rebuildable)
  */
-import { join } from 'node:path'
+import { join } from "node:path";
 
-import { slopweaverHome } from './config.js'
+import { slopweaverHome } from "./config.js";
 
 /** The on-disk layout version. Bump only with a migration; init stamps it, doctor reports it. */
-export const STATE_HOME_VERSION = 1
+export const STATE_HOME_VERSION = 1;
 
 /** The medallion corpus roots under the home. Leaf paths (per-source, per-window) live in `corpusPaths`. */
 export interface CorpusPaths {
   /** `$home/corpus` — the medallion root. */
-  readonly root: string
+  readonly root: string;
   /** `$home/corpus/bronze` — raw `CorpusRecord` lines per source. */
-  readonly bronze: string
+  readonly bronze: string;
   /** `$home/corpus/silver` — derived directory/graph/digests. */
-  readonly silver: string
+  readonly silver: string;
   /** `$home/corpus/gold` — distilled markdown. */
-  readonly gold: string
+  readonly gold: string;
   /** `$home/corpus/.cache` — rebuildable per-corpus caches (distil batches, vectors). */
-  readonly cache: string
+  readonly cache: string;
   /** `$home/corpus/.watermark.json` — per-source incremental resume cursor. */
-  readonly watermark: string
+  readonly watermark: string;
 }
 
 /** Every absolute path the agent persists under one `$SLOPWEAVER_HOME`. The single home-path contract. */
 export interface StateHomePaths {
   /** The resolved home root itself. */
-  readonly root: string
+  readonly root: string;
   /** `$home/.home-version.json` — the layout-version marker. */
-  readonly homeVersion: string
+  readonly homeVersion: string;
   /** The medallion corpus roots. */
-  readonly corpus: CorpusPaths
+  readonly corpus: CorpusPaths;
   /** `$home/beliefs` — the belief store (contents reserved for PR10). */
-  readonly beliefs: string
+  readonly beliefs: string;
   /** `$home/ledgers` — append-only run logs (dev-gate log/diff; correction ledger reserved for PR12). */
-  readonly ledgers: string
+  readonly ledgers: string;
   /** `$home/identity.json` — the cross-integration identity map (seeded from a template). */
-  readonly identityJson: string
+  readonly identityJson: string;
   /** `$home/profile.json` — the persona/profile seed (seeded from a template). */
-  readonly profileJson: string
+  readonly profileJson: string;
   /** `$home/hygiene-denylist.txt` — the private, uncommitted leak denylist the hygiene gate reads. */
-  readonly hygieneDenylist: string
+  readonly hygieneDenylist: string;
   /** `$home/.cache/models` — the on-device embedding model cache (rebuildable, gitignored). */
-  readonly modelCache: string
+  readonly modelCache: string;
 }
 
 /**
@@ -71,23 +71,23 @@ export interface StateHomePaths {
  * @returns the full typed path contract rooted at `home`
  */
 export function stateHomePaths({ home = slopweaverHome() }: { home?: string } = {}): StateHomePaths {
-  const corpusRoot = join(home, 'corpus')
+  const corpusRoot = join(home, "corpus");
   return {
-    root: home,
-    homeVersion: join(home, '.home-version.json'),
+    beliefs: join(home, "beliefs"),
     corpus: {
+      bronze: join(corpusRoot, "bronze"),
+      cache: join(corpusRoot, ".cache"),
+      gold: join(corpusRoot, "gold"),
       root: corpusRoot,
-      bronze: join(corpusRoot, 'bronze'),
-      silver: join(corpusRoot, 'silver'),
-      gold: join(corpusRoot, 'gold'),
-      cache: join(corpusRoot, '.cache'),
-      watermark: join(corpusRoot, '.watermark.json'),
+      silver: join(corpusRoot, "silver"),
+      watermark: join(corpusRoot, ".watermark.json"),
     },
-    beliefs: join(home, 'beliefs'),
-    ledgers: join(home, 'ledgers'),
-    identityJson: join(home, 'identity.json'),
-    profileJson: join(home, 'profile.json'),
-    hygieneDenylist: join(home, 'hygiene-denylist.txt'),
-    modelCache: join(home, '.cache', 'models'),
-  }
+    homeVersion: join(home, ".home-version.json"),
+    hygieneDenylist: join(home, "hygiene-denylist.txt"),
+    identityJson: join(home, "identity.json"),
+    ledgers: join(home, "ledgers"),
+    modelCache: join(home, ".cache", "models"),
+    profileJson: join(home, "profile.json"),
+    root: home,
+  };
 }

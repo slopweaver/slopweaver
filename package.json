@@ -1,33 +1,5 @@
 {
-  "name": "slopweaver",
-  "version": "0.1.0",
-  "description": "Build a local-first, zero-key org world model from your GitHub history — ingest it, tier it, and ask questions of it, all on your machine.",
-  "type": "module",
-  "packageManager": "yarn@4.17.1",
   "bin": "./dist/cli/index.js",
-  "scripts": {
-    "slopweaver": "tsx src/cli/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run",
-    "hygiene": "bash scripts/check-hygiene.sh",
-    "check:pr-format": "tsx src/prformat/check.ts",
-    "eval": "promptfoo eval -c eval/promptfooconfig.yaml",
-    "eval:view": "promptfoo view -y",
-    "eval:scoreboard": "tsx eval/scoreboardRun.ts",
-    "eval:rebaseline": "tsx src/eval/rebaseline.ts",
-    "dev:gate": "tsx src/cli/index.ts dev gate"
-  },
-  "devDependencies": {
-    "@types/node": "26.1.1",
-    "promptfoo": "0.121.19",
-    "tsx": "4.23.1",
-    "typescript": "7.0.2",
-    "vitest": "4.1.10"
-  },
-  "engines": {
-    "node": ">=24.11"
-  },
   "dependencies": {
     "@octokit/core": "7.0.6",
     "@octokit/plugin-retry": "8.1.0",
@@ -36,7 +8,48 @@
     "@xenova/transformers": "2.17.2",
     "zod": "4.4.3"
   },
+  "description": "Build a local-first, zero-key org world model from your GitHub history — ingest it, tier it, and ask questions of it, all on your machine.",
+  "devDependencies": {
+    "@biomejs/biome": "2.5.4",
+    "@types/node": "26.1.1",
+    "eslint": "10.7.0",
+    "eslint-plugin-regexp": "3.1.1",
+    "eslint-plugin-sonarjs": "4.2.0",
+    "knip": "6.0.6",
+    "lefthook": "2.1.10",
+    "oxlint": "1.57.0",
+    "prettier": "3.9.5",
+    "promptfoo": "0.121.19",
+    "tsx": "4.23.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.64.0",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=24.11"
+  },
+  "name": "slopweaver",
+  "packageManager": "yarn@4.17.1",
   "resolutions": {
     "sharp": "portal:./stubs/sharp"
-  }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check:pr-format": "tsx src/prformat/check.ts",
+    "dev:gate": "tsx src/cli/index.ts dev gate",
+    "eval": "promptfoo eval -c eval/promptfooconfig.yaml",
+    "eval:rebaseline": "tsx src/eval/rebaseline.ts",
+    "eval:scoreboard": "tsx eval/scoreboardRun.ts",
+    "eval:view": "promptfoo view -y",
+    "format": "biome check --write . && prettier --write .",
+    "hygiene": "bash scripts/check-hygiene.sh",
+    "lint": "tsx src/cli/index.ts dev lint",
+    "prepare": "lefthook install || true",
+    "slopweaver": "tsx src/cli/index.ts",
+    "test:unit": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "validate": "yarn lint && yarn typecheck && yarn test:unit"
+  },
+  "type": "module",
+  "version": "0.1.0"
 }

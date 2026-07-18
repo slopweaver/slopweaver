@@ -5,15 +5,15 @@
  * self-describe view (documented verbs + approval/work-item hints). The renderers already existed and were
  * tested; this verb finally exposes them.
  */
-import { logger } from '../../../lib/logger.js'
-import { renderCapabilities, renderCatalog, renderCatalogJson } from '../../catalog.js'
-import { defineCommand } from '../../defineCommand.js'
-import { discoverCommands } from '../../discoverCommands.js'
-import { EXIT_OK, EXIT_USAGE } from '../../exitCodes.js'
-import { NOUN_GROUPS } from '../../nounGroups.js'
-import { parseFlags } from '../../parseFlags.js'
+import { logger } from "../../../lib/logger.js";
+import { renderCapabilities, renderCatalog, renderCatalogJson } from "../../catalog.js";
+import { defineCommand } from "../../defineCommand.js";
+import { discoverCommands } from "../../discoverCommands.js";
+import { EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
+import { NOUN_GROUPS } from "../../nounGroups.js";
+import { parseFlags } from "../../parseFlags.js";
 
-const USAGE = 'usage: slopweaver catalog [--json] [--capabilities]'
+const USAGE = "usage: slopweaver catalog [--json] [--capabilities]";
 
 /**
  * Run the catalog verb.
@@ -22,39 +22,41 @@ const USAGE = 'usage: slopweaver catalog [--json] [--capabilities]'
  * @returns the process exit code
  */
 export function runCatalog(argv: readonly string[]): number {
-  const rest = argv.slice(3)
-  if (rest.includes('--help') || rest.includes('-h')) {
-    logger.out(USAGE)
-    return EXIT_OK
+  const rest = argv.slice(3);
+  if (rest.includes("--help") || rest.includes("-h")) {
+    logger.out(USAGE);
+    return EXIT_OK;
   }
   // Positionals allowed (and ignored) so the bare-noun alias token doesn't trip parsing.
-  const parsed = parseFlags({ args: rest, spec: { boolean: ['json', 'capabilities'] }, allowPositionals: true })
+  const parsed = parseFlags({ allowPositionals: true, args: rest, spec: { boolean: ["json", "capabilities"] } });
   if (parsed.ok === false) {
-    parsed.errors.forEach((e) => { logger.error(`catalog: ${e}`) })
-    logger.error(USAGE)
-    return EXIT_USAGE
+    parsed.errors.forEach((e) => {
+      logger.error(`catalog: ${e}`);
+    });
+    logger.error(USAGE);
+    return EXIT_USAGE;
   }
-  const commands = discoverCommands({ groups: NOUN_GROUPS })
-  if (parsed.value.values.json === true) {
-    logger.out(renderCatalogJson({ commands }))
-  } else if (parsed.value.values.capabilities === true) {
-    logger.out(renderCapabilities({ commands }))
+  const commands = discoverCommands({ groups: NOUN_GROUPS });
+  if (parsed.value.values["json"] === true) {
+    logger.out(renderCatalogJson({ commands }));
+  } else if (parsed.value.values["capabilities"] === true) {
+    logger.out(renderCapabilities({ commands }));
   } else {
-    logger.out(renderCatalog({ commands }))
+    logger.out(renderCatalog({ commands }));
   }
-  return EXIT_OK
+  return EXIT_OK;
 }
 
 export const catalogRunCommand = defineCommand({
-  summary: 'List the command surface (human, --json, or --capabilities) from the registry',
-  usage: USAGE,
-  example: 'slopweaver catalog --json',
-  parseRejectIsIoFree: true,
-  effect: 'none',
-  requiresApproval: false,
   createsWorkItem: false,
+  diagnostic: false,
   doorRouted: false,
   dryParseSafe: false,
-  diagnostic: false,
+  effect: "none",
+  example: "slopweaver catalog --json",
+  parseRejectIsIoFree: true,
+  requiresApproval: false,
   run: runCatalog,
-})
+  summary: "List the command surface (human, --json, or --capabilities) from the registry",
+  usage: USAGE,
+});

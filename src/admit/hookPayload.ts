@@ -3,13 +3,11 @@
  * `Bash` command. Lives in `src/admit/` (not the hook file) so it is unit-tested like the rest of the door;
  * `hooks/pretooluse-admit.ts` is the thin effectful shell that reads stdin + env and sets the exit code.
  */
-import { isRecord } from '../lib/parsers.js'
-import { classifyRawCommand } from './rawTools.js'
+import { isRecord } from "../lib/parsers.js";
+import { classifyRawCommand } from "./rawTools.js";
 
 /** The hook's decision — a discriminated union so a `block` ALWAYS carries a message (no optional fallback). */
-export type HookDecision =
-  | { readonly block: true; readonly message: string }
-  | { readonly block: false }
+export type HookDecision = { readonly block: true; readonly message: string } | { readonly block: false };
 
 /**
  * Decide a PreToolUse payload. FAIL-CLOSED: a malformed payload (not an object) or a `Bash` call missing
@@ -22,15 +20,21 @@ export type HookDecision =
  */
 export function evaluateHookPayload({ payload, allowRaw }: { payload: unknown; allowRaw: boolean }): HookDecision {
   if (!isRecord(payload)) {
-    return { block: true, message: 'pretooluse-admit: malformed PreToolUse payload (not an object) — blocking (fail closed)' }
+    return {
+      block: true,
+      message: "pretooluse-admit: malformed PreToolUse payload (not an object) — blocking (fail closed)",
+    };
   }
-  if (payload.tool_name !== 'Bash') {
-    return { block: false }
+  if (payload["tool_name"] !== "Bash") {
+    return { block: false };
   }
-  const input = payload.tool_input
-  if (!isRecord(input) || typeof input.command !== 'string') {
-    return { block: true, message: 'pretooluse-admit: Bash payload is missing tool_input.command — blocking (fail closed)' }
+  const input = payload["tool_input"];
+  if (!isRecord(input) || typeof input["command"] !== "string") {
+    return {
+      block: true,
+      message: "pretooluse-admit: Bash payload is missing tool_input.command — blocking (fail closed)",
+    };
   }
-  const verdict = classifyRawCommand({ command: input.command, allowRaw })
-  return verdict.blocked ? { block: true, message: verdict.message } : { block: false }
+  const verdict = classifyRawCommand({ allowRaw, command: input["command"] });
+  return verdict.blocked ? { block: true, message: verdict.message } : { block: false };
 }

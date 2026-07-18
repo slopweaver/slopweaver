@@ -1,24 +1,24 @@
 {
-  "name": "slopweaver",
-  "version": "0.1.0",
-  "description": "Build a local-first, zero-key org world model from your GitHub history — ingest it, tier it (bronze→silver→gold), and ask questions of it, all on your machine.",
   "author": {
     "name": "Lachie James"
   },
+  "description": "Build a local-first, zero-key org world model from your GitHub history — ingest it, tier it (bronze→silver→gold), and ask questions of it, all on your machine.",
   "keywords": ["world-model", "github", "local-first", "zero-key", "retrieval", "productivity"],
+  "name": "slopweaver",
   "userConfig": {
-    "SLOPWEAVER_HOME": {
-      "type": "directory",
-      "title": "Slopweaver home",
-      "description": "Where Slopweaver stores your local world model",
-      "required": false
-    },
     "GITHUB_TOKEN": {
-      "type": "string",
-      "title": "GitHub token (optional)",
       "description": "Leave blank to use your existing `gh` CLI login (recommended — no token to manage). Only set this if you don't use the `gh` CLI: a fine-grained read-only PAT.",
+      "required": false,
       "sensitive": true,
-      "required": false
+      "title": "GitHub token (optional)",
+      "type": "string"
+    },
+    "SLOPWEAVER_HOME": {
+      "description": "Where Slopweaver stores your local world model",
+      "required": false,
+      "title": "Slopweaver home",
+      "type": "directory"
     }
-  }
+  },
+  "version": "0.1.0"
 }

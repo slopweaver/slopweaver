@@ -9,12 +9,12 @@ positional. This holds for single-param functions too.
 
 ```typescript
 // WRONG
-function bronzeFile(source: string, window: ExportWindow): string
-redactText("some text")
+function bronzeFile(source: string, window: ExportWindow): string;
+redactText("some text");
 
 // CORRECT
-function bronzeFile({ source, window }: { source: string; window: ExportWindow }): string
-redactText({ text: "some text" })
+function bronzeFile({ source, window }: { source: string; window: ExportWindow }): string;
+redactText({ text: "some text" });
 ```
 
 **Exceptions** (positional is correct):
@@ -24,9 +24,9 @@ redactText({ text: "some text" })
   destructuring in a predicate. Keep them positional: `isRecord(value): value is Record<…>`.
 - **Inline callbacks** passed to array/promise methods: `.map(x => …)`, `.filter(…)`, `.reduce(…)`.
 - **Library-pattern primitives** — small combinators/utilities used pervasively like an external lib:
-  the `Result` combinators (`ok`, `err`, `unwrap`, `unwrapErr`, `resultErrors`) and the `logger`
+  the `Result` combinators (`ok`, `err`, `unwrap`, `unwrapErr`) and the `logger`
   methods (`logger.info(msg)`, `.error`, `.warn`, `.debug`, `.out`). Converting these to object params
-  would be as noisy as `console.log({ msg })`. Their *internal* helpers still use object params.
+  would be as noisy as `console.log({ msg })`. Their _internal_ helpers still use object params.
 - **Framework/handler signatures** the runtime dictates — the CLI verb contract
   `(argv: readonly string[]) => number | Promise<number>` (e.g. `main`, `runDoctor`, `runRefresh`).
 

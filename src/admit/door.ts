@@ -8,17 +8,20 @@
  * the agent sees and can re-issue past with `$SLOPWEAVER_DOOR_OVERRIDE=<token>`; a `hold` is the
  * irreversible-harm core and is NOT waivable by that per-action token.
  */
-import type { DoorDecision, DoorFinding, DoorGate, DoorRequest, DoorStatus } from './types.js'
+import type { DoorDecision, DoorFinding, DoorGate, DoorRequest, DoorStatus } from "./types.js";
 
 /** The empty compose seam. PR2 ships zero real gates on purpose; PR9/PR14 append to a caller's gate list. */
-export const DEFAULT_GATES: readonly DoorGate[] = []
+export const DEFAULT_GATES: readonly DoorGate[] = [];
 
 /** Whether `$SLOPWEAVER_DOOR_OVERRIDE` (a comma-separated token list) carries this warn's override token. */
 function isOverridden({ token, overrideEnv }: { token: string; overrideEnv: string | undefined }): boolean {
   if (overrideEnv === undefined) {
-    return false
+    return false;
   }
-  return overrideEnv.split(',').map((t) => t.trim()).includes(token)
+  return overrideEnv
+    .split(",")
+    .map((t) => t.trim())
+    .includes(token);
 }
 
 /**
@@ -32,27 +35,29 @@ function isOverridden({ token, overrideEnv }: { token: string; overrideEnv: stri
  * @param gates the ordered gate list (pass {@link DEFAULT_GATES} for the empty compose seam)
  * @returns the decision: status + surviving findings + the findings an override waived
  */
-export function admitDoor(
-  { request, env, gates }: {
-    request: DoorRequest
-    env: Readonly<Record<string, string | undefined>>
-    gates: readonly DoorGate[]
-  },
-): DoorDecision {
-  const overrideEnv = env.SLOPWEAVER_DOOR_OVERRIDE
-  const overridden: DoorFinding[] = []
-  const active: DoorFinding[] = []
+export function admitDoor({
+  request,
+  env,
+  gates,
+}: {
+  request: DoorRequest;
+  env: Readonly<Record<string, string | undefined>>;
+  gates: readonly DoorGate[];
+}): DoorDecision {
+  const overrideEnv = env["SLOPWEAVER_DOOR_OVERRIDE"];
+  const overridden: DoorFinding[] = [];
+  const active: DoorFinding[] = [];
   for (const finding of gates.flatMap((gate) => gate(request))) {
-    if (finding.severity === 'warn' && isOverridden({ token: finding.override, overrideEnv })) {
-      overridden.push(finding)
+    if (finding.severity === "warn" && isOverridden({ overrideEnv, token: finding.override })) {
+      overridden.push(finding);
     } else {
-      active.push(finding)
+      active.push(finding);
     }
   }
-  const status: DoorStatus = active.some((f) => f.severity === 'hold')
-    ? 'hold'
-    : active.some((f) => f.severity === 'warn')
-      ? 'warn'
-      : 'pass'
-  return { status, findings: active, overridden }
+  const status: DoorStatus = active.some((f) => f.severity === "hold")
+    ? "hold"
+    : active.some((f) => f.severity === "warn")
+      ? "warn"
+      : "pass";
+  return { findings: active, overridden, status };
 }
