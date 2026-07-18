@@ -11,12 +11,12 @@ const refreshMeta = {
   doorRouted: false,
   dryParseSafe: false,
   effect: "local-state",
-  example: "slopweaver refresh --repo octocat/Hello-World",
+  example: "slopweaver refresh --all-sources --since 2026-04-01",
   parseRejectIsIoFree: false,
   requiresApproval: false,
-  summary: "Ingest recent GitHub activity into the local bronze corpus",
+  summary: "Ingest recent GitHub/Slack/Linear/Notion activity into the local bronze corpus",
   usage:
-    "usage: slopweaver refresh [--repo owner/repo] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--lookback-days N] [--no-enrich]",
+    "usage: slopweaver refresh [--repo owner/repo] [--source github|slack|linear|notion]... [--all-sources] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all] [--slack-channel <id>]... [--lookback-days N] [--no-enrich]",
 } as const;
 
 const loadRefresh = () => import("../commands/refresh/run.js").then((m) => m.refreshRunCommand);

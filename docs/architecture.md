@@ -23,14 +23,19 @@ GitHub  ──refresh──▶  bronze  ──derive──▶  silver  ──dis
 Everything hangs off one source-agnostic record — `CorpusRecord` (`src/corpus/types.ts`): `source`,
 `sourceId`, `url`, `tsIso`, `kind`, `container`, `text`, `refs`, optional `author`/`title`. Connectors
 project their data into this shape; every downstream stage consumes it, so adding a source never
-touches the pipeline. v0.1 ships one connector (GitHub) plus a synthetic `gold` source.
+touches the pipeline. Bronze is fed by direct-SDK connectors for **GitHub, Slack, Linear, and Notion**
+(no MCP — single-package API clients) plus a synthetic `gold` source.
 
 ## Stages
 
-- **refresh → bronze** (`src/corpus/`): a two-lane GitHub connector — REST search discovers the PRs/
-  issues touched in a window, GraphQL enriches each with reviews/comments/CI/timeline — projected
-  (pure) into records, then redacted → fingerprint-deduped → written as JSONL with a per-source
-  watermark for incremental resume.
+- **refresh → bronze** (`src/corpus/`): per-source direct-SDK connectors, each an effectful fetch edge
+  (behind an injected seam) + a pure projection into `CorpusRecord` — GitHub (REST search + GraphQL
+  activity), Slack (all accessible channels: messages/threads/reactions + ref-only file/image
+  attachments), Linear (issues/projects/comments/status via `@linear/sdk`), Notion (pages + databases,
+  recursive blocks chunked). All flow through the one redact → fingerprint-dedup → JSONL writer with a
+  per-source watermark for incremental resume. `refresh --source <id>` / `--all-sources` select sources;
+  bare `refresh` stays GitHub-only. Tokens resolve from env / `$SLOPWEAVER_HOME/secrets/*` (GitHub is
+  gh-first); no data leaves the machine.
 - **derive → silver** (`src/silver/`): free, deterministic synthesis — a people/container directory, a
   cross-ref graph (shared-token cliques), and opportunity detection (cross-cutting / blocker /
   duplication). A full re-scan each run.

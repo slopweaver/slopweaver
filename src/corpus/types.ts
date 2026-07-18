@@ -10,23 +10,50 @@
  */
 
 /**
- * Origin system of a record. `github` is fetched into bronze; `gold` is the SYNTHETIC source for gold
- * markdown read back as records (so distilled findings are retrievable/citable alongside bronze). The
- * union widens as connectors are added.
+ * Origin system of a record. `github`/`slack`/`linear`/`notion` are fetched into bronze; `gold` is the
+ * SYNTHETIC source for gold markdown read back as records (so distilled findings are retrievable/citable
+ * alongside bronze). The union widens as connectors are added.
  */
-export type CorpusSource = "github" | "gold";
+export type CorpusSource = "github" | "slack" | "linear" | "notion" | "gold";
 
 /**
  * The sources the refresh loop fetches + watermarks. `gold` is deliberately excluded — it's synthesised
  * by the gold stage, never fetched or written to bronze. Kept as a value so callers can iterate it.
  */
-export const CORPUS_SOURCES: readonly CorpusSource[] = ["github"];
+export const CORPUS_SOURCES: readonly CorpusSource[] = ["github", "slack", "linear", "notion"];
 
-/** The unit a record represents. GitHub produces the first four; `finding` is a gold section. */
-export type CorpusKind = "pr" | "issue" | "comment" | "review" | "finding";
+/**
+ * The unit a record represents, kept source-neutral so downstream stages never branch per source:
+ * GitHub → `pr`/`issue`/`comment`/`review`; Slack → `message`/`comment`/`file`; Linear →
+ * `issue`/`comment`/`project`/`status`; Notion → `page`/`database`/`comment`; `finding` is a gold section.
+ */
+export type CorpusKind =
+  | "pr"
+  | "issue"
+  | "comment"
+  | "review"
+  | "finding"
+  | "message"
+  | "file"
+  | "page"
+  | "database"
+  | "status"
+  | "project";
 
 /** Runtime mirror of {@link CorpusKind} for round-trip validation when reading records back. */
-export const CORPUS_KINDS: readonly CorpusKind[] = ["pr", "issue", "comment", "review", "finding"];
+export const CORPUS_KINDS: readonly CorpusKind[] = [
+  "pr",
+  "issue",
+  "comment",
+  "review",
+  "finding",
+  "message",
+  "file",
+  "page",
+  "database",
+  "status",
+  "project",
+];
 
 /**
  * One durable unit of activity, normalised. Every field is `readonly` — records are values, never

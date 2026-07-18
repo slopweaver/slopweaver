@@ -7,10 +7,12 @@
  * reads or writes secrets to disk.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { err, ok, type Result } from "./lib/result.js";
+import { secretFilePath } from "./stateHome.js";
 
 /** A GitHub repository coordinate. */
 export interface Repository {
@@ -104,4 +106,78 @@ export function githubToken(): string | undefined {
     return fromEnv.trim();
   }
   return tokenFromGhCli();
+}
+
+/**
+ * Resolve a source token: the first non-empty env var in `envNames`, else the contents of a local
+ * secret file under `$SLOPWEAVER_HOME`. The file path lets a user keep an own-your-data token off the
+ * environment; it is never scaffolded, printed, synced, or committed. Contents are trimmed; a blank
+ * value is treated as absent. Never logs the token.
+ *
+ * @param envNames the environment variable names to try, in precedence order
+ * @param secretName the secret filename under `$SLOPWEAVER_HOME/secrets` (e.g. `slack-user-token`)
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the resolved token, or undefined when neither env nor file yields one
+ */
+export function tokenFromEnvOrHomeFile({
+  envNames,
+  secretName,
+  home = slopweaverHome(),
+}: {
+  envNames: readonly string[];
+  secretName: string;
+  home?: string;
+}): string | undefined {
+  for (const name of envNames) {
+    const fromEnv = process.env[name];
+    if (fromEnv != null && fromEnv.trim().length > 0) {
+      return fromEnv.trim();
+    }
+  }
+  try {
+    const fromFile = readFileSync(secretFilePath({ home, name: secretName }), "utf8").trim();
+    return fromFile.length > 0 ? fromFile : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The Slack USER token (`xoxp-`): `SLACK_USER_TOKEN`, else `$SLOPWEAVER_HOME/secrets/slack-user-token`.
+ * A user token can list + read history of every public channel the user can access (even un-joined) plus
+ * their private channels — the breadth the "read all my tools" ingest needs.
+ *
+ * @returns the token, or undefined when unconfigured
+ */
+export function slackUserToken(): string | undefined {
+  return tokenFromEnvOrHomeFile({ envNames: ["SLACK_USER_TOKEN"], secretName: "slack-user-token" });
+}
+
+/**
+ * The Slack BOT token (`xoxb-`): `SLACK_BOT_TOKEN`, else `$SLOPWEAVER_HOME/secrets/slack-bot-token`. A bot
+ * token only reads channels the bot was invited to; it's the read-fallback and the token for posting-as-bot
+ * in later write PRs.
+ *
+ * @returns the token, or undefined when unconfigured
+ */
+export function slackBotToken(): string | undefined {
+  return tokenFromEnvOrHomeFile({ envNames: ["SLACK_BOT_TOKEN"], secretName: "slack-bot-token" });
+}
+
+/**
+ * The Linear token: `LINEAR_API_KEY`/`LINEAR_TOKEN`, else `$SLOPWEAVER_HOME/secrets/linear-token`.
+ *
+ * @returns the token, or undefined when unconfigured
+ */
+export function linearToken(): string | undefined {
+  return tokenFromEnvOrHomeFile({ envNames: ["LINEAR_API_KEY", "LINEAR_TOKEN"], secretName: "linear-token" });
+}
+
+/**
+ * The Notion token: `NOTION_TOKEN`/`NOTION_API_KEY`, else `$SLOPWEAVER_HOME/secrets/notion-token`.
+ *
+ * @returns the token, or undefined when unconfigured
+ */
+export function notionToken(): string | undefined {
+  return tokenFromEnvOrHomeFile({ envNames: ["NOTION_TOKEN", "NOTION_API_KEY"], secretName: "notion-token" });
 }

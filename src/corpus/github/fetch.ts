@@ -46,8 +46,13 @@ interface SearchArgs {
 /** Injected REST search seam. Items are parsed defensively, so the raw shape stays `unknown`. */
 export type SearchIssues = (args: SearchArgs) => Promise<{ data: { items: readonly unknown[] } }>;
 
+/** Injected repo-existence precheck: `ok` when the repo is reachable, `err` with a clear message otherwise. */
+export type CheckRepo = (args: { repo: Repository }) => Promise<Result<void>>;
+
 export interface FetchItemsDeps {
   readonly searchIssues: SearchIssues;
+  /** Optional precheck run BEFORE search — turns a bad org/repo slug into one clear line, not a raw 404. */
+  readonly checkRepo?: CheckRepo;
   /** Absent ⇒ discovery only, no enrichment (atoms carry no reviews/comments/state). */
   readonly fetchActivity?: FetchGithubActivity;
   readonly pageCap?: number;
@@ -155,6 +160,13 @@ async function enrichAll({
 export function makeGithubFetchItems(deps: FetchItemsDeps): FetchGithubItems {
   const pageCap = deps.pageCap ?? DEFAULT_PAGE_CAP;
   return async ({ repo, window }) => {
+    // Precheck the repo first: a typo'd org/repo slug becomes one actionable line instead of a raw search 404.
+    if (deps.checkRepo !== undefined) {
+      const reachable = await deps.checkRepo({ repo });
+      if (reachable.ok === false) {
+        return reachable;
+      }
+    }
     const q = `repo:${repo.owner}/${repo.repo} updated:${window.since}..${window.until}`;
     const searched = await searchAll({ pageCap, q, searchIssues: deps.searchIssues });
     if (searched.ok === false) {
@@ -216,10 +228,23 @@ export function githubFetchItems({
     });
     return { data: { items: res.data.items } };
   };
+  const checkRepo: CheckRepo = async ({ repo }) => {
+    try {
+      await client.rest.repos.get({ owner: repo.owner, repo: repo.repo });
+      return ok(undefined);
+    } catch (error: unknown) {
+      const status = isRecord(error) && typeof error["status"] === "number" ? error["status"] : undefined;
+      if (status === 404 || status === 422 || status === 403) {
+        return err([`repo ${repo.owner}/${repo.repo} not found or inaccessible — check the org slug`]);
+      }
+      return err([error instanceof Error ? error.message : "github repo precheck failed"]);
+    }
+  };
   const fetchActivity = enrich
     ? makeFetchGithubActivity({ graphql: (query, variables) => client.graphql(query, variables) })
     : undefined;
   return makeGithubFetchItems({
+    checkRepo,
     searchIssues,
     ...(fetchActivity !== undefined ? { fetchActivity } : {}),
     ...(onProgress !== undefined ? { onProgress } : {}),

@@ -1,29 +1,48 @@
 /**
- * `slopweaver refresh` — the bronze ingest. Resolves the target repo (from `--repo` or the git remote)
- * and a token (gh-first), computes an incremental window from the watermark, fetches + projects GitHub
- * activity into `CorpusRecord`s, writes them (redacted, deduped) to the bronze corpus, and advances
- * the watermark. Derive/distil (silver/gold) are separate verbs; this one only fills bronze.
- *
- * GitHub's GraphQL API needs auth, so an unauthenticated run degrades to discovery-only (atoms without
- * reviews/comments) rather than firing a failing enrichment call per item.
+ * `slopweaver refresh` — the bronze ingest across every source. Bare `refresh` stays GitHub-only for
+ * back-compat; `--source <id>` (repeatable) and `--all-sources` select Slack/Linear/Notion/GitHub, each
+ * fetched over its own incremental window (per-source watermark; `--since`/`--all` override depth,
+ * default ~90 days for the new sources), projected into `CorpusRecord`s, and committed through the one
+ * write+watermark path (`ingestSource`). A requested source with no token is a usage error before any
+ * network. Derive/distil (silver/gold) are separate verbs; this one only fills bronze.
  */
 
-import { githubToken, parseRepositorySlug, resolveRepository, slopweaverHome } from "../../../config.js";
+import {
+  githubToken,
+  linearToken,
+  notionToken,
+  parseRepositorySlug,
+  resolveRepository,
+  slackBotToken,
+  slackUserToken,
+  slopweaverHome,
+} from "../../../config.js";
 import { bronzeDir } from "../../../corpus/corpusPaths.js";
-import { writeCorpusRecords } from "../../../corpus/corpusWriter.js";
 import { githubFetchItems } from "../../../corpus/github/fetch.js";
 import { projectGithubRecords } from "../../../corpus/github/project.js";
-import type { ExportWindow } from "../../../corpus/types.js";
-import { advanceWatermark, computeSourceWatermarks, readWatermark, resolveSince } from "../../../corpus/watermark.js";
+import { ingestSources, type SourceIngestJob } from "../../../corpus/ingestSource.js";
+import { fetchLinearActivity, makeLinearApi } from "../../../corpus/linear/fetch.js";
+import { projectLinearRecords } from "../../../corpus/linear/project.js";
+import { fetchNotionActivity, makeNotionApi } from "../../../corpus/notion/fetch.js";
+import { projectNotionRecords } from "../../../corpus/notion/project.js";
+import { fetchSlackActivity, makeSlackApi, resolveSlackReadToken } from "../../../corpus/slack/fetch.js";
+import { projectSlackRecords } from "../../../corpus/slack/project.js";
+import { readThreadCursors, writeThreadCursors } from "../../../corpus/slack/threadCursors.js";
+import type { CorpusRecord, CorpusSource, ExportWindow } from "../../../corpus/types.js";
+import { readWatermark, resolveSince } from "../../../corpus/watermark.js";
 import { logger } from "../../../lib/logger.js";
+import { err, ok, type Result } from "../../../lib/result.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_ERROR, EXIT_EXPECTED_EMPTY, EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
 import { parseFlagTail, parsePositiveInteger } from "../../optionParsers.js";
 
 const USAGE =
-  "usage: slopweaver refresh [--repo owner/repo] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--lookback-days N] [--no-enrich]";
+  "usage: slopweaver refresh [--repo owner/repo] [--source github|slack|linear|notion]... [--all-sources] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all] [--slack-channel <id>]... [--lookback-days N] [--no-enrich]";
 
-const DEFAULT_LOOKBACK_DAYS = 7;
+const GITHUB_LOOKBACK_DAYS = 7;
+const SOURCE_LOOKBACK_DAYS = 90;
+const EPOCH_SINCE = "1970-01-01";
+const FETCHABLE: readonly CorpusSource[] = ["github", "slack", "linear", "notion"];
 
 /** A UTC date `days` from today, as `YYYY-MM-DD`. */
 function todayPlus({ days }: { days: number }): string {
@@ -39,6 +58,176 @@ function isoMinusDays({ untilDate, days }: { untilDate: string; days: number }):
   return date.toISOString().slice(0, 10);
 }
 
+/** Collect every `--flag value` occurrence out of the tail, returning the values + the remaining tail. */
+function collectRepeated({ rest, flag }: { rest: readonly string[]; flag: string }): {
+  readonly values: readonly string[];
+  readonly rest: readonly string[];
+} {
+  const values: string[] = [];
+  const remaining: string[] = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    const token = rest[i]!;
+    const next = rest[i + 1];
+    if (token === flag && next !== undefined && !next.startsWith("-")) {
+      values.push(next);
+      i += 1;
+      continue;
+    }
+    remaining.push(token);
+  }
+  return { rest: remaining, values };
+}
+
+/** Resolve the selected sources: `--all-sources` → all; else the `--source` list; else GitHub-only. */
+function selectedSources({
+  sources,
+  allSources,
+}: {
+  sources: readonly string[];
+  allSources: boolean;
+}): Result<readonly CorpusSource[]> {
+  if (allSources) {
+    return ok(FETCHABLE);
+  }
+  if (sources.length === 0) {
+    return ok(["github"]);
+  }
+  const invalid = sources.filter((source): boolean => !FETCHABLE.includes(source as CorpusSource));
+  if (invalid.length > 0) {
+    return err([`unknown --source: ${invalid.join(", ")} (expected ${FETCHABLE.join("|")})`]);
+  }
+  const unique = [...new Set(sources)].filter((source): source is CorpusSource =>
+    FETCHABLE.includes(source as CorpusSource),
+  );
+  return ok(unique);
+}
+
+/** Compute a source's window: watermark cursor → `since`, or `--all`/`--since`/default-lookback fallback. */
+function windowFor({
+  source,
+  home,
+  until,
+  sinceFlag,
+  all,
+}: {
+  source: CorpusSource;
+  home: string;
+  until: string;
+  sinceFlag: string | undefined;
+  all: boolean;
+}): ExportWindow {
+  const lookback = source === "github" ? GITHUB_LOOKBACK_DAYS : SOURCE_LOOKBACK_DAYS;
+  const fallbackSince = all ? EPOCH_SINCE : isoMinusDays({ days: lookback, untilDate: until.slice(0, 10) });
+  const since = sinceFlag ?? resolveSince({ cursor: readWatermark({ home, source }), fallbackSince });
+  return { since, until };
+}
+
+/** Build the GitHub ingest job (unchanged discovery+enrichment behaviour, wrapped as a source job). */
+function githubJob({
+  repoSlug,
+  window,
+  noEnrich,
+}: {
+  repoSlug: string | undefined;
+  window: ExportWindow;
+  noEnrich: boolean;
+}): Result<SourceIngestJob> {
+  const repoResult = repoSlug !== undefined ? parseRepositorySlug({ slug: repoSlug }) : resolveRepository();
+  if (repoResult.ok === false) {
+    return repoResult;
+  }
+  const repo = repoResult.value;
+  const token = githubToken();
+  const enrich = !noEnrich && token !== undefined;
+  if (token === undefined) {
+    logger.warn("no GitHub auth (set GITHUB_TOKEN or run `gh auth login`) — discovery-only, no reviews/comments");
+  }
+  return ok({
+    label: `${repo.owner}/${repo.repo}`,
+    run: async (): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> => {
+      const fetched = await githubFetchItems({ enrich, ...(token !== undefined ? { token } : {}) })({ repo, window });
+      if (fetched.ok === false) {
+        return fetched;
+      }
+      return ok({
+        records: projectGithubRecords({ items: fetched.value, repo: `${repo.owner}/${repo.repo}` }),
+        warnings: fetched.warnings,
+      });
+    },
+    source: "github",
+    window,
+  });
+}
+
+/** Build a Slack/Linear/Notion job from its token + window (token presence checked by the caller). */
+function sourceJob({
+  source,
+  token,
+  window,
+  slackChannels,
+  home,
+}: {
+  source: "slack" | "linear" | "notion";
+  token: string;
+  window: ExportWindow;
+  slackChannels: readonly string[];
+  home: string;
+}): SourceIngestJob {
+  const run = async (): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> => {
+    if (source === "slack") {
+      // Incremental reply reads: read the per-thread cursors, fetch only new replies, persist the update.
+      const fetched = await fetchSlackActivity({
+        api: makeSlackApi({ token }),
+        threadCursors: readThreadCursors({ home }),
+        window,
+        ...(slackChannels.length > 0 ? { channelFilter: slackChannels } : {}),
+      });
+      if (fetched.ok === false) {
+        return fetched;
+      }
+      const stored = writeThreadCursors({ cursors: fetched.value.threadCursors, home });
+      const warnings = stored.ok
+        ? fetched.value.warnings
+        : [...fetched.value.warnings, ...stored.errors.map((e) => `thread-cursor persist failed: ${e}`)];
+      return ok({
+        records: projectSlackRecords({ channels: fetched.value.channels, maps: fetched.value.maps }),
+        warnings,
+      });
+    }
+    if (source === "linear") {
+      const fetched = await fetchLinearActivity({ api: makeLinearApi({ token }), window });
+      return fetched.ok ? ok({ records: projectLinearRecords(fetched.value), warnings: [] }) : fetched;
+    }
+    const fetched = await fetchNotionActivity({ api: makeNotionApi({ token }), window });
+    return fetched.ok
+      ? ok({ records: projectNotionRecords(fetched.value), warnings: fetched.value.warnings })
+      : fetched;
+  };
+  return { label: source, run, source, window };
+}
+
+/** The env/home token for Linear/Notion. Slack uses the two-token {@link slackReadToken} instead. */
+function tokenFor({ source }: { source: "linear" | "notion" }): string | undefined {
+  return source === "linear" ? linearToken() : notionToken();
+}
+
+/** The Slack READ token: a user token wins; a bot token is the fallback with a limited-visibility warning. */
+function slackReadToken(): { token?: string; warning?: string } {
+  return resolveSlackReadToken({ botToken: slackBotToken(), userToken: slackUserToken() });
+}
+
+/** Resolve a requested source's token (Slack read-token vs Linear/Notion), or undefined when unconfigured. */
+function sourceToken({ source }: { source: "slack" | "linear" | "notion" }): string | undefined {
+  return source === "slack" ? slackReadToken().token : tokenFor({ source });
+}
+
+/** The env-var hint for a source with no configured token (Slack lists both of its token env vars). */
+function tokenHint({ source }: { source: "slack" | "linear" | "notion" }): string {
+  return source === "slack"
+    ? "set SLACK_USER_TOKEN (or SLACK_BOT_TOKEN) or $SLOPWEAVER_HOME/secrets/slack-user-token"
+    : `set ${source.toUpperCase()}_TOKEN or $SLOPWEAVER_HOME/secrets/${source}-token`;
+}
+
 /**
  * Run the refresh verb.
  *
@@ -46,14 +235,16 @@ function isoMinusDays({ untilDate, days }: { untilDate: string; days: number }):
  * @returns the process exit code
  */
 export async function runRefresh(argv: readonly string[]): Promise<number> {
-  const rest = argv.slice(3);
-  if (rest.includes("--help") || rest.includes("-h")) {
+  const rawRest = argv.slice(3);
+  if (rawRest.includes("--help") || rawRest.includes("-h")) {
     logger.out(USAGE);
     return EXIT_OK;
   }
+  const afterSources = collectRepeated({ flag: "--source", rest: rawRest });
+  const afterChannels = collectRepeated({ flag: "--slack-channel", rest: afterSources.rest });
   const parsed = parseFlagTail({
-    rest,
-    spec: { boolean: ["no-enrich"], value: ["repo", "since", "until", "lookback-days", "home"] },
+    rest: afterChannels.rest,
+    spec: { boolean: ["no-enrich", "all-sources", "all"], value: ["repo", "since", "until", "lookback-days", "home"] },
   });
   if (parsed.ok === false) {
     parsed.errors.forEach((e) => {
@@ -63,22 +254,21 @@ export async function runRefresh(argv: readonly string[]): Promise<number> {
     return EXIT_USAGE;
   }
   const { values, flags } = parsed.value;
-
   const home = values["home"] ?? slopweaverHome();
-  const repoResult = values["repo"] !== undefined ? parseRepositorySlug({ slug: values["repo"] }) : resolveRepository();
-  if (repoResult.ok === false) {
-    repoResult.errors.forEach((e) => {
+
+  const chosen = selectedSources({ allSources: flags.has("all-sources"), sources: afterSources.values });
+  if (chosen.ok === false) {
+    chosen.errors.forEach((e) => {
       logger.error(e);
     });
+    logger.error(USAGE);
     return EXIT_USAGE;
   }
-  const repo = repoResult.value;
 
   const flagErrors: string[] = [];
-  const lookbackDays =
-    values["lookback-days"] !== undefined
-      ? parsePositiveInteger({ errors: flagErrors, label: "--lookback-days", value: values["lookback-days"] })
-      : DEFAULT_LOOKBACK_DAYS;
+  if (values["lookback-days"] !== undefined) {
+    parsePositiveInteger({ errors: flagErrors, label: "--lookback-days", value: values["lookback-days"] });
+  }
   if (flagErrors.length > 0) {
     flagErrors.forEach((e) => {
       logger.error(e);
@@ -87,59 +277,74 @@ export async function runRefresh(argv: readonly string[]): Promise<number> {
   }
 
   const until = values["until"] ?? todayPlus({ days: 1 });
-  const fallbackSince = isoMinusDays({ days: lookbackDays, untilDate: until.slice(0, 10) });
-  const since = values["since"] ?? resolveSince({ cursor: readWatermark({ home, source: "github" }), fallbackSince });
-  const window: ExportWindow = { since, until };
+  const sinceFlag = values["since"];
+  const all = flags.has("all");
 
-  const token = githubToken();
-  const enrich = !flags.has("no-enrich") && token !== undefined;
-  if (token === undefined) {
-    logger.warn("no GitHub auth (set GITHUB_TOKEN or run `gh auth login`) — discovery-only, no reviews/comments");
-  }
-  logger.info(`refresh ${repo.owner}/${repo.repo} · window ${since}..${until}`);
-
-  const fetchItems = githubFetchItems({
-    ...(token !== undefined ? { token } : {}),
-    enrich,
-    onProgress: ({ number, index, total }) => {
-      logger.info(`  enriched #${String(number)} (${String(index)}/${String(total)})`);
-    },
-  });
-  const fetched = await fetchItems({ repo, window });
-  if (fetched.ok === false) {
-    fetched.errors.forEach((e) => {
-      logger.error(e);
+  // A requested non-GitHub source with no token is a usage error BEFORE any network/write.
+  const missing = chosen.value
+    .filter((source): source is "slack" | "linear" | "notion" => source !== "github")
+    .filter((source) => sourceToken({ source }) === undefined);
+  if (missing.length > 0) {
+    missing.forEach((source) => {
+      logger.error(`refresh: ${source} requested but no token (${tokenHint({ source })})`);
     });
+    return EXIT_USAGE;
+  }
+
+  const jobs: SourceIngestJob[] = [];
+  for (const source of chosen.value) {
+    const window = windowFor({ all, home, sinceFlag, source, until });
+    if (source === "github") {
+      const built = githubJob({ noEnrich: flags.has("no-enrich"), repoSlug: values["repo"], window });
+      if (built.ok === false) {
+        built.errors.forEach((e) => {
+          logger.error(e);
+        });
+        return EXIT_USAGE;
+      }
+      jobs.push(built.value);
+    } else if (source === "slack") {
+      const read = slackReadToken(); // token presence validated above; warn if it's the bot-token fallback
+      if (read.warning !== undefined) {
+        logger.warn(read.warning);
+      }
+      jobs.push(sourceJob({ home, slackChannels: afterChannels.values, source, token: read.token!, window }));
+    } else if (source === "linear" || source === "notion") {
+      const token = tokenFor({ source })!; // presence validated above
+      jobs.push(sourceJob({ home, slackChannels: afterChannels.values, source, token, window }));
+    }
+    // The internal `until` is today+1 (an exclusive upper bound for the search APIs); render the actual
+    // inclusive end — never past today — so the line doesn't look like it's fetching the future.
+    const today = todayPlus({ days: 0 });
+    const shownUntil = window.until < today ? window.until : today;
+    logger.info(`refresh ${source} · window ${window.since}..${shownUntil}`);
+  }
+
+  const outcome = await ingestSources({ home, jobs });
+  const results = outcome.ok ? outcome.value : [];
+  let totalWritten = 0;
+  let anyFailed = false;
+  for (const result of results) {
+    result.warnings.forEach((w) => {
+      logger.warn(`  ${result.source}: ${w}`);
+    });
+    if (result.ok === false) {
+      anyFailed = true;
+      result.errors.forEach((e) => {
+        logger.error(`  ${result.source}: ${e}`);
+      });
+      continue;
+    }
+    totalWritten += result.written;
+    logger.out(
+      `${result.source}: wrote ${String(result.written)} new, deduped ${String(result.deduped)} (from ${String(result.projected)} projected)`,
+    );
+  }
+  logger.out(`→ ${bronzeDir({ home })}`);
+  if (anyFailed) {
     return EXIT_ERROR;
   }
-
-  const records = projectGithubRecords({ items: fetched.value, repo: `${repo.owner}/${repo.repo}` });
-  if (records.length === 0) {
-    logger.out(`no activity in ${since}..${until} for ${repo.owner}/${repo.repo}`);
-    return EXIT_EXPECTED_EMPTY;
-  }
-
-  const written = writeCorpusRecords({ home, records, window });
-  if (written.ok === false) {
-    written.errors.forEach((e) => {
-      logger.error(e);
-    });
-    return EXIT_ERROR;
-  }
-
-  const advanced = advanceWatermark({ home, watermarks: computeSourceWatermarks({ fallbackUntil: until, records }) });
-  if (advanced.ok === false) {
-    advanced.errors.forEach((e) => {
-      logger.error(e);
-    });
-    return EXIT_ERROR;
-  }
-
-  const { written: newCount, deduped } = written.value;
-  logger.out(
-    `wrote ${String(newCount)} new record(s), deduped ${String(deduped)}, from ${String(fetched.value.length)} item(s) → ${bronzeDir({ home })}`,
-  );
-  return EXIT_OK;
+  return totalWritten === 0 ? EXIT_EXPECTED_EMPTY : EXIT_OK;
 }
 
 export const refreshRunCommand = defineCommand({
@@ -148,10 +353,10 @@ export const refreshRunCommand = defineCommand({
   doorRouted: false,
   dryParseSafe: false,
   effect: "local-state",
-  example: "slopweaver refresh --repo octocat/Hello-World",
+  example: "slopweaver refresh --all-sources --since 2026-04-01",
   parseRejectIsIoFree: false,
   requiresApproval: false,
   run: runRefresh,
-  summary: "Ingest recent GitHub activity into the local bronze corpus",
+  summary: "Ingest recent GitHub/Slack/Linear/Notion activity into the local bronze corpus",
   usage: USAGE,
 });
