@@ -38,6 +38,11 @@ Banned: `.toBeTruthy()`/`.toBeFalsy()`, `toHaveProperty("f")` without a value, `
 Allowed weak assertions (intentional): `toBeDefined()` for an optional field, `toBeGreaterThan(0)` for
 a count that varies, `toContain("fragment")` for an error-message fragment.
 
+**These are lint-enforced, not just prose.** `eslint.config.js` bans `vi.mock`/`vi.spyOn`/`vi.fn`,
+`.toBeTruthy()`/`.toBeFalsy()`, bare `toHaveProperty("k")`, and `expect(typeof …)` in `*.test.ts` via
+`no-restricted-syntax` — so this discipline fails CI rather than relying on a reviewer. (Named-object
+params + exact-value assertions beyond these stay prose + review — they don't lint cleanly.)
+
 ## Coverage
 
 Cover happy path + boundaries (empty/zero/undefined) + error paths + relevant edge cases. Use

@@ -22,4 +22,20 @@ describe("extractJsonObject", () => {
   it("returns undefined when there is no JSON object", () => {
     expect(extractJsonObject({ text: "no json here" })).toBeUndefined();
   });
+
+  it("returns [] for empty text", () => {
+    expect(extractJsonObjects({ text: "" })).toEqual([]);
+  });
+
+  it("keeps an escaped quote inside a string from closing it early", () => {
+    expect(extractJsonObject({ text: '{"s":"a \\" } b"}' })).toEqual({ s: 'a " } b' });
+  });
+
+  it("handles a nested object as one top-level span", () => {
+    expect(extractJsonObject({ text: 'prefix {"o":{"n":1}} suffix' })).toEqual({ o: { n: 1 } });
+  });
+
+  it("skips an unbalanced brace span and finds the next valid object", () => {
+    expect(extractJsonObjects({ text: '{"bad": } {"good":2}' })).toEqual([{ good: 2 }]);
+  });
 });

@@ -3,6 +3,10 @@ node_modules/
 dist/
 **/*.tsbuildinfo
 
+# Coverage — the generated V8 report is never committed (vitest wipes this dir each run). The ratchet
+# floor lives at the repo root in coverage-baseline.json (committed), safe from that wipe.
+/coverage/
+
 # Yarn 4 (Berry) — commit yarn.lock + .yarnrc.yml only; the version is resolved by Corepack/proto
 .yarn/*
 !.yarn/patches

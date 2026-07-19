@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 /** The per-function line ceiling (inclusive limit — a body of exactly this many lines passes). */
-export const MAX_FUNCTION_LINES = 100;
+export const MAX_FUNCTION_LINES = 60;
 
 /** The inline marker that exempts the function directly below it. */
 export const EXEMPT_MARKER = "max-lines-exempt";

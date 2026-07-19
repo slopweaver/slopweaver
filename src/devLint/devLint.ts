@@ -53,6 +53,10 @@ export function lintChecks({ cwd }: { cwd: string }): readonly LintCheck[] {
     { args: ["src/devLint/boundaryResidue.entry.ts"], cmd: bin("tsx"), name: "boundary-residue" },
     // Fails if a function body exceeds the per-function line ceiling (PR3.6 pure-core discipline).
     { args: ["src/devLint/maxFunctionLines.entry.ts"], cmd: bin("tsx"), name: "max-function-lines" },
+    // Fails if coverage dropped below the committed floor (PR3.7). `--summary-only` never runs vitest and
+    // is lenient when no summary exists yet (lint runs before test:coverage in validate); the hard gate is
+    // the standalone `yarn coverage:ratchet` that validate runs after coverage is generated.
+    { args: ["src/devLint/coverageRatchet.entry.ts", "--summary-only"], cmd: bin("tsx"), name: "coverage-ratchet" },
     { args: ["src/cli/index.ts", "dev", "door-coverage"], cmd: bin("tsx"), name: "door-coverage" },
   ];
 }

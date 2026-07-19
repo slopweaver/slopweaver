@@ -34,6 +34,31 @@ const HOUSE_RULES = [
   },
 ];
 
+// Testing-discipline gates (see .claude/rules/testing.md) — enforced ONLY in *.test.ts. These are the
+// rules most prone to silent regression under AI-authored tests, so they fail CI instead of relying on a
+// reviewer noticing: zero mocks (extract the pure logic or inject a plain fake), and exact + falsifiable
+// assertions (assert the actual value, never truthiness / a bare property / a type).
+const TEST_BANS = [
+  {
+    message:
+      "No mocks (testing.md): vi.mock/vi.spyOn/vi.fn are banned. Extract the pure logic and test it, or inject a plain fake function (not a mock).",
+    selector: "CallExpression[callee.object.name='vi'][callee.property.name=/^(mock|spyOn|fn)$/]",
+  },
+  {
+    message: "Assert the actual value, not truthiness (testing.md): .toBeTruthy()/.toBeFalsy() are banned.",
+    selector: "CallExpression[callee.property.name=/^(toBeTruthy|toBeFalsy)$/]",
+  },
+  {
+    message:
+      "toHaveProperty needs a value — toHaveProperty('k', value) (testing.md): a key-only check is not falsifiable.",
+    selector: "CallExpression[callee.property.name='toHaveProperty'][arguments.length=1]",
+  },
+  {
+    message: "Do not assert on typeof (testing.md): assert the actual value, not its type.",
+    selector: "CallExpression[callee.name='expect'][arguments.0.type='UnaryExpression'][arguments.0.operator='typeof']",
+  },
+];
+
 // Cast/escape-hatch bans — relaxed in tests (casts are common test ergonomics), house rules are not.
 const CAST_BANS = [
   // `metadata` is untrusted shape — decode it with a runtime schema (Zod), never assert.
@@ -106,9 +131,10 @@ export default [
     },
     rules: {
       "@typescript-eslint/await-thenable": "error",
+      "@typescript-eslint/explicit-module-boundary-types": "error",
       "@typescript-eslint/no-confusing-void-expression": "warn",
       "@typescript-eslint/no-deprecated": "warn",
-      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-explicit-any": "error",
       // Promise safety — the type-aware rules that catch silent async failures.
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-for-in-array": "error",
@@ -171,6 +197,9 @@ export default [
     files: TS_GLOBS,
     plugins: { sonarjs: sonarjsPlugin },
     rules: {
+      // The PR3.7 complexity ratchet: a function that "does too much" fails even under the 60-line ceiling.
+      // Threshold 12 catches the genuinely-branchy functions without criminalising small linear helpers.
+      "sonarjs/cognitive-complexity": ["error", 12],
       "sonarjs/no-collapsible-if": "warn",
       "sonarjs/no-duplicated-branches": "warn",
       "sonarjs/no-identical-functions": "warn",
@@ -190,7 +219,7 @@ export default [
       "@typescript-eslint/promise-function-async": "off",
       "@typescript-eslint/use-unknown-in-catch-callback-variable": "off",
       "max-lines": "off",
-      "no-restricted-syntax": ["error", ...HOUSE_RULES],
+      "no-restricted-syntax": ["error", ...HOUSE_RULES, ...TEST_BANS],
     },
   },
 ];

@@ -4,7 +4,12 @@
  * fetched over its own incremental window (per-source watermark; `--since`/`--all` override depth,
  * default ~90 days for the new sources), projected into `CorpusRecord`s, and committed through the one
  * write+watermark path (`ingestSource`). A requested source with no token is a usage error before any
- * network. Derive/distil (silver/gold) are separate verbs; this one only fills bronze.
+ * network.
+ *
+ * A thin effectful shell: every pure decision (flag parsing, source selection, window planning, the
+ * missing-token diagnostics, the result summary + exit code) comes from {@link ./core}; the token reads,
+ * connector factories, and ingest IO are INJECTED via {@link runRefreshWithDeps}, so the short-circuit and
+ * summary behaviour is unit-tested with plain fakes. `runRefresh(argv)` wires production dependencies.
  */
 
 import {
@@ -29,102 +34,28 @@ import { fetchSlackActivity, makeSlackApi, resolveSlackReadToken } from "../../.
 import { projectSlackRecords } from "../../../corpus/slack/project.js";
 import { readThreadCursors, writeThreadCursors } from "../../../corpus/slack/threadCursors.js";
 import type { CorpusRecord, CorpusSource, ExportWindow } from "../../../corpus/types.js";
-import { readWatermark, resolveSince } from "../../../corpus/watermark.js";
+import { readWatermark } from "../../../corpus/watermark.js";
+import { yyyyMmDdTodayPlus } from "../../../lib/date.js";
 import { logger } from "../../../lib/logger.js";
 import { createProgressEmitter } from "../../../lib/progress.js";
-import { err, ok, type Result } from "../../../lib/result.js";
+import { ok, type Result } from "../../../lib/result.js";
 import { defineCommand } from "../../defineCommand.js";
-import { EXIT_ERROR, EXIT_EXPECTED_EMPTY, EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
-import { parseFlagTail, parsePositiveInteger } from "../../optionParsers.js";
+import { EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
+import {
+  buildRefreshWindows,
+  missingTokenDiagnostics,
+  parseRefreshOptions,
+  type RefreshOptions,
+  type RefreshWindow,
+  refreshExitCode,
+  refreshWindowLogLine,
+  selectRefreshSources,
+  summariseRefreshResults,
+  type TokenedSource,
+} from "./core.js";
 
 const USAGE =
   "usage: slopweaver refresh [--repo owner/repo] [--source github|slack|linear|notion]... [--all-sources] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all] [--slack-channel <id>]... [--lookback-days N] [--no-enrich]";
-
-const GITHUB_LOOKBACK_DAYS = 7;
-const SOURCE_LOOKBACK_DAYS = 90;
-const EPOCH_SINCE = "1970-01-01";
-const FETCHABLE: readonly CorpusSource[] = ["github", "slack", "linear", "notion"];
-
-/** A UTC date `days` from today, as `YYYY-MM-DD`. */
-function todayPlus({ days }: { days: number }): string {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-/** `days` before a `YYYY-MM-DD` date, as `YYYY-MM-DD`. */
-function isoMinusDays({ untilDate, days }: { untilDate: string; days: number }): string {
-  const date = new Date(`${untilDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() - days);
-  return date.toISOString().slice(0, 10);
-}
-
-/** Collect every `--flag value` occurrence out of the tail, returning the values + the remaining tail. */
-function collectRepeated({ rest, flag }: { rest: readonly string[]; flag: string }): {
-  readonly values: readonly string[];
-  readonly rest: readonly string[];
-} {
-  const values: string[] = [];
-  const remaining: string[] = [];
-  for (let i = 0; i < rest.length; i += 1) {
-    const token = rest[i]!;
-    const next = rest[i + 1];
-    if (token === flag && next !== undefined && !next.startsWith("-")) {
-      values.push(next);
-      i += 1;
-      continue;
-    }
-    remaining.push(token);
-  }
-  return { rest: remaining, values };
-}
-
-/** Resolve the selected sources: `--all-sources` → all; else the `--source` list; else GitHub-only. */
-function selectedSources({
-  sources,
-  allSources,
-}: {
-  sources: readonly string[];
-  allSources: boolean;
-}): Result<readonly CorpusSource[]> {
-  if (allSources) {
-    return ok(FETCHABLE);
-  }
-  if (sources.length === 0) {
-    return ok(["github"]);
-  }
-  const invalid = sources.filter((source): boolean => !FETCHABLE.includes(source as CorpusSource));
-  if (invalid.length > 0) {
-    return err([`unknown --source: ${invalid.join(", ")} (expected ${FETCHABLE.join("|")})`]);
-  }
-  const unique = [...new Set(sources)].filter((source): source is CorpusSource =>
-    FETCHABLE.includes(source as CorpusSource),
-  );
-  return ok(unique);
-}
-
-/** Compute a source's window: watermark cursor → `since`, or `--all`/`--since`/lookback fallback. `lookbackDays`
- * (the `--lookback-days` flag) overrides the per-source default depth when set. */
-function windowFor({
-  source,
-  home,
-  until,
-  sinceFlag,
-  all,
-  lookbackDays,
-}: {
-  source: CorpusSource;
-  home: string;
-  until: string;
-  sinceFlag: string | undefined;
-  all: boolean;
-  lookbackDays: number | undefined;
-}): ExportWindow {
-  const lookback = lookbackDays ?? (source === "github" ? GITHUB_LOOKBACK_DAYS : SOURCE_LOOKBACK_DAYS);
-  const fallbackSince = all ? EPOCH_SINCE : isoMinusDays({ days: lookback, untilDate: until.slice(0, 10) });
-  const since = sinceFlag ?? resolveSince({ cursor: readWatermark({ home, source }), fallbackSince });
-  return { since, until };
-}
 
 /** Build the GitHub ingest job (unchanged discovery+enrichment behaviour, wrapped as a source job). */
 function githubJob({
@@ -171,7 +102,7 @@ function sourceJob({
   slackChannels,
   home,
 }: {
-  source: "slack" | "linear" | "notion";
+  source: TokenedSource;
   token: string;
   window: ExportWindow;
   slackChannels: readonly string[];
@@ -179,7 +110,6 @@ function sourceJob({
 }): SourceIngestJob {
   const run = async (): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> => {
     if (source === "slack") {
-      // Incremental reply reads: read the per-thread cursors, fetch only new replies, persist the update.
       const fetched = await fetchSlackActivity({
         api: makeSlackApi({ token }),
         threadCursors: readThreadCursors({ home }),
@@ -210,127 +140,234 @@ function sourceJob({
   return { label: source, run, source, window };
 }
 
-/** The env/home token for Linear/Notion. Slack uses the two-token {@link slackReadToken} instead. */
-function tokenFor({ source }: { source: "linear" | "notion" }): string | undefined {
-  return source === "linear" ? linearToken() : notionToken();
-}
-
 /** The Slack READ token: a user token wins; a bot token is the fallback with a limited-visibility warning. */
 function slackReadToken(): { token?: string; warning?: string } {
   return resolveSlackReadToken({ botToken: slackBotToken(), userToken: slackUserToken() });
 }
 
-/** Resolve a requested source's token (Slack read-token vs Linear/Notion), or undefined when unconfigured. */
-function sourceToken({ source }: { source: "slack" | "linear" | "notion" }): string | undefined {
-  return source === "slack" ? slackReadToken().token : tokenFor({ source });
+/** Resolve each tokened source's token (Slack read-token vs Linear/Notion env), for the missing-token gate. */
+function resolveTokens(): Readonly<Partial<Record<TokenedSource, string | undefined>>> {
+  return { linear: linearToken(), notion: notionToken(), slack: slackReadToken().token };
 }
 
-/** The env-var hint for a source with no configured token (Slack lists both of its token env vars). */
-function tokenHint({ source }: { source: "slack" | "linear" | "notion" }): string {
-  return source === "slack"
-    ? "set SLACK_USER_TOKEN (or SLACK_BOT_TOKEN) or $SLOPWEAVER_HOME/secrets/slack-user-token"
-    : `set ${source.toUpperCase()}_TOKEN or $SLOPWEAVER_HOME/secrets/${source}-token`;
+/** The injectable effectful seams the `refresh` shell composes (fakes in tests, production in {@link runRefresh}). */
+export interface RefreshDeps {
+  readonly nowDate: () => Date;
+  readonly home: () => string;
+  readonly resolveTokens: () => Readonly<Partial<Record<TokenedSource, string | undefined>>>;
+  readonly slackReadToken: () => { token?: string; warning?: string };
+  readonly buildGithubJob: typeof githubJob;
+  readonly buildSourceJob: typeof sourceJob;
+  readonly readWatermark: (args: { home: string; source: CorpusSource }) => string | undefined;
+  readonly ingestSources: typeof ingestSources;
+  readonly logger: {
+    out: (m: string) => void;
+    warn: (m: string) => void;
+    error: (m: string) => void;
+    info: (m: string) => void;
+  };
+  readonly onProgress?: (p: { phase: string; label: string; done: number; total: number; written?: number }) => void;
 }
 
 /**
- * Run the refresh verb.
+ * Build ONE source's ingest job (effectful factory): the GitHub REST/GraphQL job, or a tokened source
+ * (Slack/Linear/Notion). Returns `undefined` for the synthetic `gold` source (never fetched). A GitHub
+ * repo-resolution error propagates as an error Result.
+ */
+function buildOneSourceJob({
+  source,
+  window,
+  options,
+  home,
+  deps,
+}: {
+  source: CorpusSource;
+  window: RefreshWindow["window"];
+  options: RefreshOptions;
+  home: string;
+  deps: RefreshDeps;
+}): Result<SourceIngestJob | undefined> {
+  if (source === "github") {
+    return deps.buildGithubJob({ noEnrich: options.noEnrich, repoSlug: options.repo, window });
+  }
+  if (source === "gold") {
+    return ok(undefined); // `gold` is synthetic and never fetched — narrows source to TokenedSource below.
+  }
+  const read = source === "slack" ? deps.slackReadToken() : undefined;
+  if (read?.warning !== undefined) {
+    deps.logger.warn(read.warning);
+  }
+  const token = source === "slack" ? read!.token! : deps.resolveTokens()[source]!;
+  return ok(deps.buildSourceJob({ home, slackChannels: options.slackChannels, source, token, window }));
+}
+
+/** Build the ordered source jobs (effectful factories) + emit each window line; a GitHub repo error stops it. */
+function buildRefreshJobs({
+  windows,
+  options,
+  home,
+  today,
+  deps,
+}: {
+  windows: readonly RefreshWindow[];
+  options: RefreshOptions;
+  home: string;
+  today: string;
+  deps: RefreshDeps;
+}): Result<readonly SourceIngestJob[]> {
+  const jobs: SourceIngestJob[] = [];
+  for (const { source, window } of windows) {
+    const built = buildOneSourceJob({ deps, home, options, source, window });
+    if (built.ok === false) {
+      return built;
+    }
+    if (built.value !== undefined) {
+      jobs.push(built.value);
+      deps.logger.info(refreshWindowLogLine({ source, today, window }));
+    }
+  }
+  return ok(jobs);
+}
+
+/** A validated, go-ahead refresh request (the resolved options + sources + home). */
+interface RefreshRequest {
+  readonly options: RefreshOptions;
+  readonly sources: readonly CorpusSource[];
+  readonly home: string;
+}
+
+/**
+ * Parse + validate the argv into a go-ahead request, or an early exit code (help / bad flags / unknown
+ * source / a requested non-GitHub source with no token — the last checked BEFORE any network or write).
+ * Emits the diagnostics through the injected logger.
  *
  * @param argv the full process argv (verb tail starts at index 3)
- * @returns the process exit code
+ * @param deps the effectful seams (logger + token reads)
+ * @returns the validated request, or the exit code to return
  */
-// max-lines-exempt: CLI verb effectful shell (parse→plan→execute→report); PR3.6 decomposes only the distil verb.
-export async function runRefresh(argv: readonly string[]): Promise<number> {
+function resolveRefreshRequest({
+  argv,
+  deps,
+}: {
+  argv: readonly string[];
+  deps: RefreshDeps;
+}): { kind: "exit"; code: number } | { kind: "go"; request: RefreshRequest } {
   const rawRest = argv.slice(3);
   if (rawRest.includes("--help") || rawRest.includes("-h")) {
-    logger.out(USAGE);
-    return EXIT_OK;
+    deps.logger.out(USAGE);
+    return { code: EXIT_OK, kind: "exit" };
   }
-  const afterSources = collectRepeated({ flag: "--source", rest: rawRest });
-  const afterChannels = collectRepeated({ flag: "--slack-channel", rest: afterSources.rest });
-  const parsed = parseFlagTail({
-    rest: afterChannels.rest,
-    spec: { boolean: ["no-enrich", "all-sources", "all"], value: ["repo", "since", "until", "lookback-days", "home"] },
-  });
+  const parsed = parseRefreshOptions({ rest: rawRest });
   if (parsed.ok === false) {
-    parsed.errors.forEach((e) => {
-      logger.error(e);
-    });
-    logger.error(USAGE);
-    return EXIT_USAGE;
+    reportUsageErrors({ errors: parsed.errors, sink: deps.logger });
+    return { code: EXIT_USAGE, kind: "exit" };
   }
-  const { values, flags } = parsed.value;
-  const home = values["home"] ?? slopweaverHome();
-
-  const chosen = selectedSources({ allSources: flags.has("all-sources"), sources: afterSources.values });
+  const chosen = selectRefreshSources({ allSources: parsed.value.allSources, sources: parsed.value.sources });
   if (chosen.ok === false) {
-    chosen.errors.forEach((e) => {
-      logger.error(e);
-    });
-    logger.error(USAGE);
-    return EXIT_USAGE;
+    reportUsageErrors({ errors: chosen.errors, sink: deps.logger });
+    return { code: EXIT_USAGE, kind: "exit" };
   }
-
-  const flagErrors: string[] = [];
-  const lookbackDays =
-    values["lookback-days"] !== undefined
-      ? parsePositiveInteger({ errors: flagErrors, label: "--lookback-days", value: values["lookback-days"] })
-      : undefined;
-  if (flagErrors.length > 0) {
-    flagErrors.forEach((e) => {
-      logger.error(e);
-    });
-    return EXIT_USAGE;
-  }
-
-  const until = values["until"] ?? todayPlus({ days: 1 });
-  const sinceFlag = values["since"];
-  const all = flags.has("all");
-
-  // A requested non-GitHub source with no token is a usage error BEFORE any network/write.
-  const missing = chosen.value
-    .filter((source): source is "slack" | "linear" | "notion" => source !== "github")
-    .filter((source) => sourceToken({ source }) === undefined);
+  const missing = missingTokenDiagnostics({ selectedSources: chosen.value, tokens: deps.resolveTokens() });
   if (missing.length > 0) {
-    missing.forEach((source) => {
-      logger.error(`refresh: ${source} requested but no token (${tokenHint({ source })})`);
+    missing.forEach((e) => {
+      deps.logger.error(e);
+    });
+    return { code: EXIT_USAGE, kind: "exit" };
+  }
+  return {
+    kind: "go",
+    request: { home: parsed.value.home ?? deps.home(), options: parsed.value, sources: chosen.value },
+  };
+}
+
+/** Emit each error line followed by the usage line (the shared bad-flags/unknown-source report). */
+function reportUsageErrors({ errors, sink }: { errors: readonly string[]; sink: RefreshDeps["logger"] }): void {
+  errors.forEach((e) => {
+    sink.error(e);
+  });
+  sink.error(USAGE);
+}
+
+/**
+ * Run the refresh verb over injected dependencies — the testable shell.
+ *
+ * @param argv the full process argv (verb tail starts at index 3)
+ * @param deps the effectful seams
+ * @returns the process exit code
+ */
+export async function runRefreshWithDeps({
+  argv,
+  deps,
+}: {
+  argv: readonly string[];
+  deps: RefreshDeps;
+}): Promise<number> {
+  const resolved = resolveRefreshRequest({ argv, deps });
+  if (resolved.kind === "exit") {
+    return resolved.code;
+  }
+  const { options, sources, home } = resolved.request;
+
+  const until = options.until ?? yyyyMmDdTodayPlus({ days: 1, now: deps.nowDate() });
+  const windows = buildRefreshWindows({
+    all: options.all,
+    home,
+    lookbackDays: options.lookbackDays,
+    readWatermark: deps.readWatermark,
+    sinceFlag: options.since,
+    sources,
+    until,
+  });
+  const jobsResult = buildRefreshJobs({
+    deps,
+    home,
+    options,
+    today: yyyyMmDdTodayPlus({ days: 0, now: deps.nowDate() }),
+    windows,
+  });
+  if (jobsResult.ok === false) {
+    jobsResult.errors.forEach((e) => {
+      deps.logger.error(e);
     });
     return EXIT_USAGE;
   }
 
-  const jobs: SourceIngestJob[] = [];
-  for (const source of chosen.value) {
-    const window = windowFor({ all, home, lookbackDays, sinceFlag, source, until });
-    if (source === "github") {
-      const built = githubJob({ noEnrich: flags.has("no-enrich"), repoSlug: values["repo"], window });
-      if (built.ok === false) {
-        built.errors.forEach((e) => {
-          logger.error(e);
-        });
-        return EXIT_USAGE;
-      }
-      jobs.push(built.value);
-    } else if (source === "slack") {
-      const read = slackReadToken(); // token presence validated above; warn if it's the bot-token fallback
-      if (read.warning !== undefined) {
-        logger.warn(read.warning);
-      }
-      jobs.push(sourceJob({ home, slackChannels: afterChannels.values, source, token: read.token!, window }));
-    } else if (source === "linear" || source === "notion") {
-      const token = tokenFor({ source })!; // presence validated above
-      jobs.push(sourceJob({ home, slackChannels: afterChannels.values, source, token, window }));
-    }
-    // The internal `until` is today+1 (an exclusive upper bound for the search APIs); render the actual
-    // inclusive end — never past today — so the line doesn't look like it's fetching the future.
-    const today = todayPlus({ days: 0 });
-    const shownUntil = window.until < today ? window.until : today;
-    logger.info(`refresh ${source} · window ${window.since}..${shownUntil}`);
-  }
-
-  // Non-blocking, session-visible per-source progress across the (possibly long) multi-source ingest.
-  const progress = createProgressEmitter({ verb: "refresh" });
-  const outcome = await ingestSources({
+  const outcome = await deps.ingestSources({
     home,
-    jobs,
+    jobs: [...jobsResult.value],
+    ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+  });
+  const results = outcome.ok ? outcome.value : [];
+  const summary = summariseRefreshResults({ bronzePath: bronzeDir({ home }), results });
+  for (const line of summary.lines) {
+    deps.logger[line.level](line.text);
+  }
+  return refreshExitCode({ anyFailed: summary.anyFailed, totalWritten: summary.totalWritten });
+}
+
+/** Production dependencies for {@link runRefreshWithDeps} (real token reads, connector factories, ingest). */
+function productionRefreshDeps(): RefreshDeps {
+  const progress = createProgressEmitter({ verb: "refresh" });
+  return {
+    buildGithubJob: githubJob,
+    buildSourceJob: sourceJob,
+    home: slopweaverHome,
+    ingestSources,
+    logger: {
+      error: (m) => {
+        logger.error(m);
+      },
+      info: (m) => {
+        logger.info(m);
+      },
+      out: (m) => {
+        logger.out(m);
+      },
+      warn: (m) => {
+        logger.warn(m);
+      },
+    },
+    nowDate: () => new Date(),
     onProgress: (p) => {
       progress.update({
         counts: p.written !== undefined ? { written: p.written } : {},
@@ -339,31 +376,20 @@ export async function runRefresh(argv: readonly string[]): Promise<number> {
         total: p.total,
       });
     },
-  });
-  const results = outcome.ok ? outcome.value : [];
-  let totalWritten = 0;
-  let anyFailed = false;
-  for (const result of results) {
-    result.warnings.forEach((w) => {
-      logger.warn(`  ${result.source}: ${w}`);
-    });
-    if (result.ok === false) {
-      anyFailed = true;
-      result.errors.forEach((e) => {
-        logger.error(`  ${result.source}: ${e}`);
-      });
-      continue;
-    }
-    totalWritten += result.written;
-    logger.out(
-      `${result.source}: wrote ${String(result.written)} new, deduped ${String(result.deduped)} (from ${String(result.projected)} projected)`,
-    );
-  }
-  logger.out(`→ ${bronzeDir({ home })}`);
-  if (anyFailed) {
-    return EXIT_ERROR;
-  }
-  return totalWritten === 0 ? EXIT_EXPECTED_EMPTY : EXIT_OK;
+    readWatermark,
+    resolveTokens,
+    slackReadToken,
+  };
+}
+
+/**
+ * Run the refresh verb.
+ *
+ * @param argv the full process argv (verb tail starts at index 3)
+ * @returns the process exit code
+ */
+export async function runRefresh(argv: readonly string[]): Promise<number> {
+  return runRefreshWithDeps({ argv, deps: productionRefreshDeps() });
 }
 
 export const refreshRunCommand = defineCommand({

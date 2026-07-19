@@ -96,44 +96,59 @@ function issueAttrs({ issue }: { issue: LinearIssueItem }): Record<string, Corpu
   return attrs;
 }
 
-/** The issue atom + a comment record per comment. */
+/** The issue atom record (the issue itself). Pure. */
+function issueAtom({ issue, container }: { issue: LinearIssueItem; container: string }): CorpusRecord {
+  const text = joinDefined({ parts: [issueSummary({ issue }), issue.description] });
+  const attrs = issueAttrs({ issue });
+  return {
+    container,
+    kind: "issue",
+    refs: extractRefs({ text: joinDefined({ parts: [issue.identifier, issue.title, issue.description] }) }),
+    source: "linear",
+    sourceId: issue.identifier,
+    text: text.length > 0 ? text : issue.title,
+    title: `${issue.identifier} ${issue.title}`,
+    tsIso: issue.tsIso,
+    url: issue.url,
+    ...(issue.author !== undefined ? { author: issue.author } : {}),
+    ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+    ...(issue.raw !== undefined ? { raw: issue.raw } : {}),
+  };
+}
+
+/** One comment record under an issue. Pure. */
+function commentRecord({
+  issue,
+  comment,
+  container,
+}: {
+  issue: LinearIssueItem;
+  comment: LinearIssueItem["comments"][number];
+  container: string;
+}): CorpusRecord {
+  return {
+    container,
+    kind: "comment",
+    refs: extractRefs({ text: `${issue.identifier} ${comment.body}` }),
+    source: "linear",
+    sourceId: `${issue.identifier}:comment:${comment.id}`,
+    text: comment.body,
+    tsIso: comment.tsIso,
+    url: comment.url.length > 0 ? comment.url : issue.url,
+    ...(comment.author !== undefined ? { author: comment.author } : {}),
+    ...(comment.raw !== undefined ? { raw: comment.raw } : {}),
+  };
+}
+
+/** The issue atom + a comment record per non-blank comment. */
 function issueRecords({ issue }: { issue: LinearIssueItem }): CorpusRecord[] {
   const container = issueContainer({ team: issue.team });
-  const summary = issueSummary({ issue });
-  const text = joinDefined({ parts: [summary, issue.description] });
-  const attrs = issueAttrs({ issue });
-  const records: CorpusRecord[] = [
-    {
-      container,
-      kind: "issue",
-      refs: extractRefs({ text: joinDefined({ parts: [issue.identifier, issue.title, issue.description] }) }),
-      source: "linear",
-      sourceId: issue.identifier,
-      text: text.length > 0 ? text : issue.title,
-      title: `${issue.identifier} ${issue.title}`,
-      tsIso: issue.tsIso,
-      url: issue.url,
-      ...(issue.author !== undefined ? { author: issue.author } : {}),
-      ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
-      ...(issue.raw !== undefined ? { raw: issue.raw } : {}),
-    },
-  ];
+  const records: CorpusRecord[] = [issueAtom({ container, issue })];
   for (const comment of issue.comments) {
     if (comment.body.trim().length === 0) {
       continue;
     }
-    records.push({
-      container,
-      kind: "comment",
-      refs: extractRefs({ text: `${issue.identifier} ${comment.body}` }),
-      source: "linear",
-      sourceId: `${issue.identifier}:comment:${comment.id}`,
-      text: comment.body,
-      tsIso: comment.tsIso,
-      url: comment.url.length > 0 ? comment.url : issue.url,
-      ...(comment.author !== undefined ? { author: comment.author } : {}),
-      ...(comment.raw !== undefined ? { raw: comment.raw } : {}),
-    });
+    records.push(commentRecord({ comment, container, issue }));
   }
   return records;
 }

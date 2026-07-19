@@ -40,51 +40,94 @@ export interface NotionDatabaseItem {
   readonly raw?: Readonly<Record<string, unknown>>;
 }
 
-/** Page-chunk records + comment records for one page. */
+/** The `attrs` for one page chunk: `parent` when the page has one, chunk position when multi-chunk. Pure. */
+function pageChunkAttrs({
+  page,
+  index,
+  chunkCount,
+}: {
+  page: NotionPageItem;
+  index: number;
+  chunkCount: number;
+}): Record<string, CorpusAttributeValue> {
+  const attrs: Record<string, CorpusAttributeValue> = {};
+  if (page.parent !== undefined && page.parent.length > 0) {
+    attrs["parent"] = page.parent;
+  }
+  if (chunkCount > 1) {
+    attrs["chunkIndex"] = index;
+    attrs["chunkCount"] = chunkCount;
+  }
+  return attrs;
+}
+
+/** One page-chunk record (single-chunk pages keep the bare `page:<id>` id + title). Pure. */
+function pageChunkRecord({
+  page,
+  container,
+  chunk,
+  index,
+  chunkCount,
+}: {
+  page: NotionPageItem;
+  container: string;
+  chunk: string;
+  index: number;
+  chunkCount: number;
+}): CorpusRecord {
+  const single = chunkCount === 1;
+  const attrs = pageChunkAttrs({ chunkCount, index, page });
+  return {
+    container,
+    kind: "page",
+    refs: extractRefs({ text: chunk }),
+    source: "notion",
+    sourceId: single ? `page:${page.id}` : `page:${page.id}:chunk:${String(index)}`,
+    text: chunk.length > 0 ? chunk : page.title,
+    title: single ? page.title : `${page.title} (${String(index + 1)}/${String(chunkCount)})`,
+    tsIso: page.tsIso,
+    url: page.url,
+    ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+    ...(page.raw !== undefined ? { raw: page.raw } : {}),
+  };
+}
+
+/** One page-comment record. Pure. */
+function pageCommentRecord({
+  page,
+  container,
+  comment,
+}: {
+  page: NotionPageItem;
+  container: string;
+  comment: NotionCommentItem;
+}): CorpusRecord {
+  return {
+    container,
+    kind: "comment",
+    refs: extractRefs({ text: comment.body }),
+    source: "notion",
+    sourceId: `page:${page.id}:comment:${comment.id}`,
+    text: comment.body,
+    tsIso: comment.tsIso,
+    url: page.url,
+    ...(comment.author !== undefined ? { author: comment.author } : {}),
+    ...(comment.raw !== undefined ? { raw: comment.raw } : {}),
+  };
+}
+
+/** Page-chunk records + comment records for one page. Composes the pure chunk/comment builders. */
 function pageRecords({ page }: { page: NotionPageItem }): CorpusRecord[] {
   const container = page.parent !== undefined && page.parent.length > 0 ? `notion/${page.parent}` : "notion";
   const chunks = page.chunks.length > 0 ? page.chunks : [page.title];
-  const single = chunks.length === 1;
-  const hasParent = page.parent !== undefined && page.parent.length > 0;
-  const records: CorpusRecord[] = chunks.map((chunk, index): CorpusRecord => {
-    const attrs: Record<string, CorpusAttributeValue> = {};
-    if (hasParent) {
-      attrs["parent"] = page.parent!; // guarded by hasParent
-    }
-    if (!single) {
-      attrs["chunkIndex"] = index;
-      attrs["chunkCount"] = chunks.length;
-    }
-    return {
-      container,
-      kind: "page",
-      refs: extractRefs({ text: chunk }),
-      source: "notion",
-      sourceId: single ? `page:${page.id}` : `page:${page.id}:chunk:${String(index)}`,
-      text: chunk.length > 0 ? chunk : page.title,
-      title: single ? page.title : `${page.title} (${String(index + 1)}/${String(chunks.length)})`,
-      tsIso: page.tsIso,
-      url: page.url,
-      ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
-      ...(page.raw !== undefined ? { raw: page.raw } : {}),
-    };
-  });
+  const records: CorpusRecord[] = chunks.map((chunk, index) =>
+    pageChunkRecord({ chunk, chunkCount: chunks.length, container, index, page }),
+  );
   for (const comment of page.comments) {
     if (comment.body.trim().length === 0) {
       continue;
     }
-    records.push({
-      container,
-      kind: "comment",
-      refs: extractRefs({ text: comment.body }),
-      source: "notion",
-      sourceId: `page:${page.id}:comment:${comment.id}`,
-      text: comment.body,
-      tsIso: comment.tsIso,
-      url: page.url,
-      ...(comment.author !== undefined ? { author: comment.author } : {}),
-      ...(comment.raw !== undefined ? { raw: comment.raw } : {}),
-    });
+    records.push(pageCommentRecord({ comment, container, page }));
   }
   return records;
 }

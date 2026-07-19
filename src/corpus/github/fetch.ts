@@ -91,6 +91,37 @@ function toExportItem({ raw }: { raw: unknown }): GithubExportItem | undefined {
   };
 }
 
+/**
+ * Split one page of raw search hits into usable export items + a count of hits dropped for missing a core
+ * field (number/title/url/timestamp). Pure.
+ *
+ * @param hits the raw search hits for one page
+ * @returns the parsed items and how many were dropped
+ */
+export function collectSearchHits({ hits }: { hits: readonly unknown[] }): {
+  readonly items: readonly GithubExportItem[];
+  readonly dropped: number;
+} {
+  const items: GithubExportItem[] = [];
+  let dropped = 0;
+  for (const raw of hits) {
+    const item = toExportItem({ raw });
+    if (item === undefined) {
+      dropped += 1; // a hit missing a core field — unusable; surfaced below, never silent.
+    } else {
+      items.push(item);
+    }
+  }
+  return { dropped, items };
+}
+
+/** The "hits dropped for a missing core field" warning (empty when none dropped). Pure. */
+export function searchDropWarnings({ dropped }: { dropped: number }): readonly string[] {
+  return dropped > 0
+    ? [`skipped ${String(dropped)} GitHub search hit(s) missing a core field (number/title/url/timestamp)`]
+    : [];
+}
+
 /** Page through search until a short page or the cap. A thrown search error is fatal → `err`. */
 async function searchAll({
   searchIssues,
@@ -111,24 +142,15 @@ async function searchAll({
     } catch (error: unknown) {
       return err([error instanceof Error ? error.message : "github search failed"]);
     }
-    for (const raw of hits) {
-      const item = toExportItem({ raw });
-      if (item === undefined) {
-        dropped += 1; // a hit missing a core field (number/title/url/timestamp) — unusable; surfaced below, never silent.
-      } else {
-        items.push(item);
-      }
-    }
+    const page1 = collectSearchHits({ hits });
+    items.push(...page1.items);
+    dropped += page1.dropped;
     if (hits.length < PER_PAGE || items.length >= pageCap) {
       break;
     }
   }
-  // Never drop silently: report the count so a shrunken window is visible (the caller relays Result warnings).
-  const warnings =
-    dropped > 0
-      ? [`skipped ${String(dropped)} GitHub search hit(s) missing a core field (number/title/url/timestamp)`]
-      : [];
-  return ok(items.slice(0, pageCap), warnings);
+  // Never drop silently: report the count so a shrunken window is visible (the caller relays warnings).
+  return ok(items.slice(0, pageCap), searchDropWarnings({ dropped }));
 }
 
 /** Enrich each item; a per-item failure ships the item without activity (never fatal). */

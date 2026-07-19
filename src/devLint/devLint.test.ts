@@ -43,6 +43,7 @@ describe("lintChecks", () => {
       "resilience-residue",
       "boundary-residue",
       "max-function-lines",
+      "coverage-ratchet",
       "door-coverage",
     ]);
     expect(checks.find((c) => c.name === "eslint")!.cmd).toBe("/repo/node_modules/.bin/eslint");

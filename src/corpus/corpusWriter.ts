@@ -152,7 +152,7 @@ export function redactRecord({ record }: { record: CorpusRecord }): CorpusRecord
   };
 }
 
-interface StoredEntity {
+export interface StoredEntity {
   newestTs: string;
   readonly fingerprints: Set<string>;
 }
@@ -190,6 +190,47 @@ function isFresh({ record, index }: { record: CorpusRecord; index: Map<string, S
   return true;
 }
 
+/**
+ * Group records into their per-source buckets, in {@link CORPUS_SOURCES} order (so the write order is
+ * stable) and omitting empty sources. Pure.
+ *
+ * @param records the redacted records
+ * @returns a source → records map (only sources with records)
+ */
+export function bucketRecordsBySource({
+  records,
+}: {
+  records: readonly CorpusRecord[];
+}): Map<CorpusSource, CorpusRecord[]> {
+  const buckets = new Map<CorpusSource, CorpusRecord[]>();
+  for (const source of CORPUS_SOURCES) {
+    const bucket = records.filter((record) => record.source === source);
+    if (bucket.length > 0) {
+      buckets.set(source, bucket);
+    }
+  }
+  return buckets;
+}
+
+/**
+ * The subset of a bucket that should be written — new fingerprint AND not older than what's stored. Mutates
+ * `index` (the caller's per-source dedup map) as it accepts records, so a duplicate within the same bucket
+ * is caught too.
+ *
+ * @param bucket the records for one source
+ * @param index the per-source dedup index (mutated)
+ * @returns the fresh records, in input order
+ */
+export function freshRecordsForBucket({
+  bucket,
+  index,
+}: {
+  bucket: readonly CorpusRecord[];
+  index: Map<string, StoredEntity>;
+}): readonly CorpusRecord[] {
+  return bucket.filter((record) => isFresh({ index, record }));
+}
+
 export interface WriteResult {
   readonly written: number;
   readonly deduped: number;
@@ -217,13 +258,8 @@ export function writeCorpusRecords({
   const bySource: Record<string, number> = {};
   let written = 0;
 
-  for (const source of CORPUS_SOURCES) {
-    const bucket = redacted.filter((record) => record.source === source);
-    if (bucket.length === 0) {
-      continue;
-    }
-    const index = storedIndex({ home, source });
-    const fresh = bucket.filter((record) => isFresh({ index, record }));
+  for (const [source, bucket] of bucketRecordsBySource({ records: redacted })) {
+    const fresh = freshRecordsForBucket({ bucket, index: storedIndex({ home, source }) });
     if (fresh.length === 0) {
       continue;
     }

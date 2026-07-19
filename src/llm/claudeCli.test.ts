@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt, envelopeToMessage } from "./claudeCli.js";
+import { buildPrompt, claudeCliArgs, claudeExitError, envelopeToMessage } from "./claudeCli.js";
 import type { LlmCreateParams } from "./provider.js";
 
 const baseParams: LlmCreateParams = {
@@ -38,5 +38,31 @@ describe("envelopeToMessage", () => {
 
   it("throws when result is not a string", () => {
     expect(() => envelopeToMessage({ stdout: JSON.stringify({ result: 42 }) })).toThrow();
+  });
+
+  it("throws on invalid JSON", () => {
+    expect(() => envelopeToMessage({ stdout: "{not json" })).toThrow("invalid JSON");
+  });
+});
+
+describe("claudeCliArgs", () => {
+  it("is exactly the keyless print+json args (no model or api-key knob)", () => {
+    expect(claudeCliArgs()).toEqual(["-p", "--output-format", "json"]);
+  });
+});
+
+describe("claudeExitError", () => {
+  it("includes the code and a trimmed stderr fragment", () => {
+    expect(claudeExitError({ code: 2, stderr: "  boom happened  " }).message).toBe(
+      "claude CLI exited with code 2: boom happened",
+    );
+  });
+
+  it("omits the fragment when stderr is blank", () => {
+    expect(claudeExitError({ code: 1, stderr: "   " }).message).toBe("claude CLI exited with code 1");
+  });
+
+  it("renders a null code", () => {
+    expect(claudeExitError({ code: null, stderr: "" }).message).toBe("claude CLI exited with code null");
   });
 });

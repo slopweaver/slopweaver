@@ -1,7 +1,38 @@
 import { describe, expect, it } from "vitest";
 import { err, ok, type Result, unwrap, unwrapErr } from "../../lib/result.js";
 import type { GithubActivity } from "./activity.js";
-import { makeGithubFetchItems, type SearchIssues } from "./fetch.js";
+import { collectSearchHits, makeGithubFetchItems, type SearchIssues, searchDropWarnings } from "./fetch.js";
+
+describe("collectSearchHits", () => {
+  const goodHit = (n: number): unknown => ({
+    created_at: "2024-01-01T00:00:00Z",
+    html_url: `url${String(n)}`,
+    number: n,
+    title: `t${String(n)}`,
+    updated_at: "2024-01-02T00:00:00Z",
+    user: { login: "u" },
+  });
+
+  it("keeps parseable hits and counts the unusable ones", () => {
+    const out = collectSearchHits({ hits: [goodHit(1), { number: 2 }, goodHit(3)] });
+    expect(out.items.map((i) => i.number)).toEqual([1, 3]);
+    expect(out.dropped).toBe(1);
+  });
+
+  it("returns empty for no hits", () => {
+    expect(collectSearchHits({ hits: [] })).toEqual({ dropped: 0, items: [] });
+  });
+});
+
+describe("searchDropWarnings", () => {
+  it("is empty when nothing dropped", () => {
+    expect(searchDropWarnings({ dropped: 0 })).toEqual([]);
+  });
+
+  it("names the dropped count when hits were dropped", () => {
+    expect(searchDropWarnings({ dropped: 2 })[0]).toContain("skipped 2 GitHub search hit(s)");
+  });
+});
 
 const repo = { owner: "o", repo: "r" };
 const window = { since: "2024-01-01", until: "2024-01-03" };

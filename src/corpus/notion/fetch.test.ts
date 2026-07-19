@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { unwrap } from "../../lib/result.js";
 import {
+  blockChildId,
+  blockTextLine,
   chunkText,
   cutoffMs,
   fetchNotionActivity,
   lastEditedOf,
   type NotionApi,
+  notionNextCursor,
   projectCommentItem,
   projectDatabaseItem,
   projectRowItem,
+  renderProperty,
   renderRichText,
   renderRowProperties,
   withinCutoff,
@@ -203,5 +207,94 @@ describe("fetchNotionActivity", () => {
     };
     const result = await fetchNotionActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("renderProperty (dispatch table)", () => {
+  it("renders a title/rich_text property via rich text", () => {
+    expect(renderProperty({ value: { title: [{ plain_text: "Roadmap" }], type: "title" } })).toBe("Roadmap");
+  });
+
+  it("renders a rich_text property with a link as text (url)", () => {
+    expect(
+      renderProperty({ value: { rich_text: [{ href: "https://x.dev", plain_text: "see" }], type: "rich_text" } }),
+    ).toBe("see (https://x.dev)");
+  });
+
+  it("renders select and status names", () => {
+    expect(renderProperty({ value: { select: { name: "Done" }, type: "select" } })).toBe("Done");
+    expect(renderProperty({ value: { status: { name: "In Progress" }, type: "status" } })).toBe("In Progress");
+  });
+
+  it("comma-joins multi_select and people names", () => {
+    expect(renderProperty({ value: { multi_select: [{ name: "a" }, { name: "b" }], type: "multi_select" } })).toBe(
+      "a, b",
+    );
+    expect(renderProperty({ value: { people: [{ name: "Ada" }], type: "people" } })).toBe("Ada");
+  });
+
+  it("renders a number", () => {
+    expect(renderProperty({ value: { number: 42, type: "number" } })).toBe("42");
+  });
+
+  it("renders checkbox true as yes and false as empty", () => {
+    expect(renderProperty({ value: { checkbox: true, type: "checkbox" } })).toBe("yes");
+    expect(renderProperty({ value: { checkbox: false, type: "checkbox" } })).toBe("");
+  });
+
+  it("renders a date with start and optional end", () => {
+    expect(renderProperty({ value: { date: { start: "2026-01-01" }, type: "date" } })).toBe("2026-01-01");
+    expect(renderProperty({ value: { date: { end: "2026-01-02", start: "2026-01-01" }, type: "date" } })).toBe(
+      "2026-01-01 → 2026-01-02",
+    );
+  });
+
+  it("renders url/email/phone_number scalar strings", () => {
+    expect(renderProperty({ value: { type: "url", url: "https://x.dev" } })).toBe("https://x.dev");
+    expect(renderProperty({ value: { email: "a@b.co", type: "email" } })).toBe("a@b.co");
+  });
+
+  it("renders a relation as a linked count", () => {
+    expect(renderProperty({ value: { relation: [{}, {}], type: "relation" } })).toBe("2 linked");
+  });
+
+  it("returns empty for an unknown type or a non-object value", () => {
+    expect(renderProperty({ value: { type: "mystery" } })).toBe("");
+    expect(renderProperty({ value: 5 })).toBe("");
+  });
+});
+
+describe("notionNextCursor", () => {
+  it("returns the cursor when it is a non-empty string", () => {
+    expect(notionNextCursor({ value: "cur" })).toBe("cur");
+  });
+
+  it("stops on an empty string, null, or non-string", () => {
+    expect(notionNextCursor({ value: "" })).toBeUndefined();
+    expect(notionNextCursor({ value: null })).toBeUndefined();
+    expect(notionNextCursor({ value: 3 })).toBeUndefined();
+  });
+});
+
+describe("blockTextLine", () => {
+  it("renders the rich text of a typed block body", () => {
+    expect(blockTextLine({ block: { paragraph: { rich_text: [{ plain_text: "hi" }] }, type: "paragraph" } })).toBe(
+      "hi",
+    );
+  });
+
+  it("returns empty when the block has no rich-text body", () => {
+    expect(blockTextLine({ block: { divider: {}, type: "divider" } })).toBe("");
+  });
+});
+
+describe("blockChildId", () => {
+  it("returns the id when the block has children", () => {
+    expect(blockChildId({ block: { has_children: true, id: "b1" } })).toBe("b1");
+  });
+
+  it("returns undefined without children or a string id", () => {
+    expect(blockChildId({ block: { has_children: false, id: "b1" } })).toBeUndefined();
+    expect(blockChildId({ block: { has_children: true } })).toBeUndefined();
   });
 });

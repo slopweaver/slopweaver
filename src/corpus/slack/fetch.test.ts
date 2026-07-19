@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { unwrap } from "../../lib/result.js";
 import {
+  channelNameMap,
   fetchSlackActivity,
   mergeCursorUpdates,
+  mergeSlackWarnings,
   planThreadPolls,
   resolveSlackReadToken,
   type SlackApi,
   selectChannels,
   shapeHistoryPage,
   shapeRepliesPage,
+  slackNextCursor,
+  slackWindowBounds,
 } from "./fetch.js";
 
 const ctx = { channelId: "C_A", channelName: "alpha", workspaceUrl: "https://acme.slack.com" };
@@ -280,5 +284,54 @@ describe("mergeCursorUpdates", () => {
     const merged = mergeCursorUpdates({ base, updates: { "C:2": "25", "C:3": "30" } });
     expect(merged).toEqual({ "C:1": "10", "C:2": "25", "C:3": "30" });
     expect(base).toEqual({ "C:1": "10", "C:2": "20" }); // base unmutated
+  });
+});
+
+describe("slackWindowBounds", () => {
+  it("converts the window to Slack epoch-seconds bounds", () => {
+    expect(slackWindowBounds({ window: { since: "2023-11-01", until: "2023-12-01" } })).toEqual({
+      latest: "1701388800",
+      oldest: "1698796800",
+    });
+  });
+
+  it("falls back to the widest sentinels for unparseable bounds", () => {
+    expect(slackWindowBounds({ window: { since: "bad", until: "worse" } })).toEqual({
+      latest: "9999999999",
+      oldest: "0",
+    });
+  });
+});
+
+describe("channelNameMap", () => {
+  it("maps ids to names, omitting nameless channels", () => {
+    expect(channelNameMap({ discovered: [{ id: "C_A", name: "alpha" }, { id: "C_B" }] })).toEqual({ C_A: "alpha" });
+  });
+
+  it("returns an empty map for no channels", () => {
+    expect(channelNameMap({ discovered: [] })).toEqual({});
+  });
+});
+
+describe("slackNextCursor", () => {
+  it("returns the cursor when present and non-empty", () => {
+    expect(slackNextCursor({ metadata: { next_cursor: "abc" } })).toEqual({ nextCursor: "abc" });
+  });
+
+  it("stops on an empty cursor", () => {
+    expect(slackNextCursor({ metadata: { next_cursor: "" } })).toEqual({});
+  });
+
+  it("stops on absent metadata", () => {
+    expect(slackNextCursor({ metadata: undefined })).toEqual({});
+  });
+});
+
+describe("mergeSlackWarnings", () => {
+  it("concatenates without mutating either list", () => {
+    const base = ["a"];
+    const extra = ["b", "c"];
+    expect(mergeSlackWarnings({ base, extra })).toEqual(["a", "b", "c"]);
+    expect(base).toEqual(["a"]);
   });
 });

@@ -8,6 +8,7 @@
  */
 import { Client } from "@notionhq/client";
 
+import { parseIsoMs, parseYyyyMmDdUtcMs } from "../../lib/date.js";
 import { isRecord } from "../../lib/parsers.js";
 import { createRateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
@@ -123,6 +124,53 @@ function dateText({ field }: { field: unknown }): string {
   return typeof field["end"] === "string" ? `${field["start"]} → ${field["end"]}` : field["start"];
 }
 
+/** Render a rich-text-typed field (title / rich_text). */
+function renderRichTextField({ field }: { field: unknown }): string {
+  return renderRichText({ richText: field });
+}
+
+/** Render a `{name}`-typed field (select / status). */
+function renderNameField({ field }: { field: unknown }): string {
+  return isRecord(field) && typeof field["name"] === "string" ? field["name"] : "";
+}
+
+/** Render a scalar-string field (url / email / phone_number). */
+function renderStringField({ field }: { field: unknown }): string {
+  return typeof field === "string" ? field : "";
+}
+
+/** Render a number field. */
+function renderNumberField({ field }: { field: unknown }): string {
+  return typeof field === "number" ? String(field) : "";
+}
+
+/** Render a checkbox field (`true` ⇒ "yes"). */
+function renderCheckboxField({ field }: { field: unknown }): string {
+  return field === true ? "yes" : "";
+}
+
+/** Render a relation field as a linked-count. */
+function renderRelationField({ field }: { field: unknown }): string {
+  return Array.isArray(field) ? `${String(field.length)} linked` : "";
+}
+
+/** The property-type → renderer dispatch table (replaces the old if-chain; keeps behaviour identical). */
+const PROPERTY_RENDERERS: Readonly<Record<string, (args: { field: unknown }) => string>> = {
+  checkbox: renderCheckboxField,
+  date: (args) => dateText({ field: args.field }),
+  email: renderStringField,
+  multi_select: (args) => namesOf({ field: args.field }),
+  number: renderNumberField,
+  people: (args) => namesOf({ field: args.field }),
+  phone_number: renderStringField,
+  relation: renderRelationField,
+  rich_text: renderRichTextField,
+  select: renderNameField,
+  status: renderNameField,
+  title: renderRichTextField,
+  url: renderStringField,
+};
+
 /**
  * Render one Notion property value to plain text, dispatched on its `type` (title/rich_text/select/
  * status/multi_select/number/checkbox/date/url/email/phone_number/people/relation). Pure.
@@ -135,32 +183,8 @@ export function renderProperty({ value }: { value: unknown }): string {
     return "";
   }
   const type = value["type"];
-  const field = value[type];
-  if (type === "title" || type === "rich_text") {
-    return renderRichText({ richText: field });
-  }
-  if (type === "select" || type === "status") {
-    return isRecord(field) && typeof field["name"] === "string" ? field["name"] : "";
-  }
-  if (type === "multi_select" || type === "people") {
-    return namesOf({ field });
-  }
-  if (type === "number") {
-    return typeof field === "number" ? String(field) : "";
-  }
-  if (type === "checkbox") {
-    return field === true ? "yes" : "";
-  }
-  if (type === "date") {
-    return dateText({ field });
-  }
-  if (type === "url" || type === "email" || type === "phone_number") {
-    return typeof field === "string" ? field : "";
-  }
-  if (type === "relation") {
-    return Array.isArray(field) ? `${String(field.length)} linked` : "";
-  }
-  return "";
+  const renderer = PROPERTY_RENDERERS[type];
+  return renderer !== undefined ? renderer({ field: value[type] }) : "";
 }
 
 /**
@@ -207,37 +231,56 @@ export async function fetchNotionActivity({
 }): Promise<
   Result<{ pages: readonly NotionPageItem[]; databases: readonly NotionDatabaseItem[]; warnings: readonly string[] }>
 > {
-  const pages: NotionPageItem[] = [];
-  const databases: NotionDatabaseItem[] = [];
-  const warnings: string[] = [];
   try {
-    let pageCursor: string | undefined;
-    do {
-      const page = await api.pages({
-        since: window.since,
-        ...(pageCursor !== undefined ? { cursor: pageCursor } : {}),
-      });
-      pages.push(...page.pages);
-      if (page.warnings !== undefined) {
-        warnings.push(...page.warnings);
-      }
-      pageCursor = page.nextCursor;
-    } while (pageCursor !== undefined && pageCursor.length > 0);
-
-    let dbCursor: string | undefined;
-    do {
-      const page = await api.databases({
-        since: window.since,
-        ...(dbCursor !== undefined ? { cursor: dbCursor } : {}),
-      });
-      databases.push(...page.databases);
-      pages.push(...page.rows); // data-source ROWS are the actual records — projected as pages
-      dbCursor = page.nextCursor;
-    } while (dbCursor !== undefined && dbCursor.length > 0);
+    const pageLane = await pageAllPages({ api, since: window.since });
+    const dbLane = await pageAllDatabases({ api, since: window.since });
+    // data-source ROWS are the actual records — projected as pages (appended after the discovered pages).
+    return ok({ databases: dbLane.databases, pages: [...pageLane.pages, ...dbLane.rows], warnings: pageLane.warnings });
   } catch (error: unknown) {
     return err([`fetch failed: ${error instanceof Error ? error.message : "unknown"}`]);
   }
-  return ok({ databases, pages, warnings });
+}
+
+/** Page the `pages` lane to exhaustion, collecting shaped pages + per-page comment warnings. */
+async function pageAllPages({
+  api,
+  since,
+}: {
+  api: NotionApi;
+  since: string;
+}): Promise<{ pages: readonly NotionPageItem[]; warnings: readonly string[] }> {
+  const pages: NotionPageItem[] = [];
+  const warnings: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await api.pages({ since, ...(cursor !== undefined ? { cursor } : {}) });
+    pages.push(...page.pages);
+    if (page.warnings !== undefined) {
+      warnings.push(...page.warnings);
+    }
+    cursor = page.nextCursor;
+  } while (cursor !== undefined && cursor.length > 0);
+  return { pages, warnings };
+}
+
+/** Page the `databases` lane to exhaustion, collecting database summaries + their projected row pages. */
+async function pageAllDatabases({
+  api,
+  since,
+}: {
+  api: NotionApi;
+  since: string;
+}): Promise<{ databases: readonly NotionDatabaseItem[]; rows: readonly NotionPageItem[] }> {
+  const databases: NotionDatabaseItem[] = [];
+  const rows: NotionPageItem[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await api.databases({ since, ...(cursor !== undefined ? { cursor } : {}) });
+    databases.push(...page.databases);
+    rows.push(...page.rows);
+    cursor = page.nextCursor;
+  } while (cursor !== undefined && cursor.length > 0);
+  return { databases, rows };
 }
 
 /** Best-effort title from a page/database `properties` object or `title` array. */
@@ -254,6 +297,47 @@ function titleFrom({ raw }: { raw: Record<string, unknown> }): string {
     }
   }
   return "(untitled)";
+}
+
+/** The rendered rich-text line of one raw block (empty when the block has no rich-text body). Pure. */
+export function blockTextLine({ block }: { block: Record<string, unknown> }): string {
+  const type = typeof block["type"] === "string" ? block["type"] : undefined;
+  const body = type !== undefined ? block[type] : undefined;
+  return isRecord(body) ? renderRichText({ richText: body["rich_text"] }) : "";
+}
+
+/** The child block id to recurse into (`has_children` + a string id), or undefined. Pure. */
+export function blockChildId({ block }: { block: Record<string, unknown> }): string | undefined {
+  return block["has_children"] === true && typeof block["id"] === "string" ? block["id"] : undefined;
+}
+
+/** One `blocks.children.list` page — the sole `client.blocks` boundary, gated + safe-wrapped. */
+async function listBlockChildren({
+  client,
+  call,
+  blockId,
+  cursor,
+}: {
+  client: Client;
+  call: GatedCall;
+  blockId: string;
+  cursor: string | undefined;
+}): Promise<{ results: readonly unknown[]; nextCursor: string | undefined }> {
+  const res = orThrow({
+    result: await safeApiCall({
+      execute: () =>
+        call(() =>
+          client.blocks.children.list({
+            block_id: blockId,
+            page_size: PAGE_SIZE,
+            ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+          }),
+        ),
+      operation: "notion.blocks.children.list",
+      provider: "notion",
+    }),
+  });
+  return { nextCursor: notionNextCursor({ value: res.next_cursor }), results: res.results };
 }
 
 /** Recursively render a page's block children to plain text, bounded by depth. Every call is rate-gated. */
@@ -274,35 +358,18 @@ async function renderBlocks({
   const lines: string[] = [];
   let cursor: string | undefined;
   do {
-    const res = orThrow({
-      result: await safeApiCall({
-        execute: () =>
-          call(() =>
-            client.blocks.children.list({
-              block_id: blockId,
-              page_size: PAGE_SIZE,
-              ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-            }),
-          ),
-        operation: "notion.blocks.children.list",
-        provider: "notion",
-      }),
-    });
-    for (const result of res.results) {
-      const block: unknown = result;
-      if (!isRecord(block)) {
+    const page = await listBlockChildren({ blockId, call, client, cursor });
+    for (const result of page.results) {
+      if (!isRecord(result)) {
         continue;
       }
-      const type = typeof block["type"] === "string" ? block["type"] : undefined;
-      const body = type !== undefined ? block[type] : undefined;
-      if (isRecord(body)) {
-        lines.push(renderRichText({ richText: body["rich_text"] }));
-      }
-      if (block["has_children"] === true && typeof block["id"] === "string") {
-        lines.push(await renderBlocks({ blockId: block["id"], call, client, depth: depth + 1 }));
+      lines.push(blockTextLine({ block: result }));
+      const childId = blockChildId({ block: result });
+      if (childId !== undefined) {
+        lines.push(await renderBlocks({ blockId: childId, call, client, depth: depth + 1 }));
       }
     }
-    cursor = typeof res.next_cursor === "string" && res.next_cursor.length > 0 ? res.next_cursor : undefined;
+    cursor = page.nextCursor;
   } while (cursor !== undefined);
   return lines.filter((line) => line.length > 0).join("\n\n");
 }
@@ -312,8 +379,7 @@ export function cutoffMs({ since }: { since: string }): number | undefined {
   if (since <= "1970-01-01") {
     return undefined;
   }
-  const ms = Date.parse(`${since}T00:00:00Z`);
-  return Number.isFinite(ms) ? ms : undefined;
+  return parseYyyyMmDdUtcMs({ date: since });
 }
 
 /** Whether a result's `last_edited_time` is at/after the cutoff (undated or no-cutoff ⇒ keep). */
@@ -321,8 +387,13 @@ export function withinCutoff({ lastEdited, cutoff }: { lastEdited: string; cutof
   if (cutoff === undefined) {
     return true;
   }
-  const ms = Date.parse(lastEdited);
-  return Number.isFinite(ms) ? ms >= cutoff : true;
+  const ms = parseIsoMs({ tsIso: lastEdited });
+  return ms === undefined ? true : ms >= cutoff;
+}
+
+/** The Notion `next_cursor` off a raw search/list response — non-empty string ⇒ another page, else stop. */
+export function notionNextCursor({ value }: { value: unknown }): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /** Fetch a page's comments, paged to exhaustion (rate-gated). A comments-scope gap warns, never fails. */
@@ -358,7 +429,7 @@ async function pageComments({
           comments.push(comment);
         }
       }
-      cursor = typeof res.next_cursor === "string" && res.next_cursor.length > 0 ? res.next_cursor : undefined;
+      cursor = notionNextCursor({ value: res.next_cursor });
     } while (cursor !== undefined);
   } catch (error: unknown) {
     return {
@@ -409,7 +480,7 @@ async function dataSourceRows({
       }
       rows.push(projectRowItem({ dataSourceId, id: raw["id"], lastEdited, raw }));
     }
-    const next = typeof res.next_cursor === "string" && res.next_cursor.length > 0 ? res.next_cursor : undefined;
+    const next = notionNextCursor({ value: res.next_cursor });
     if (next === undefined) {
       return rows;
     }
@@ -505,6 +576,124 @@ export function projectCommentItem({ raw }: { raw: unknown }): NotionCommentItem
   };
 }
 
+// Notion `search` has no server-side date filter, so we sort by `last_edited_time` DESCENDING and stop
+// paging once a result older than `since` appears (all subsequent are older). `--all` ⇒ no cutoff.
+const SORT_NEWEST_FIRST = { direction: "descending", timestamp: "last_edited_time" } as const;
+
+/** The page's next cursor, suppressed once the `since` cutoff was reached mid-page (stop paging). Pure. */
+function searchNextCursor({
+  nextCursor,
+  reachedCutoff,
+}: {
+  nextCursor: unknown;
+  reachedCutoff: boolean;
+}): string | undefined {
+  return reachedCutoff ? undefined : notionNextCursor({ value: nextCursor });
+}
+
+/** One `search` call for a given object type — the sole `client.search` boundary, gated + safe-wrapped. */
+async function notionSearch({
+  client,
+  call,
+  objectType,
+  operation,
+  cursor,
+}: {
+  client: Client;
+  call: GatedCall;
+  objectType: "page" | "data_source";
+  operation: string;
+  cursor: string | undefined;
+}): Promise<{ results: readonly unknown[]; nextCursor: unknown }> {
+  const res = orThrow({
+    result: await safeApiCall({
+      execute: () =>
+        call(() =>
+          client.search({
+            filter: { property: "object", value: objectType },
+            page_size: PAGE_SIZE,
+            sort: SORT_NEWEST_FIRST,
+            ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+          }),
+        ),
+      operation,
+      provider: "notion",
+    }),
+  });
+  return { nextCursor: res.next_cursor, results: res.results };
+}
+
+/** The live `databases` seam method: each `data_source` hit + its queried rows, cutoff-honoured. */
+function notionDatabasesMethod({ client, call }: { client: Client; call: GatedCall }): NotionApi["databases"] {
+  return async ({ since, cursor }) => {
+    const cutoff = cutoffMs({ since });
+    const { results, nextCursor } = await notionSearch({
+      call,
+      client,
+      cursor,
+      objectType: "data_source",
+      operation: "notion.search.databases",
+    });
+    const databases: NotionDatabaseItem[] = [];
+    const rows: NotionPageItem[] = [];
+    let reachedCutoff = false;
+    for (const result of results) {
+      const raw: unknown = result;
+      if (!isRecord(raw) || typeof raw["id"] !== "string") {
+        continue;
+      }
+      const lastEdited = lastEditedOf({ raw });
+      if (!withinCutoff({ cutoff, lastEdited })) {
+        reachedCutoff = true;
+        break;
+      }
+      databases.push(projectDatabaseItem({ id: raw["id"], lastEdited, raw }));
+      rows.push(...(await dataSourceRows({ call, client, cutoff, dataSourceId: raw["id"] })));
+    }
+    const next = searchNextCursor({ nextCursor, reachedCutoff });
+    return { databases, rows, ...(next !== undefined ? { nextCursor: next } : {}) };
+  };
+}
+
+/** The live `pages` seam method: each page's recursively-rendered text + comments, cutoff-honoured. */
+function notionPagesMethod({ client, call }: { client: Client; call: GatedCall }): NotionApi["pages"] {
+  return async ({ since, cursor }) => {
+    const cutoff = cutoffMs({ since });
+    const { results, nextCursor } = await notionSearch({
+      call,
+      client,
+      cursor,
+      objectType: "page",
+      operation: "notion.search.pages",
+    });
+    const pages: NotionPageItem[] = [];
+    const warnings: string[] = [];
+    let reachedCutoff = false;
+    for (const result of results) {
+      const raw: unknown = result;
+      if (!isRecord(raw) || typeof raw["id"] !== "string") {
+        continue;
+      }
+      const lastEdited = lastEditedOf({ raw });
+      if (!withinCutoff({ cutoff, lastEdited })) {
+        reachedCutoff = true;
+        break;
+      }
+      const id = raw["id"];
+      const text = await renderBlocks({ blockId: id, call, client, depth: 0 });
+      const comments = await pageComments({ call, client, pageId: id });
+      warnings.push(...comments.warnings);
+      pages.push(projectPageItem({ comments: comments.comments, id, lastEdited, raw, text }));
+    }
+    const next = searchNextCursor({ nextCursor, reachedCutoff });
+    return {
+      pages,
+      ...(next !== undefined ? { nextCursor: next } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
+  };
+}
+
 /**
  * Build the production Notion seam over a live `Client`. Search discovery, recursive block rendering,
  * chunking, comment fetches, AND data-source row queries — every call gated through ONE shared rate
@@ -519,97 +708,5 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
   // One shared runner: transient-retried AND rate-paced. Retry is OUTSIDE the gate so each attempt (incl. a
   // post-429 retry) re-acquires a rate slot — gating only the first try would let retries burst past the cap.
   const call: GatedCall = (task) => retryTransient({ operation: () => gate(task) });
-  // Notion `search` has no server-side date filter, so we sort by `last_edited_time` DESCENDING and stop
-  // paging once a result older than `since` appears (all subsequent are older). `--all` ⇒ no cutoff.
-  const SORT_NEWEST_FIRST = { direction: "descending", timestamp: "last_edited_time" } as const;
-  const nextOf = ({
-    nextCursor,
-    reachedCutoff,
-  }: {
-    nextCursor: string | null;
-    reachedCutoff: boolean;
-  }): string | undefined =>
-    !reachedCutoff && typeof nextCursor === "string" && nextCursor.length > 0 ? nextCursor : undefined;
-
-  return {
-    databases: async ({ since, cursor }) => {
-      const cutoff = cutoffMs({ since });
-      const res = orThrow({
-        result: await safeApiCall({
-          execute: () =>
-            call(() =>
-              client.search({
-                filter: { property: "object", value: "data_source" },
-                page_size: PAGE_SIZE,
-                sort: SORT_NEWEST_FIRST,
-                ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-              }),
-            ),
-          operation: "notion.search.databases",
-          provider: "notion",
-        }),
-      });
-      const databases: NotionDatabaseItem[] = [];
-      const rows: NotionPageItem[] = [];
-      let reachedCutoff = false;
-      for (const result of res.results) {
-        const raw: unknown = result;
-        if (!isRecord(raw) || typeof raw["id"] !== "string") {
-          continue;
-        }
-        const lastEdited = lastEditedOf({ raw });
-        if (!withinCutoff({ cutoff, lastEdited })) {
-          reachedCutoff = true;
-          break;
-        }
-        databases.push(projectDatabaseItem({ id: raw["id"], lastEdited, raw }));
-        rows.push(...(await dataSourceRows({ call, client, cutoff, dataSourceId: raw["id"] })));
-      }
-      const next = nextOf({ nextCursor: res.next_cursor, reachedCutoff });
-      return { databases, rows, ...(next !== undefined ? { nextCursor: next } : {}) };
-    },
-    pages: async ({ since, cursor }) => {
-      const cutoff = cutoffMs({ since });
-      const res = orThrow({
-        result: await safeApiCall({
-          execute: () =>
-            call(() =>
-              client.search({
-                filter: { property: "object", value: "page" },
-                page_size: PAGE_SIZE,
-                sort: SORT_NEWEST_FIRST,
-                ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-              }),
-            ),
-          operation: "notion.search.pages",
-          provider: "notion",
-        }),
-      });
-      const pages: NotionPageItem[] = [];
-      const warnings: string[] = [];
-      let reachedCutoff = false;
-      for (const result of res.results) {
-        const raw: unknown = result;
-        if (!isRecord(raw) || typeof raw["id"] !== "string") {
-          continue;
-        }
-        const lastEdited = lastEditedOf({ raw });
-        if (!withinCutoff({ cutoff, lastEdited })) {
-          reachedCutoff = true;
-          break;
-        }
-        const id = raw["id"];
-        const text = await renderBlocks({ blockId: id, call, client, depth: 0 });
-        const comments = await pageComments({ call, client, pageId: id });
-        warnings.push(...comments.warnings);
-        pages.push(projectPageItem({ comments: comments.comments, id, lastEdited, raw, text }));
-      }
-      const next = nextOf({ nextCursor: res.next_cursor, reachedCutoff });
-      return {
-        pages,
-        ...(next !== undefined ? { nextCursor: next } : {}),
-        ...(warnings.length > 0 ? { warnings } : {}),
-      };
-    },
-  };
+  return { databases: notionDatabasesMethod({ call, client }), pages: notionPagesMethod({ call, client }) };
 }

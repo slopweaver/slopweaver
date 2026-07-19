@@ -85,10 +85,13 @@ short-circuit — one run tells you everything wrong) and exits non-zero if any 
   `.prettierignore` hands all code/JSON to Biome so the two never fight.
 - **oxlint** (`.oxlintrc.jsonc`) — fast syntactic AST/bug rules, zero warnings tolerated (`--deny-warnings`).
 - **ESLint** (`eslint.config.js`) — the type-aware lane oxlint can't cover (`no-floating-promises`,
-  `no-misused-promises`, switch-exhaustiveness, `only-throw-error`, ReDoS/sonarjs), plus the house rules as
-  `no-restricted-syntax` selectors: no `?? ""`, no `isDirectInvocation`, no `process.argv[1]`, no `as any`/double
-  casts. Run with `--max-warnings 0` — advisory `warn` severities are kept, but ANY warning fails the gate.
-  Runs over `tsconfig.eslint.json`.
+  `no-misused-promises`, switch-exhaustiveness, `only-throw-error`, ReDoS, `no-explicit-any`,
+  `explicit-module-boundary-types`, and `sonarjs/cognitive-complexity` capped at **12**), plus the house
+  rules as `no-restricted-syntax` selectors: no `?? ""`, no `isDirectInvocation`, no `process.argv[1]`, no
+  `as any`/double casts, and — in `*.test.ts` — the **testing-discipline bans** that machine-enforce
+  `testing.md` (no `vi.mock`/`vi.spyOn`/`vi.fn`, no `.toBeTruthy()`/`.toBeFalsy()`, no bare
+  `toHaveProperty("k")`, no `expect(typeof …)`). Run with `--max-warnings 0` — advisory `warn` severities
+  are kept, but ANY warning fails the gate. Runs over `tsconfig.eslint.json`.
 - **knip** (`knip.json`) — dead files / unused exports / unlisted deps.
 - **constraints** (`yarn.config.cjs`) — every dependency exact-pinned; `packageManager` always set.
 - **hygiene** + **door-coverage** — the public leak gate and the admit-door seam ratchet (see `docs/`).

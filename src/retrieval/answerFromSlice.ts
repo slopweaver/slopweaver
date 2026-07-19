@@ -126,8 +126,81 @@ export function stripUnresolvedCitations({
     .trim();
 }
 
+/** The validated model payload: a string `tldr`, string-only `citations`, and an optional non-blank `details`. */
+export interface AnswerPayload {
+  readonly tldr: string;
+  readonly citations: readonly string[];
+  readonly details?: string;
+}
+
+/**
+ * Parse + validate the raw model output into an {@link AnswerPayload}. Pure — a missing string `tldr` or a
+ * non-array `citations` is an error (triggering a retry); non-string citation entries and a blank `details`
+ * are dropped.
+ *
+ * @param input the raw model output
+ * @returns the validated payload, or a retry error
+ */
+export function parseAnswerPayload({ input }: { input: unknown }): Result<AnswerPayload> {
+  if (!isRecord(input) || typeof input["tldr"] !== "string" || !Array.isArray(input["citations"])) {
+    return err(["answer must have a string tldr and a citations array"]);
+  }
+  const details =
+    typeof input["details"] === "string" && input["details"].trim().length > 0 ? input["details"] : undefined;
+  const citations = input["citations"].filter((c): c is string => typeof c === "string");
+  return ok({ citations, tldr: input["tldr"], ...(details !== undefined ? { details } : {}) });
+}
+
+/** The grounding outcome: the surviving token set (for prose stripping) + the distinct cited URLs/tokens. */
+export interface GroundedCitations {
+  readonly surviving: ReadonlySet<string>;
+  readonly citations: readonly string[];
+  readonly citedTokens: readonly string[];
+}
+
+/**
+ * Keep only candidate tokens the slice actually offered, collapsing them to distinct source URLs. Pure —
+ * `surviving` is every grounded token (so valid inline cites stay in the prose); `citations` is the
+ * first-appearance-ordered distinct URLs those tokens point to (several tokens can share one record's URL).
+ *
+ * @param candidateTokens the structured + inline citation tokens, in appearance order
+ * @param evidenceTokens the tokens the slice offered to cite
+ * @param urlByToken maps an evidence token to its source URL
+ * @returns the surviving tokens, distinct cited URLs, and cited tokens (both first-appearance order)
+ */
+export function groundCitations({
+  candidateTokens,
+  evidenceTokens,
+  urlByToken,
+}: {
+  candidateTokens: readonly string[];
+  evidenceTokens: ReadonlySet<string>;
+  urlByToken: ReadonlyMap<string, string>;
+}): GroundedCitations {
+  const surviving = new Set<string>();
+  const citations: string[] = [];
+  const citedTokens: string[] = [];
+  const seenUrls = new Set<string>();
+  for (const token of candidateTokens) {
+    const url = urlByToken.get(token);
+    if (!evidenceTokens.has(token) || url === undefined) {
+      continue;
+    }
+    if (!surviving.has(token)) {
+      surviving.add(token);
+      citedTokens.push(token);
+    }
+    if (!seenUrls.has(url)) {
+      seenUrls.add(url);
+      citations.push(url);
+    }
+  }
+  return { citations, citedTokens, surviving };
+}
+
 /**
  * Validate + ground a model answer: keep only citations backed by the slice, strip invented inline ones.
+ * A thin composition of {@link parseAnswerPayload} + {@link groundCitations} + {@link stripUnresolvedCitations}.
  *
  * @param input the raw model output
  * @param evidenceTokens the tokens the slice offered to cite
@@ -146,48 +219,31 @@ export function validateAnswer({
   urlByToken: ReadonlyMap<string, string>;
   retrievedRefs: readonly RetrievedRef[];
 }): Result<Answer> {
-  if (!isRecord(input) || typeof input["tldr"] !== "string" || !Array.isArray(input["citations"])) {
-    return err(["answer must have a string tldr and a citations array"]);
+  const parsed = parseAnswerPayload({ input });
+  if (parsed.ok === false) {
+    return err(parsed.errors);
   }
-  const details =
-    typeof input["details"] === "string" && input["details"].trim().length > 0 ? input["details"] : undefined;
+  const { tldr: rawTldr, citations: rawCitations, details } = parsed.value;
   // Candidate tokens: the structured citations[] AND anything cited inline in the prose.
-  const structured = input["citations"]
-    .filter((c): c is string => typeof c === "string")
-    .map((c) => citationToken({ citation: c }));
+  const structured = rawCitations.map((c) => citationToken({ citation: c }));
   const inline = [
-    ...inlineTokens({ text: input["tldr"] }),
+    ...inlineTokens({ text: rawTldr }),
     ...(details !== undefined ? inlineTokens({ text: details }) : []),
   ];
-  // `surviving` = every grounded token (so valid inline cites are kept in the prose); `citations` =
-  // the distinct source URLs those tokens point to (several tokens can share one record's URL).
-  const surviving = new Set<string>();
-  const citations: string[] = [];
-  const citedTokens: string[] = [];
-  const seenUrls = new Set<string>();
-  for (const token of [...structured, ...inline]) {
-    const url = urlByToken.get(token);
-    if (!evidenceTokens.has(token) || url === undefined) {
-      continue;
-    }
-    if (!surviving.has(token)) {
-      surviving.add(token);
-      citedTokens.push(token);
-    }
-    if (!seenUrls.has(url)) {
-      seenUrls.add(url);
-      citations.push(url);
-    }
-  }
-  const tldr = stripUnresolvedCitations({ surviving, text: input["tldr"] });
+  const { surviving, citations, citedTokens } = groundCitations({
+    candidateTokens: [...structured, ...inline],
+    evidenceTokens,
+    urlByToken,
+  });
+  const tldr = stripUnresolvedCitations({ surviving, text: rawTldr });
   const strippedDetails = details !== undefined ? stripUnresolvedCitations({ surviving, text: details }) : undefined;
   const answer = strippedDetails !== undefined && strippedDetails.length > 0 ? `${tldr}\n\n${strippedDetails}` : tldr;
   return ok({
     tldr,
     ...(strippedDetails !== undefined && strippedDetails.length > 0 ? { details: strippedDetails } : {}),
     answer,
-    citations,
-    citedTokens,
+    citations: [...citations],
+    citedTokens: [...citedTokens],
     retrieved: retrievedRefs.length,
     retrievedRefs,
     used: citations.length,
