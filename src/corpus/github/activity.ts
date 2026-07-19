@@ -17,6 +17,7 @@ export interface ActivityReview {
   readonly tsIso: string;
   readonly url: string;
   readonly body: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 export interface ActivityComment {
@@ -26,6 +27,7 @@ export interface ActivityComment {
   readonly body: string;
   /** Present only for review-thread comments: whether the thread is resolved. */
   readonly resolved?: boolean;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 export interface ActivityStateEvent {
@@ -33,6 +35,7 @@ export interface ActivityStateEvent {
   readonly type: string;
   readonly tsIso: string;
   readonly actor?: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 export interface GithubActivity {
@@ -113,6 +116,7 @@ function parseReviews({ node }: { node: Record<string, unknown> }): ActivityRevi
     return {
       ...(author !== undefined ? { author } : {}),
       body: str({ value: r["body"] }),
+      raw: r,
       state: str({ value: r["state"] }),
       tsIso: str({ value: r["submittedAt"] }),
       url: str({ value: r["url"] }),
@@ -126,6 +130,7 @@ function parseComments({ node }: { node: Record<string, unknown> }): ActivityCom
     return {
       ...(author !== undefined ? { author } : {}),
       body: str({ value: c["body"] }),
+      raw: c,
       tsIso: str({ value: c["createdAt"] }),
       url: str({ value: c["url"] }),
     };
@@ -137,6 +142,7 @@ function parseComments({ node }: { node: Record<string, unknown> }): ActivityCom
       return {
         ...(author !== undefined ? { author } : {}),
         body: str({ value: c["body"] }),
+        raw: c,
         resolved,
         tsIso: str({ value: c["createdAt"] }),
         url: str({ value: c["url"] }),
@@ -152,6 +158,7 @@ function parseTimeline({ node }: { node: Record<string, unknown> }): ActivitySta
       const actor = login({ actor: e["actor"] });
       return {
         ...(actor !== undefined ? { actor } : {}),
+        raw: e,
         tsIso: str({ value: e["createdAt"] }),
         type: str({ value: e["__typename"] }).replace(/Event$/, ""),
       };

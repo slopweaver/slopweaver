@@ -12,10 +12,11 @@ import { readCorpusDir, resolveCorpusDir } from "../../../corpus/corpusStore.js"
 import type { CorpusRecord, CorpusSource } from "../../../corpus/types.js";
 import { type BatchDigest, distilBatches, reduceToSourceDigest, type SourceDigest } from "../../../gold/distil.js";
 import { loadDistilCache, saveDistilCache } from "../../../gold/distilCache.js";
-import { groupForDistil } from "../../../gold/distilGroup.js";
+import { type DistilBatch, groupForDistil } from "../../../gold/distilGroup.js";
 import { buildGoldDocs } from "../../../gold/goldIndex.js";
 import { writeJsonFile } from "../../../lib/jsonFile.js";
 import { logger } from "../../../lib/logger.js";
+import { createProgressEmitter, progressCadence } from "../../../lib/progress.js";
 import { claudeCliClient } from "../../../llm/claudeCli.js";
 import { readSilverIndex } from "../../../silver/silverIndexRead.js";
 import { defineCommand } from "../../defineCommand.js";
@@ -23,7 +24,25 @@ import { EXIT_ERROR, EXIT_EXPECTED_EMPTY, EXIT_OK, EXIT_USAGE } from "../../exit
 import { parseFlagTail, parsePositiveInteger } from "../../optionParsers.js";
 
 const USAGE =
-  "usage: slopweaver distil [--home <dir>] [--corpus <dir>] [--max-per-batch N] [--top-containers N] [--recent-only] [--dry-run]";
+  "usage: slopweaver distil [--home <dir>] [--corpus <dir>] [--max-per-batch N] [--top-containers N] [--max-batches N] [--recent-only] [--dry-run]";
+
+/** Ascending string comparator (locale-independent), for a readable `.toSorted`. */
+function compareStrings({ a, b }: { a: string; b: string }): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Batch count per source, sorted by source name — for the `--dry-run` plan summary. */
+function perSourceBatchCounts({
+  batches,
+}: {
+  batches: readonly DistilBatch[];
+}): readonly (readonly [CorpusSource, number])[] {
+  const counts = new Map<CorpusSource, number>();
+  for (const batch of batches) {
+    counts.set(batch.source, (counts.get(batch.source) ?? 0) + 1);
+  }
+  return [...counts.entries()].toSorted(([sourceA], [sourceB]) => compareStrings({ a: sourceA, b: sourceB }));
+}
 
 /** Reduce fresh+cached digests into per-source silver digests. */
 function toSourceDigests({
@@ -62,7 +81,10 @@ export async function runDistil(argv: readonly string[]): Promise<number> {
   }
   const parsed = parseFlagTail({
     rest,
-    spec: { boolean: ["recent-only", "dry-run"], value: ["home", "corpus", "max-per-batch", "top-containers"] },
+    spec: {
+      boolean: ["recent-only", "dry-run"],
+      value: ["home", "corpus", "max-per-batch", "top-containers", "max-batches"],
+    },
   });
   if (parsed.ok === false) {
     parsed.errors.forEach((e) => {
@@ -82,6 +104,10 @@ export async function runDistil(argv: readonly string[]): Promise<number> {
   const topContainers =
     values["top-containers"] !== undefined
       ? parsePositiveInteger({ errors: flagErrors, label: "--top-containers", value: values["top-containers"] })
+      : undefined;
+  const maxBatches =
+    values["max-batches"] !== undefined
+      ? parsePositiveInteger({ errors: flagErrors, label: "--max-batches", value: values["max-batches"] })
       : undefined;
   if (flagErrors.length > 0) {
     flagErrors.forEach((e) => {
@@ -112,10 +138,18 @@ export async function runDistil(argv: readonly string[]): Promise<number> {
   const cache = loadDistilCache({ home });
 
   if (flags.has("dry-run")) {
-    const hits = batches.filter((b) => cache.has(b.hash)).length;
+    const misses = batches.filter((b) => !cache.has(b.hash)).length;
+    const hits = batches.length - misses;
+    const wouldCall = maxBatches !== undefined ? Math.min(misses, maxBatches) : misses;
+    const capped = misses - wouldCall;
     logger.out(
-      `${String(batches.length)} batch(es): ${String(hits)} cached, ${String(batches.length - hits)} would call the model`,
+      `${String(batches.length)} batch(es): ${String(hits)} cached, ${String(wouldCall)} would call the model` +
+        (capped > 0 ? ` (${String(capped)} deferred by --max-batches ${String(maxBatches)})` : ""),
     );
+    for (const [source, count] of perSourceBatchCounts({ batches })) {
+      logger.out(`  ${source}: ${String(count)} batch(es)`);
+    }
+    logger.out("dry run — no model calls, no writes");
     return EXIT_OK;
   }
   if (batches.length === 0) {
@@ -123,11 +157,49 @@ export async function runDistil(argv: readonly string[]): Promise<number> {
     return EXIT_EXPECTED_EMPTY;
   }
 
-  logger.info(`distilling ${String(batches.length)} batch(es)…`);
-  const run = await distilBatches({ batches, cache, client: claudeCliClient() });
+  const misses = batches.filter((b) => !cache.has(b.hash)).length;
+  const estCalls = maxBatches !== undefined ? Math.min(misses, maxBatches) : misses;
+  logger.info(`distilling ${String(batches.length)} batch(es) — ~${String(estCalls)} model call(s) to make…`);
+  // Non-blocking, session-visible progress + a per-batch cache flush so a killed run resumes losing nothing.
+  const progress = createProgressEmitter({ cadence: progressCadence({ total: batches.length }), verb: "distil" });
+  const run = await distilBatches({
+    batches,
+    cache,
+    client: claudeCliClient(),
+    onCheckpoint: () => {
+      saveDistilCache({ cache, home });
+    },
+    onProgress: (p) => {
+      progress.update({
+        counts: { cached: p.hits, called: p.called, skipped: p.skipped },
+        done: p.done,
+        phase: "batch",
+        total: p.total,
+      });
+    },
+    ...(maxBatches !== undefined ? { maxCalls: maxBatches } : {}),
+  });
+  progress.finish({
+    counts: { cached: run.hits, called: run.called, skipped: run.skipped },
+    done: batches.length,
+    phase: "done",
+    total: batches.length,
+  });
   run.errors.forEach((e) => {
     logger.warn(`skip ${e}`);
   });
+
+  // The batch cache is always persisted (it's the resume unit). But when `--max-batches` deferred work,
+  // the digest set is INCOMPLETE — writing silver/gold from it would publish partial output over the last
+  // complete build. So on a capped run we save the cache only and tell the caller to re-run; a later
+  // uncapped run distils the rest (all cache hits + the remaining calls) and writes complete gold.
+  saveDistilCache({ cache, home });
+  if (run.skipped > 0) {
+    logger.out(
+      `distilled ${String(run.called)} batch(es) (LLM) + ${String(run.hits)} cached · ${String(run.skipped)} deferred by --max-batches — cache saved, gold NOT rewritten (partial). Re-run to complete.`,
+    );
+    return EXIT_OK;
+  }
 
   const sourceDigests = toSourceDigests({ digests: run.digests, records });
   for (const digest of sourceDigests) {
@@ -147,7 +219,6 @@ export async function runDistil(argv: readonly string[]): Promise<number> {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, doc.markdown, "utf8");
   }
-  saveDistilCache({ cache, home });
 
   logger.out(
     `distilled ${String(run.called)} batch(es) (LLM) + ${String(run.hits)} cached → gold at ${goldDir({ home })}`,

@@ -87,6 +87,7 @@ function toExportItem({ raw }: { raw: unknown }): GithubExportItem | undefined {
     url,
     ...(author !== undefined ? { author } : {}),
     ...(body !== undefined ? { body } : {}),
+    raw,
   };
 }
 

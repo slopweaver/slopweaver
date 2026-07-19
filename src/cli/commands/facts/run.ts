@@ -6,6 +6,7 @@
 import { slopweaverHome } from "../../../config.js";
 import { cacheDir } from "../../../corpus/corpusPaths.js";
 import { logger } from "../../../lib/logger.js";
+import { createProgressEmitter } from "../../../lib/progress.js";
 import { retrieveRecords } from "../../../retrieval/askEngine.js";
 import { citeToken } from "../../../retrieval/citeToken.js";
 import { defaultEmbedder } from "../../../retrieval/embeddings.js";
@@ -63,10 +64,20 @@ export async function runFacts(argv: readonly string[]): Promise<number> {
   });
   const records = corpus.value;
 
+  // Route embed progress to STDERR so it never corrupts facts' stdout data / `--json`.
+  const embedProgress = createProgressEmitter({
+    sink: (line) => {
+      process.stderr.write(line);
+    },
+    verb: "embed",
+  });
   const semanticPrep = args.semantic
     ? await prepareSemanticContext({
         deps: { embedder: defaultEmbedder, store: diskVectorCacheStore({ cacheDir: cacheDir({ home }) }) },
         enabled: true,
+        onProgress: (p) => {
+          embedProgress.update({ done: p.done, phase: "records", total: p.total });
+        },
         query: args.question,
         records,
         warn: (m) => {

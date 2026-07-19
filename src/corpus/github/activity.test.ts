@@ -38,7 +38,36 @@ describe("parseActivity", () => {
     expect(activity.reviews).toHaveLength(1);
     expect(activity.comments).toHaveLength(2);
     expect(activity.comments[1]!.resolved).toBe(true);
-    expect(activity.timeline).toEqual([{ actor: "merger", tsIso: "2024-01-02T00:00:00Z", type: "Merged" }]);
+    expect(activity.timeline).toEqual([
+      {
+        actor: "merger",
+        raw: { __typename: "MergedEvent", actor: { login: "merger" }, createdAt: "2024-01-02T00:00:00Z" },
+        tsIso: "2024-01-02T00:00:00Z",
+        type: "Merged",
+      },
+    ]);
+  });
+
+  it("keeps raw GraphQL child nodes on parsed reviews, comments, and timeline events", () => {
+    const activity = parseActivity({ isPr: true, node: prNode });
+    expect(activity.reviews[0]!.raw).toEqual({
+      author: { login: "rev" },
+      body: "lgtm",
+      state: "APPROVED",
+      submittedAt: "2024-01-01T10:00:00Z",
+      url: "u1",
+    });
+    expect(activity.comments[0]!.raw).toEqual({
+      author: { login: "c1" },
+      body: "a comment",
+      createdAt: "2024-01-01T11:00:00Z",
+      url: "u2",
+    });
+    expect(activity.timeline[0]!.raw).toEqual({
+      __typename: "MergedEvent",
+      actor: { login: "merger" },
+      createdAt: "2024-01-02T00:00:00Z",
+    });
   });
 
   it("an issue node carries no reviews and degrades missing fields to empty", () => {

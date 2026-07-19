@@ -85,7 +85,28 @@ export interface CorpusRecord {
   readonly text: string;
   /** Cross-refs extracted from the content (`#123`, `@mentions`, URLs) — the raw material for the graph. */
   readonly refs: readonly string[];
+  /**
+   * Rich structured metadata pulled generously from the source SDK (state, labels, reactions, assignee,
+   * parent, chunk index, …) — the curated, typed, queryable subset. Deliberately NOT embedded (the vector
+   * text stays title+text only) and entirely OPTIONAL: bronze written before this field parses back
+   * unchanged, so it never invalidates an existing corpus. For the FULL untyped payload, see `raw`.
+   */
+  readonly attrs?: Readonly<Record<string, CorpusAttributeValue>>;
+  /**
+   * The FULL raw source payload this record was projected from (the SDK object, redacted string-leaves).
+   * Stored verbatim so a future feature needing ANY source field never forces a whole-corpus re-fetch —
+   * bronze is the durable capture; silver/`attrs`/`text` are the lossy projections. Opaque (never typed
+   * against, never embedded, excluded from the dedup fingerprint so a volatile raw field can't churn
+   * bronze). OPTIONAL + additive: pre-`raw` bronze parses back unchanged.
+   */
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
+
+/**
+ * A rich-bronze attribute value: a scalar or a list of strings. Kept deliberately narrow (no nested
+ * objects) so the payload stays cheap to serialise, redact, and reason about.
+ */
+export type CorpusAttributeValue = string | number | boolean | readonly string[];
 
 /** An inclusive ISO window `[since, until]` for an export. */
 export interface ExportWindow {

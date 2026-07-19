@@ -9,15 +9,18 @@
 import { Client } from "@notionhq/client";
 
 import { isRecord } from "../../lib/parsers.js";
-import { RateBucket } from "../../lib/rateBucket.js";
+import { createRateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
 import type { ExportWindow } from "../types.js";
 import type { NotionCommentItem, NotionDatabaseItem, NotionPageItem } from "./project.js";
 
+/** A rate-gated + transient-retried request runner — one shared per crawl (see {@link makeNotionApi}). */
+type GatedCall = <T>(task: () => Promise<T>) => Promise<T>;
+
 const PAGE_SIZE = 100;
 const MAX_CHUNK_CHARS = 1500;
 const MAX_BLOCK_DEPTH = 6;
-/** Notion's documented all-tier ceiling; the shared bucket sits just under it (see {@link RateBucket}). */
+/** Notion's documented all-tier ceiling; the shared rate scheduler sits just under it. */
 const NOTION_RATE_PER_SEC = 3;
 
 /** A page of shaped pages from the seam. `nextCursor` absent ⇒ the `since` cutoff was reached (stop). */
@@ -255,12 +258,12 @@ function titleFrom({ raw }: { raw: Record<string, unknown> }): string {
 /** Recursively render a page's block children to plain text, bounded by depth. Every call is rate-gated. */
 async function renderBlocks({
   client,
-  bucket,
+  call,
   blockId,
   depth,
 }: {
   client: Client;
-  bucket: RateBucket;
+  call: GatedCall;
   blockId: string;
   depth: number;
 }): Promise<string> {
@@ -270,12 +273,13 @@ async function renderBlocks({
   const lines: string[] = [];
   let cursor: string | undefined;
   do {
-    await bucket.take();
-    const res = await client.blocks.children.list({
-      block_id: blockId,
-      page_size: PAGE_SIZE,
-      ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-    });
+    const res = await call(() =>
+      client.blocks.children.list({
+        block_id: blockId,
+        page_size: PAGE_SIZE,
+        ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+      }),
+    );
     for (const result of res.results) {
       const block: unknown = result;
       if (!isRecord(block)) {
@@ -287,7 +291,7 @@ async function renderBlocks({
         lines.push(renderRichText({ richText: body["rich_text"] }));
       }
       if (block["has_children"] === true && typeof block["id"] === "string") {
-        lines.push(await renderBlocks({ blockId: block["id"], bucket, client, depth: depth + 1 }));
+        lines.push(await renderBlocks({ blockId: block["id"], call, client, depth: depth + 1 }));
       }
     }
     cursor = typeof res.next_cursor === "string" && res.next_cursor.length > 0 ? res.next_cursor : undefined;
@@ -316,28 +320,30 @@ export function withinCutoff({ lastEdited, cutoff }: { lastEdited: string; cutof
 /** Fetch a page's comments, paged to exhaustion (rate-gated). A comments-scope gap warns, never fails. */
 async function pageComments({
   client,
-  bucket,
+  call,
   pageId,
 }: {
   client: Client;
-  bucket: RateBucket;
+  call: GatedCall;
   pageId: string;
 }): Promise<{ comments: readonly NotionCommentItem[]; warnings: readonly string[] }> {
   const comments: NotionCommentItem[] = [];
   let cursor: string | undefined;
   try {
     do {
-      await bucket.take();
-      const res = await client.comments.list({
-        block_id: pageId,
-        ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-      });
+      const res = await call(() =>
+        client.comments.list({
+          block_id: pageId,
+          ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+        }),
+      );
       for (const result of res.results) {
         const raw: unknown = result;
         if (isRecord(raw) && typeof raw["id"] === "string") {
           comments.push({
             body: renderRichText({ richText: raw["rich_text"] }),
             id: raw["id"],
+            raw,
             tsIso: typeof raw["created_time"] === "string" ? raw["created_time"] : "",
           });
         }
@@ -356,24 +362,25 @@ async function pageComments({
 /** Query a data source's rows (the actual task/decision records) to exhaustion, rate-gated, cutoff-honoured. */
 async function dataSourceRows({
   client,
-  bucket,
+  call,
   dataSourceId,
   cutoff,
 }: {
   client: Client;
-  bucket: RateBucket;
+  call: GatedCall;
   dataSourceId: string;
   cutoff: number | undefined;
 }): Promise<readonly NotionPageItem[]> {
   const rows: NotionPageItem[] = [];
   let cursor: string | undefined;
   for (;;) {
-    await bucket.take();
-    const res = await client.dataSources.query({
-      data_source_id: dataSourceId,
-      page_size: PAGE_SIZE,
-      ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-    });
+    const res = await call(() =>
+      client.dataSources.query({
+        data_source_id: dataSourceId,
+        page_size: PAGE_SIZE,
+        ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+      }),
+    );
     for (const result of res.results) {
       const raw: unknown = result;
       if (!isRecord(raw) || typeof raw["id"] !== "string") {
@@ -389,6 +396,7 @@ async function dataSourceRows({
         comments: [],
         id: raw["id"],
         parent: dataSourceId,
+        raw,
         title: title.length > 0 ? title : "(row)",
         tsIso: lastEdited,
         url: typeof raw["url"] === "string" ? raw["url"] : "",
@@ -404,15 +412,18 @@ async function dataSourceRows({
 
 /**
  * Build the production Notion seam over a live `Client`. Search discovery, recursive block rendering,
- * chunking, comment fetches, AND data-source row queries — every call gated through ONE shared
- * {@link RateBucket} (~3 req/s) so a big recursive crawl never self-429s.
+ * chunking, comment fetches, AND data-source row queries — every call gated through ONE shared rate
+ * scheduler (~3 req/s) + transient retry so a big recursive crawl never self-429s.
  *
  * @param token the Notion integration token
  * @returns the live Notion seam
  */
 export function makeNotionApi({ token }: { token: string }): NotionApi {
   const client = new Client({ auth: token });
-  const bucket = new RateBucket({ ratePerSec: NOTION_RATE_PER_SEC });
+  const gate = createRateScheduler({ ratePerSec: NOTION_RATE_PER_SEC });
+  // One shared runner: transient-retried AND rate-paced. Retry is OUTSIDE the gate so each attempt (incl. a
+  // post-429 retry) re-acquires a rate slot — gating only the first try would let retries burst past the cap.
+  const call: GatedCall = (task) => retryTransient({ operation: () => gate(task) });
   // Notion `search` has no server-side date filter, so we sort by `last_edited_time` DESCENDING and stop
   // paging once a result older than `since` appears (all subsequent are older). `--all` ⇒ no cutoff.
   const SORT_NEWEST_FIRST = { direction: "descending", timestamp: "last_edited_time" } as const;
@@ -428,13 +439,14 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
   return {
     databases: async ({ since, cursor }) => {
       const cutoff = cutoffMs({ since });
-      await bucket.take();
-      const res = await client.search({
-        filter: { property: "object", value: "data_source" },
-        page_size: PAGE_SIZE,
-        sort: SORT_NEWEST_FIRST,
-        ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-      });
+      const res = await call(() =>
+        client.search({
+          filter: { property: "object", value: "data_source" },
+          page_size: PAGE_SIZE,
+          sort: SORT_NEWEST_FIRST,
+          ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+        }),
+      );
       const databases: NotionDatabaseItem[] = [];
       const rows: NotionPageItem[] = [];
       let reachedCutoff = false;
@@ -451,24 +463,26 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
         databases.push({
           description: "",
           id: raw["id"],
+          raw,
           title: titleFrom({ raw }),
           tsIso: lastEdited,
           url: typeof raw["url"] === "string" ? raw["url"] : "",
         });
-        rows.push(...(await dataSourceRows({ bucket, client, cutoff, dataSourceId: raw["id"] })));
+        rows.push(...(await dataSourceRows({ call, client, cutoff, dataSourceId: raw["id"] })));
       }
       const next = nextOf({ nextCursor: res.next_cursor, reachedCutoff });
       return { databases, rows, ...(next !== undefined ? { nextCursor: next } : {}) };
     },
     pages: async ({ since, cursor }) => {
       const cutoff = cutoffMs({ since });
-      await bucket.take();
-      const res = await client.search({
-        filter: { property: "object", value: "page" },
-        page_size: PAGE_SIZE,
-        sort: SORT_NEWEST_FIRST,
-        ...(cursor !== undefined ? { start_cursor: cursor } : {}),
-      });
+      const res = await call(() =>
+        client.search({
+          filter: { property: "object", value: "page" },
+          page_size: PAGE_SIZE,
+          sort: SORT_NEWEST_FIRST,
+          ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+        }),
+      );
       const pages: NotionPageItem[] = [];
       const warnings: string[] = [];
       let reachedCutoff = false;
@@ -483,13 +497,14 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
           break;
         }
         const id = raw["id"];
-        const text = await renderBlocks({ blockId: id, bucket, client, depth: 0 });
-        const comments = await pageComments({ bucket, client, pageId: id });
+        const text = await renderBlocks({ blockId: id, call, client, depth: 0 });
+        const comments = await pageComments({ call, client, pageId: id });
         warnings.push(...comments.warnings);
         pages.push({
           chunks: chunkText({ text }),
           comments: comments.comments,
           id,
+          raw,
           title: titleFrom({ raw }),
           tsIso: lastEdited,
           url: typeof raw["url"] === "string" ? raw["url"] : "",

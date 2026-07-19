@@ -121,7 +121,7 @@ lefthook, no monorepo tooling.
 **Description format — required for every PR** (skeleton in `.github/pull_request_template.md`):
 
 - A horizontal row of [shields.io](https://shields.io) **flat** badges — include only those that
-  apply: `CI` (linked to its run), `size`, `proof`, and `CodeRabbit` / `review` when relevant.
+  apply: `CI` (linked to its run), `size`, `proof`, and `review` when relevant.
 - `proof` is a **grade**: `bronze` = builds + tests/gate green (mechanical) · `silver` = a real seam
   exercised locally with captured evidence (e.g. a sanitised terminal screenshot) · `gold` =
   end-to-end against real data or a live preview.

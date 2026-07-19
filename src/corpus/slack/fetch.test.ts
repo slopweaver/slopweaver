@@ -98,6 +98,22 @@ describe("fetchSlackActivity", () => {
     expect(channel.replies[0]!.ts).toBe("1700000100.000200");
   });
 
+  it("keeps raw Slack message, reply, and file objects on shaped items", async () => {
+    const result = unwrap(await fetchSlackActivity({ api: fakeApi({ calls: [] }), window }));
+    const message = result.channels[0]!.messages[0]!;
+    const reply = result.channels[0]!.replies[0]!;
+    expect(message.raw).toEqual({
+      files: [{ id: "F1", mimetype: "image/png", title: "pic.png", user: "U2" }],
+      reactions: [{ count: 2, name: "+1" }],
+      reply_count: 1,
+      text: "hello team, see #12",
+      ts: "1700000000.000100",
+      user: "U1",
+    });
+    expect(message.files[0]!.raw).toEqual({ id: "F1", mimetype: "image/png", title: "pic.png", user: "U2" });
+    expect(reply.raw).toEqual({ text: "a reply", ts: "1700000100.000200", user: "U2" });
+  });
+
   it("builds the id→name user + channel maps once and captures each file's uploader id", async () => {
     const result = unwrap(await fetchSlackActivity({ api: fakeApi({ calls: [] }), window }));
     expect(result.maps.userNames).toEqual({ U1: "Ada", U2: "grace" }); // display_name wins, else name

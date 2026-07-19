@@ -15,7 +15,26 @@ import { ok, type Result } from "../lib/result.js";
 import { bronzeFile, bronzeSourceDir } from "./corpusPaths.js";
 import { readCorpusDir } from "./corpusStore.js";
 import { redactText } from "./redact.js";
-import { CORPUS_SOURCES, type CorpusRecord, type CorpusSource, type ExportWindow } from "./types.js";
+import {
+  CORPUS_SOURCES,
+  type CorpusAttributeValue,
+  type CorpusRecord,
+  type CorpusSource,
+  type ExportWindow,
+} from "./types.js";
+
+/** Attrs with keys in sorted order, so serialisation (and the fingerprint) is stable across runs. */
+function orderedAttrs({
+  attrs,
+}: {
+  attrs: Readonly<Record<string, CorpusAttributeValue>>;
+}): Record<string, CorpusAttributeValue> {
+  const out: Record<string, CorpusAttributeValue> = {};
+  for (const key of Object.keys(attrs).toSorted()) {
+    out[key] = attrs[key]!; // key came from Object.keys, so the value is present
+  }
+  return out;
+}
 
 /** Fixed-key-order object for a record; optional fields appended only when set (stable serialisation). */
 function orderedRecord({ record }: { record: CorpusRecord }): Record<string, unknown> {
@@ -35,6 +54,16 @@ function orderedRecord({ record }: { record: CorpusRecord }): Record<string, unk
   if (record.title !== undefined) {
     ordered["title"] = record.title;
   }
+  // `attrs` is appended last (after the v0.1 fields) and only when non-empty, so old readers/writers are
+  // unaffected and the fingerprint changes only on a genuine metadata change.
+  if (record.attrs !== undefined && Object.keys(record.attrs).length > 0) {
+    ordered["attrs"] = orderedAttrs({ attrs: record.attrs });
+  }
+  // `raw` (the full source payload) is appended last of all. It is EXCLUDED from the fingerprint (see
+  // `contentFingerprint`) so a volatile raw field never churns bronze — first-captured raw is retained.
+  if (record.raw !== undefined && Object.keys(record.raw).length > 0) {
+    ordered["raw"] = record.raw;
+  }
   return ordered;
 }
 
@@ -48,22 +77,78 @@ export function serialiseRecord({ record }: { record: CorpusRecord }): string {
   return JSON.stringify(orderedRecord({ record }));
 }
 
-/** Content fingerprint = the serialisation with `tsIso` blanked, so time-only differences don't count. */
+/**
+ * Content fingerprint = the serialisation with `tsIso` blanked AND `raw` dropped, so neither a time-only
+ * difference nor a volatile raw-payload field counts as a content change (either would needlessly churn
+ * bronze). Dedup keys on the curated, meaningful content only.
+ */
 function contentFingerprint({ record }: { record: CorpusRecord }): string {
-  return serialiseRecord({ record: { ...record, tsIso: "" } });
+  const { raw: _raw, ...withoutRaw } = record;
+  return serialiseRecord({ record: { ...withoutRaw, tsIso: "" } });
+}
+
+/** Redact string + string-array attr values (a secret can hide in metadata too); scalars pass through. */
+function redactAttrs({
+  attrs,
+}: {
+  attrs: Readonly<Record<string, CorpusAttributeValue>>;
+}): Record<string, CorpusAttributeValue> {
+  const out: Record<string, CorpusAttributeValue> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (typeof value === "string") {
+      out[key] = redactText({ text: value }).text;
+    } else if (Array.isArray(value)) {
+      out[key] = value.map((item) => redactText({ text: item }).text);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 /**
- * Redact a record's free text (and title); refs are structural, left intact.
+ * Recursively redact every string LEAF of a raw JSON value, preserving structure + all keys. A secret can
+ * hide anywhere in the raw payload, so we scrub string substrings (email/token shapes) everywhere while
+ * keeping every field — the whole point of raw retention. Non-strings (numbers/booleans/null) pass through.
+ *
+ * @param value any JSON value from a raw payload
+ * @returns the same-shaped value with string leaves redacted
+ */
+function redactRawValue({ value }: { value: unknown }): unknown {
+  if (typeof value === "string") {
+    return redactText({ text: value }).text;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactRawValue({ value: item }));
+  }
+  if (typeof value === "object" && value !== null) {
+    return redactRawObject({ obj: value as Record<string, unknown> });
+  }
+  return value;
+}
+
+/** Redact every string leaf of a raw JSON OBJECT, returning the same-keyed object (typed, no cast at use). */
+function redactRawObject({ obj }: { obj: Readonly<Record<string, unknown>> }): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, inner] of Object.entries(obj)) {
+    out[key] = redactRawValue({ value: inner });
+  }
+  return out;
+}
+
+/**
+ * Redact a record's free text (and title + string attrs + the raw payload); refs are structural, left intact.
  *
  * @param record the record to redact
- * @returns a new record with scrubbed text/title
+ * @returns a new record with scrubbed text/title/attrs/raw
  */
 export function redactRecord({ record }: { record: CorpusRecord }): CorpusRecord {
   return {
     ...record,
     text: redactText({ text: record.text }).text,
     ...(record.title !== undefined ? { title: redactText({ text: record.title }).text } : {}),
+    ...(record.attrs !== undefined ? { attrs: redactAttrs({ attrs: record.attrs }) } : {}),
+    ...(record.raw !== undefined ? { raw: redactRawObject({ obj: record.raw }) } : {}),
   };
 }
 

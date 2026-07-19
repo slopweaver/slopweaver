@@ -6,7 +6,7 @@
  */
 import type { CorpusRecord } from "../corpus/types.js";
 import type { Embedder } from "./embeddings.js";
-import { buildVectorIndex, type VectorCacheStore, type VectorIndex } from "./vectorIndex.js";
+import { buildVectorIndex, type EmbedProgress, type VectorCacheStore, type VectorIndex } from "./vectorIndex.js";
 
 export interface SemanticContext {
   readonly queryVector: Float32Array;
@@ -42,12 +42,14 @@ export async function prepareSemanticContext({
   deps,
   enabled,
   warn,
+  onProgress,
 }: {
   records: readonly CorpusRecord[];
   query: string;
   deps: SemanticDeps;
   enabled: boolean;
   warn?: WarnSink;
+  onProgress?: (progress: EmbedProgress) => void;
 }): Promise<SemanticPreparation> {
   if (!enabled) {
     return { degraded: false };
@@ -61,7 +63,13 @@ export async function prepareSemanticContext({
   try {
     // Persist: slopweaver always indexes the FULL corpus here (not a candidate subset), so writing the
     // cache back is safe and gives incremental reuse — only new/changed records re-embed next query.
-    const vectorIndex = await buildVectorIndex({ embedder: deps.embedder, persist: true, records, store: deps.store });
+    const vectorIndex = await buildVectorIndex({
+      embedder: deps.embedder,
+      persist: true,
+      records,
+      store: deps.store,
+      ...(onProgress !== undefined ? { onProgress } : {}),
+    });
     const [queryVector] = await deps.embedder.embedQuery([query]);
     if (queryVector === undefined) {
       return degrade({ reason: "empty query vector" });

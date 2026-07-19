@@ -30,7 +30,7 @@ describe("composeLint", () => {
 });
 
 describe("lintChecks", () => {
-  it("plans all eight checks in run order, resolving local bins under the cwd", () => {
+  it("plans all nine checks in run order, resolving local bins under the cwd", () => {
     const checks = lintChecks({ cwd: "/repo" });
     expect(checks.map((c) => c.name)).toEqual([
       "biome",
@@ -40,6 +40,7 @@ describe("lintChecks", () => {
       "knip",
       "constraints",
       "hygiene",
+      "resilience-residue",
       "door-coverage",
     ]);
     expect(checks.find((c) => c.name === "eslint")!.cmd).toBe("/repo/node_modules/.bin/eslint");

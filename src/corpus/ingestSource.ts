@@ -85,24 +85,49 @@ async function ingestOne({ job, home }: { job: SourceIngestJob; home: string }):
   };
 }
 
+/** Per-source ingest progress, emitted as each source starts + finishes (non-blocking). */
+export interface IngestProgress {
+  readonly source: CorpusSource;
+  readonly label: string;
+  readonly phase: "start" | "done";
+  readonly done: number;
+  readonly total: number;
+  readonly written?: number;
+}
+
 /**
  * Run every source job sequentially (bounded concurrency is a later, rate-limit-proven change),
- * committing each source's records + watermark independently.
+ * committing each source's records + watermark independently. `onProgress` fires as each source starts
+ * and finishes, so a long refresh is visible in the session (non-blocking).
  *
  * @param jobs the per-source ingest jobs
  * @param home the world-model home
+ * @param onProgress optional per-source progress callback
  * @returns one result per job, in order
  */
 export async function ingestSources({
   jobs,
   home,
+  onProgress,
 }: {
   jobs: readonly SourceIngestJob[];
   home: string;
+  onProgress?: (progress: IngestProgress) => void;
 }): Promise<Result<readonly SourceIngestResult[]>> {
   const results: SourceIngestResult[] = [];
-  for (const job of jobs) {
-    results.push(await ingestOne({ home, job }));
+  const total = jobs.length;
+  for (const [index, job] of jobs.entries()) {
+    onProgress?.({ done: index, label: job.label, phase: "start", source: job.source, total });
+    const result = await ingestOne({ home, job });
+    results.push(result);
+    onProgress?.({
+      done: index + 1,
+      label: job.label,
+      phase: "done",
+      source: job.source,
+      total,
+      written: result.written,
+    });
   }
   return ok(results);
 }

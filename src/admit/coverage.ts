@@ -36,6 +36,7 @@ export const SANCTIONED_SEAMS: Readonly<Record<string, Exclude<SeamClass, "open"
   "src/corpus/watermark.ts": "local-state",
   "src/devGate/devGate.ts": "local-state",
   "src/devLint/devLint.ts": "dev-tooling",
+  "src/devLint/resilienceResidue.ts": "read-only-tool",
   "src/eval/rebaselineCore.ts": "local-state",
   "src/gold/distilCache.ts": "local-state",
   "src/hygiene/scan.ts": "read-only-tool",

@@ -10,8 +10,8 @@
 import { WebClient } from "@slack/web-api";
 
 import { isRecord } from "../../lib/parsers.js";
+import { retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
-import { retry } from "../../lib/retry.js";
 import type { ExportWindow } from "../types.js";
 import type {
   SlackAttachmentRef,
@@ -134,6 +134,7 @@ function shapeFile({ raw }: { raw: unknown }): SlackAttachmentRef | undefined {
     ...(altText !== undefined ? { altText } : {}),
     ...(user !== undefined ? { user } : {}),
     ...(permalink !== undefined ? { permalink } : {}),
+    raw,
   };
 }
 
@@ -172,6 +173,7 @@ function shapeCommon({
       author?: string;
       permalink: string;
       files: readonly SlackAttachmentRef[];
+      raw: Readonly<Record<string, unknown>>;
     }
   | undefined {
   const ts = optStr({ value: raw["ts"] });
@@ -188,6 +190,7 @@ function shapeCommon({
   return {
     files,
     permalink: permalinkFor({ channelId, ts, workspaceUrl }),
+    raw,
     ts,
     tsIso: tsToIso({ ts }),
     ...(author !== undefined ? { author } : {}),
@@ -496,7 +499,7 @@ export function makeSlackApi({ token }: { token: string }): SlackApi {
     meta?.next_cursor !== undefined && meta.next_cursor.length > 0 ? { nextCursor: meta.next_cursor } : {};
   return {
     history: async ({ channel, oldest, latest, cursor }) => {
-      const res = await retry({
+      const res = await retryTransient({
         operation: () =>
           client.conversations.history({
             channel,
@@ -509,7 +512,7 @@ export function makeSlackApi({ token }: { token: string }): SlackApi {
       return { messages: res.messages ?? [], ...nextCursorOf(res.response_metadata) };
     },
     listChannels: async ({ cursor }) => {
-      const res = await retry({
+      const res = await retryTransient({
         operation: () =>
           client.conversations.list({
             exclude_archived: true,
@@ -521,13 +524,13 @@ export function makeSlackApi({ token }: { token: string }): SlackApi {
       return { channels: res.channels ?? [], ...nextCursorOf(res.response_metadata) };
     },
     listUsers: async ({ cursor }) => {
-      const res = await retry({
+      const res = await retryTransient({
         operation: () => client.users.list({ limit: PAGE_LIMIT, ...(cursor !== undefined ? { cursor } : {}) }),
       });
       return { members: res.members ?? [], ...nextCursorOf(res.response_metadata) };
     },
     replies: async ({ channel, ts, oldest, cursor }) => {
-      const res = await retry({
+      const res = await retryTransient({
         operation: () =>
           client.conversations.replies({
             channel,
@@ -540,7 +543,7 @@ export function makeSlackApi({ token }: { token: string }): SlackApi {
       return { messages: res.messages ?? [], ...nextCursorOf(res.response_metadata) };
     },
     workspaceUrl: async () => {
-      const res = await retry({ operation: () => client.auth.test() });
+      const res = await retryTransient({ operation: () => client.auth.test() });
       return typeof res.url === "string" && res.url.length > 0 ? res.url : undefined;
     },
   };

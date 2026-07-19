@@ -121,27 +121,42 @@ function spotCrossCutting({
   return opportunities;
 }
 
+interface CiteInfo {
+  readonly containers: Set<string>;
+  /** The newest citing record's time (ms) — a recent citer means someone is CURRENTLY waiting. */
+  latestCiterMs: number;
+}
+
 function spotBlockers({ records, nowMs }: { records: readonly CorpusRecord[]; nowMs: number }): readonly Opportunity[] {
-  const citeContainers = new Map<string, Set<string>>();
+  const citeInfo = new Map<string, CiteInfo>();
   for (const record of records) {
+    const citerMs = Date.parse(record.tsIso);
     for (const token of record.refs) {
-      const containers = citeContainers.get(token) ?? new Set<string>();
-      containers.add(record.container);
-      citeContainers.set(token, containers);
+      const info = citeInfo.get(token) ?? { containers: new Set<string>(), latestCiterMs: 0 };
+      info.containers.add(record.container);
+      if (!Number.isNaN(citerMs)) {
+        info.latestCiterMs = Math.max(info.latestCiterMs, citerMs);
+      }
+      citeInfo.set(token, info);
     }
   }
   const opportunities: Opportunity[] = [];
   for (const record of records) {
-    const citing = citeContainers.get(record.sourceId);
+    const citing = citeInfo.get(record.sourceId);
     if (citing === undefined) {
       continue;
     }
-    const stale = recencyWeight({ nowMs, tsIso: record.tsIso }) <= 0;
+    // Staleness is intrinsic to the TARGET's own timestamp — but age ALONE isn't a blocker: a valid old
+    // record that merely predates the window must not be flagged. It's a blocker only when a RECENT record
+    // still cites it (someone is actively waiting on a stale thing). Baseline is corpus-newest, not wall time.
+    const targetStale = recencyWeight({ nowMs, tsIso: record.tsIso }) <= 0;
+    const citerRecent = citing.latestCiterMs > 0 && (nowMs - citing.latestCiterMs) / DAY_MS < STALE_AFTER_DAYS;
+    const stale = targetStale && citerRecent;
     const unresolved = readsUnresolved({ record });
     if (!stale && !unresolved) {
       continue;
     }
-    const breadth = citing.size;
+    const breadth = citing.containers.size;
     opportunities.push({
       evidence: [evidenceOf({ record })],
       kind: "blocker",
