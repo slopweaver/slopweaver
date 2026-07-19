@@ -1267,6 +1267,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@graphql-typed-document-node/core@npm:^3.2.0":
+  version: 3.2.0
+  resolution: "@graphql-typed-document-node/core@npm:3.2.0"
+  peerDependencies:
+    graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
+  checksum: 10c0/94e9d75c1f178bbae8d874f5a9361708a3350c8def7eaeb6920f2c820e82403b7d4f55b3735856d68e145e86c85cbfe2adc444fdc25519cd51f108697e99346c
+  languageName: node
+  linkType: hard
+
 "@hono/node-server@npm:^1.19.9":
   version: 1.19.14
   resolution: "@hono/node-server@npm:1.19.14"
@@ -1676,6 +1685,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@linear/sdk@npm:88.2.0":
+  version: 88.2.0
+  resolution: "@linear/sdk@npm:88.2.0"
+  dependencies:
+    "@graphql-typed-document-node/core": "npm:^3.2.0"
+  checksum: 10c0/addc57ce2ba56da53018d08287e3b27f0870da691c18279236dfbb5f5e6a47d26b125622a9cdd04c0bf4f297bef0e6f5a3ba90099f29443bf996dd26196e1fbd
+  languageName: node
+  linkType: hard
+
 "@modelcontextprotocol/sdk@npm:^1.26.0, @modelcontextprotocol/sdk@npm:^1.29.0":
   version: 1.29.0
   resolution: "@modelcontextprotocol/sdk@npm:1.29.0"
@@ -2007,6 +2025,13 @@ __metadata:
     "@nodelib/fs.scandir": "npm:2.1.5"
     fastq: "npm:^1.6.0"
   checksum: 10c0/db9de047c3bb9b51f9335a7bb46f4fcfb6829fb628318c12115fbaf7d369bfce71c15b103d1fc3b464812d936220ee9bc1c8f762d032c9f6be9acc99249095b1
+  languageName: node
+  linkType: hard
+
+"@notionhq/client@npm:5.23.2":
+  version: 5.23.2
+  resolution: "@notionhq/client@npm:5.23.2"
+  checksum: 10c0/81bb34f4c0ad4858f8e8d304e02a1eaa382298ba41e5b15bebb7145d32faa80809b4a0ddd610c4659d1f93bda280ebce90e1cdbf44cb914ffdc57e8261640c44
   languageName: node
   linkType: hard
 
@@ -3212,10 +3237,42 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@slack/logger@npm:^5.0.0":
+  version: 5.0.0
+  resolution: "@slack/logger@npm:5.0.0"
+  dependencies:
+    "@types/node": "npm:>=20"
+  checksum: 10c0/0a2b27633412a148644a6709f58dd846490227b122c2e9a9a040928a02be45fabcadfbb08f88b302d578d74af0bca6d18895b4268f2096ae947a8668877a1efb
+  languageName: node
+  linkType: hard
+
 "@slack/types@npm:^2.21.0":
   version: 2.22.0
   resolution: "@slack/types@npm:2.22.0"
   checksum: 10c0/0630feebb790957b227821ce4c474c174d9a4473481b9f04bfa589b2dc4f52a615b9f80664222c8a44090590fd1e1aaf5427986eb2c3a98dc75a5fabce3e2d53
+  languageName: node
+  linkType: hard
+
+"@slack/types@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "@slack/types@npm:3.0.0"
+  checksum: 10c0/caf1efdd87835dd1c66b4713f90a88fc4501447773d04a97893b0e793aca345389467d6ae3403c58044d0c2045260119559a22301e72879256c355e81f7dce71
+  languageName: node
+  linkType: hard
+
+"@slack/web-api@npm:8.0.0":
+  version: 8.0.0
+  resolution: "@slack/web-api@npm:8.0.0"
+  dependencies:
+    "@slack/logger": "npm:^5.0.0"
+    "@slack/types": "npm:^3.0.0"
+    "@types/node": "npm:>=20"
+    "@types/retry": "npm:0.12.0"
+    eventemitter3: "npm:^5.0.1"
+    p-queue: "npm:^6"
+    p-retry: "npm:^4"
+    retry: "npm:^0.13.1"
+  checksum: 10c0/02190f32ad86ea707689d8441489f35b38594f119a44ee009d346708b363be94299a3de6cdb505c5c4669912c66100e32330ffb039f100799eb16e2cf0c66909
   languageName: node
   linkType: hard
 
@@ -3581,7 +3638,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*, @types/node@npm:26.1.1, @types/node@npm:>=10.0.0, @types/node@npm:>=13.7.0, @types/node@npm:>=18":
+"@types/node@npm:*, @types/node@npm:26.1.1, @types/node@npm:>=10.0.0, @types/node@npm:>=13.7.0, @types/node@npm:>=18, @types/node@npm:>=20":
   version: 26.1.1
   resolution: "@types/node@npm:26.1.1"
   dependencies:
@@ -9592,10 +9649,13 @@ __metadata:
   resolution: "slopweaver@workspace:."
   dependencies:
     "@biomejs/biome": "npm:2.5.4"
+    "@linear/sdk": "npm:88.2.0"
+    "@notionhq/client": "npm:5.23.2"
     "@octokit/core": "npm:7.0.6"
     "@octokit/plugin-retry": "npm:8.1.0"
     "@octokit/plugin-throttling": "npm:11.0.3"
     "@octokit/rest": "npm:22.0.1"
+    "@slack/web-api": "npm:8.0.0"
     "@types/node": "npm:26.1.1"
     "@xenova/transformers": "npm:2.17.2"
     eslint: "npm:10.7.0"

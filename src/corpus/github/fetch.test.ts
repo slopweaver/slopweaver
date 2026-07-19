@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { err, ok, type Result, unwrap } from "../../lib/result.js";
+import { err, ok, type Result, unwrap, unwrapErr } from "../../lib/result.js";
 import type { GithubActivity } from "./activity.js";
 import { makeGithubFetchItems, type SearchIssues } from "./fetch.js";
 
@@ -73,5 +73,28 @@ describe("makeGithubFetchItems", () => {
     const items = [hit({ isPr: true, n: 1 }), hit({ isPr: true, n: 2 }), hit({ isPr: true, n: 3 })];
     const fetchItems = makeGithubFetchItems({ pageCap: 2, searchIssues: search(items) });
     expect(unwrap(await fetchItems({ repo, window }))).toHaveLength(2);
+  });
+
+  it("fails fast with a clear message when the repo precheck reports the repo unreachable", async () => {
+    let searched = false;
+    const fetchItems = makeGithubFetchItems({
+      checkRepo: async () => err(["repo o/r not found or inaccessible — check the org slug"]),
+      searchIssues: async () => {
+        searched = true;
+        return { data: { items: [] } };
+      },
+    });
+    const result = await fetchItems({ repo, window });
+    expect(result.ok).toBe(false);
+    expect(unwrapErr(result)[0]).toBe("repo o/r not found or inaccessible — check the org slug");
+    expect(searched).toBe(false); // precheck short-circuits BEFORE any search call
+  });
+
+  it("proceeds to search when the repo precheck passes", async () => {
+    const fetchItems = makeGithubFetchItems({
+      checkRepo: async () => ok(undefined),
+      searchIssues: search([hit({ isPr: true, n: 1 })]),
+    });
+    expect(unwrap(await fetchItems({ repo, window })).map((i) => i.number)).toEqual([1]);
   });
 });

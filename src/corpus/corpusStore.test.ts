@@ -20,7 +20,7 @@ describe("parseCorpusRecords", () => {
     const content = [
       line(),
       "not json at all",
-      line({ source: "slack" }), // unknown source (v0.1 reads github only)
+      line({ source: "gitlab" }), // unknown source (github/slack/linear/notion/gold only)
       line({ text: "" }), // missing required field
       "",
     ].join("\n");

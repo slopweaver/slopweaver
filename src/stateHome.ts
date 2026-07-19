@@ -39,6 +39,8 @@ export interface CorpusPaths {
   readonly cache: string;
   /** `$home/corpus/.watermark.json` — per-source incremental resume cursor. */
   readonly watermark: string;
+  /** `$home/corpus/.slack-threads.json` — per-thread last-seen reply cursor (incremental reply reads). */
+  readonly slackThreads: string;
 }
 
 /** Every absolute path the agent persists under one `$SLOPWEAVER_HOME`. The single home-path contract. */
@@ -61,6 +63,8 @@ export interface StateHomePaths {
   readonly hygieneDenylist: string;
   /** `$home/.cache/models` — the on-device embedding model cache (rebuildable, gitignored). */
   readonly modelCache: string;
+  /** `$home/secrets` — per-source connector tokens (Slack/Linear/Notion); never committed or synced. */
+  readonly secrets: string;
 }
 
 /**
@@ -80,6 +84,7 @@ export function stateHomePaths({ home = slopweaverHome() }: { home?: string } = 
       gold: join(corpusRoot, "gold"),
       root: corpusRoot,
       silver: join(corpusRoot, "silver"),
+      slackThreads: join(corpusRoot, ".slack-threads.json"),
       watermark: join(corpusRoot, ".watermark.json"),
     },
     homeVersion: join(home, ".home-version.json"),
@@ -89,5 +94,18 @@ export function stateHomePaths({ home = slopweaverHome() }: { home?: string } = 
     modelCache: join(home, ".cache", "models"),
     profileJson: join(home, "profile.json"),
     root: home,
+    secrets: join(home, "secrets"),
   };
+}
+
+/**
+ * The path of a named secret file under `$home/secrets` (e.g. `slack-user-token`). The single place a
+ * connector-token path is derived, so the home-path contract stays intact.
+ *
+ * @param name the secret filename (no directory)
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute secret file path
+ */
+export function secretFilePath({ name, home = slopweaverHome() }: { name: string; home?: string }): string {
+  return join(stateHomePaths({ home }).secrets, name);
 }
