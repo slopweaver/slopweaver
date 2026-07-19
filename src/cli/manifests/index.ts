@@ -18,6 +18,7 @@ import { devManifest } from "./dev.js";
 import { distilManifest } from "./distil.js";
 import { doctorManifest } from "./doctor.js";
 import { factsManifest } from "./facts.js";
+import { identityManifest } from "./identity.js";
 import { initManifest } from "./init.js";
 import { refreshManifest } from "./refresh.js";
 
@@ -56,6 +57,11 @@ export const MANIFEST_MODULES: readonly NounManifestModule[] = [
     noun: "facts",
     summary: "Retrieve the ranked record slice for a question (no LLM)",
     verbs: factsManifest,
+  },
+  {
+    noun: "identity",
+    summary: "Resolve the same human across GitHub/Slack/Linear/Notion into one canonical person",
+    verbs: identityManifest,
   },
   {
     noun: "dev",

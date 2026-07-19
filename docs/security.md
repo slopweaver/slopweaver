@@ -34,6 +34,14 @@ rather than breaking.
 - The only optional credential is a GitHub token, used to read repo history for private repos. It
   falls back to `gh auth token`, and is marked sensitive in the plugin config so it is never printed.
 
+## The identity roster is off-repo
+
+The cross-source identity map (who is the same human across GitHub/Slack/Linear/Notion) is seeded by an
+optional `$SLOPWEAVER_HOME/identity.json` roster — the human override that always wins over an inferred
+link. It holds real handles/emails, so it is **never committed**: only an empty `[]` template ships, and
+the real roster is generated into `$SLOPWEAVER_HOME`. Inferred links are data-first — each carries a
+confidence + provenance, and a low-confidence name-only match is held (surfaced), never silently applied.
+
 ## The hygiene gate (a shipped feature)
 
 `scripts/check-hygiene.sh` (backed by `src/hygiene/scan.ts`) scans every git-tracked file for generic
