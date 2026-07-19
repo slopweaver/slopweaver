@@ -12,6 +12,7 @@
  */
 import { LinearClient } from "@linear/sdk";
 
+import { collectCursorPages } from "../../lib/paging.js";
 import { isRecord } from "../../lib/parsers.js";
 import { createRateScheduler, type RateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
@@ -100,32 +101,23 @@ export async function fetchLinearActivity({
   api: LinearApi;
   window: ExportWindow;
 }): Promise<Result<{ issues: readonly LinearIssueItem[]; projects: readonly LinearProjectItem[] }>> {
-  const issues: LinearIssueItem[] = [];
-  const projects: LinearProjectItem[] = [];
   try {
-    let issueCursor: string | undefined;
-    do {
-      const page = await api.issues({
-        since: window.since,
-        ...(issueCursor !== undefined ? { cursor: issueCursor } : {}),
-      });
-      issues.push(...page.issues);
-      issueCursor = page.nextCursor;
-    } while (issueCursor !== undefined && issueCursor.length > 0);
-
-    let projectCursor: string | undefined;
-    do {
-      const page = await api.projects({
-        since: window.since,
-        ...(projectCursor !== undefined ? { cursor: projectCursor } : {}),
-      });
-      projects.push(...page.projects);
-      projectCursor = page.nextCursor;
-    } while (projectCursor !== undefined && projectCursor.length > 0);
+    const issues = await collectCursorPages({
+      fetchPage: ({ cursor }) =>
+        api
+          .issues({ since: window.since, ...(cursor !== undefined ? { cursor } : {}) })
+          .then((page) => ({ items: page.issues, nextCursor: page.nextCursor })),
+    });
+    const projects = await collectCursorPages({
+      fetchPage: ({ cursor }) =>
+        api
+          .projects({ since: window.since, ...(cursor !== undefined ? { cursor } : {}) })
+          .then((page) => ({ items: page.projects, nextCursor: page.nextCursor })),
+    });
+    return ok({ issues, projects });
   } catch (error: unknown) {
     return err([`fetch failed: ${error instanceof Error ? error.message : "unknown"}`]);
   }
-  return ok({ issues, projects });
 }
 
 /** A non-empty string field, or undefined. */
@@ -191,9 +183,57 @@ function pageInfoOf({ connection }: { connection: unknown }): { hasNext: boolean
   return { hasNext: info["hasNextPage"] === true, ...(endCursor !== undefined ? { endCursor } : {}) };
 }
 
+/** `str` off a nested object field (`node.state.name`, `node.team.key`), or undefined. */
+function nestedStr({ value, key }: { value: unknown; key: string }): string | undefined {
+  return isRecord(value) ? str({ value: value[key] }) : undefined;
+}
+
+/** The identity fields shared into the item (identifier + the fallback-title/url/ts), or undefined if no id. */
+export function parseLinearIssueIdentity({
+  node,
+}: {
+  node: Record<string, unknown>;
+}): { identifier: string; title: string; url: string; tsIso: string; description?: string } | undefined {
+  const identifier = str({ value: node["identifier"] });
+  if (identifier === undefined) {
+    return undefined;
+  }
+  const description = str({ value: node["description"] });
+  return {
+    identifier,
+    title: str({ value: node["title"] }) ?? identifier,
+    tsIso: strOrEmpty({ value: node["updatedAt"] }),
+    url: strOrEmpty({ value: node["url"] }),
+    ...(description !== undefined ? { description } : {}),
+  };
+}
+
+/** The optional people/state/team/project relations off an issue node (missing ones drop out). Pure. */
+export function parseLinearIssueRelations({ node }: { node: Record<string, unknown> }): {
+  author?: string;
+  assignee?: string;
+  state?: string;
+  team?: string;
+  project?: string;
+} {
+  const author = displayName({ value: node["creator"] });
+  const assignee = displayName({ value: node["assignee"] });
+  const state = nestedStr({ key: "name", value: node["state"] });
+  const team = nestedStr({ key: "key", value: node["team"] });
+  const project = nestedStr({ key: "name", value: node["project"] });
+  return {
+    ...(author !== undefined ? { author } : {}),
+    ...(assignee !== undefined ? { assignee } : {}),
+    ...(state !== undefined ? { state } : {}),
+    ...(team !== undefined ? { team } : {}),
+    ...(project !== undefined ? { project } : {}),
+  };
+}
+
 /**
  * Parse one raw inline GraphQL issue node into a shaped item + its comment-pagination state. Pure — a
- * node from an older/partial query still parses (missing relations simply drop out).
+ * node from an older/partial query still parses (missing relations simply drop out). Composes the pure
+ * {@link parseLinearIssueIdentity} + {@link parseLinearIssueRelations} cores.
  *
  * @param node the raw issue node
  * @returns the shaped item + its id + whether comments have another page, or undefined when unusable
@@ -209,32 +249,18 @@ export function parseLinearIssueNode({ node }: { node: unknown }):
   if (!isRecord(node)) {
     return undefined;
   }
-  const identifier = str({ value: node["identifier"] });
-  if (identifier === undefined) {
+  const identity = parseLinearIssueIdentity({ node });
+  if (identity === undefined) {
     return undefined;
   }
-  const id = str({ value: node["id"] }) ?? identifier;
-  const description = str({ value: node["description"] });
-  const author = displayName({ value: node["creator"] });
-  const assignee = displayName({ value: node["assignee"] });
-  const state = isRecord(node["state"]) ? str({ value: node["state"]["name"] }) : undefined;
-  const team = isRecord(node["team"]) ? str({ value: node["team"]["key"] }) : undefined;
-  const project = isRecord(node["project"]) ? str({ value: node["project"]["name"] }) : undefined;
+  const id = str({ value: node["id"] }) ?? identity.identifier;
   const commentsPage = pageInfoOf({ connection: node["comments"] });
   const item: LinearIssueItem = {
     comments: parseComments({ nodes: isRecord(node["comments"]) ? node["comments"]["nodes"] : undefined }),
-    identifier,
     labels: parseLabels({ connection: node["labels"] }),
     raw: node,
-    title: str({ value: node["title"] }) ?? identifier,
-    tsIso: strOrEmpty({ value: node["updatedAt"] }),
-    url: strOrEmpty({ value: node["url"] }),
-    ...(description !== undefined ? { description } : {}),
-    ...(author !== undefined ? { author } : {}),
-    ...(state !== undefined ? { state } : {}),
-    ...(assignee !== undefined ? { assignee } : {}),
-    ...(team !== undefined ? { team } : {}),
-    ...(project !== undefined ? { project } : {}),
+    ...identity,
+    ...parseLinearIssueRelations({ node }),
   };
   return {
     commentsHasNext: commentsPage.hasNext,

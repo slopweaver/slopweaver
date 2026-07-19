@@ -36,6 +36,7 @@ export const SANCTIONED_SEAMS: Readonly<Record<string, Exclude<SeamClass, "open"
   "src/corpus/watermark.ts": "local-state",
   "src/devGate/devGate.ts": "local-state",
   "src/devLint/boundaryResidue.ts": "read-only-tool",
+  "src/devLint/coverageRatchet.ts": "dev-tooling",
   "src/devLint/devLint.ts": "dev-tooling",
   "src/devLint/maxFunctionLines.ts": "read-only-tool",
   "src/devLint/resilienceResidue.ts": "read-only-tool",
@@ -96,22 +97,35 @@ function classifyFile({ path }: { path: string }): SeamClass {
   return SANCTIONED_SEAMS[path] ?? "open";
 }
 
+/**
+ * Classify one verb registry entry as a gap or not. Pure — the default-verb alias (`verb === ""`) and any
+ * non-manifest entry are skipped; a manifest whose effect is an unrouted external write is the one gap.
+ *
+ * @returns the {@link VerbGap}, or `undefined` when the entry is fine
+ */
+function verbGapFor({ noun, verb, entry }: { noun: string; verb: string; entry: unknown }): VerbGap | undefined {
+  if (verb === "") {
+    return undefined; // the default-verb alias points at a named verb; it's counted there.
+  }
+  if (entry === undefined || !isManifestEntry(entry)) {
+    return undefined;
+  }
+  const { effect, doorRouted } = entry.meta;
+  if (effect === "external-write" && doorRouted !== true) {
+    return { noun, reason: "external-write-not-routed", verb };
+  }
+  return undefined;
+}
+
 /** Every verb's registry entry that fails to account for a side effect (missing effect / unrouted write). */
 function verbGaps({ groups }: { groups: NounGroups }): readonly VerbGap[] {
   const gaps: VerbGap[] = [];
   for (const noun of Object.keys(groups)) {
     const verbs = groups[noun] ?? {};
     for (const verb of Object.keys(verbs)) {
-      if (verb === "") {
-        continue; // the default-verb alias points at a named verb; it's counted there.
-      }
-      const entry = verbs[verb];
-      if (entry === undefined || !isManifestEntry(entry)) {
-        continue;
-      }
-      const { effect, doorRouted } = entry.meta;
-      if (effect === "external-write" && doorRouted !== true) {
-        gaps.push({ noun, reason: "external-write-not-routed", verb });
+      const gap = verbGapFor({ entry: verbs[verb], noun, verb });
+      if (gap !== undefined) {
+        gaps.push(gap);
       }
     }
   }

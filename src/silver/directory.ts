@@ -3,7 +3,9 @@
  * People = every record `author` plus every `@mention` in `refs`; containers = every record `container`.
  * Each entry carries how many records touch it and which sources it appears in, ranked by activity.
  */
+
 import type { CorpusRecord, CorpusSource } from "../corpus/types.js";
+import { compareStrings } from "../lib/compare.js";
 
 export interface DirectoryEntry {
   readonly id: string;
@@ -22,6 +24,32 @@ function mentionHandle({ ref }: { ref: string }): string | null {
   return ref.startsWith("@") && ref.length >= 2 ? ref.slice(1) : null;
 }
 
+/**
+ * The distinct person ids a record contributes: its `author` plus every `@mention` handle in `refs`.
+ * Deduped — a person named as both author and mention is counted once per record. Pure.
+ *
+ * @param record the corpus record
+ * @returns the distinct person ids
+ */
+export function personIdsForRecord({ record }: { record: CorpusRecord }): readonly string[] {
+  const people = new Set<string>();
+  if (record.author !== undefined && record.author.length > 0) {
+    people.add(record.author);
+  }
+  for (const ref of record.refs) {
+    const handle = mentionHandle({ ref });
+    if (handle !== null) {
+      people.add(handle);
+    }
+  }
+  return [...people];
+}
+
+/** The container ids a record contributes (its non-empty `container`, else none). Pure. */
+export function containerIdsForRecord({ record }: { record: CorpusRecord }): readonly string[] {
+  return record.container.length > 0 ? [record.container] : [];
+}
+
 /** Bump `id`'s tally, counting the record once and noting its source. */
 function bump({ tallies, id, source }: { tallies: Map<string, Tally>; id: string; source: CorpusSource }): void {
   const tally = tallies.get(id) ?? { count: 0, sources: new Set<CorpusSource>() };
@@ -32,7 +60,7 @@ function bump({ tallies, id, source }: { tallies: Map<string, Tally>; id: string
 
 /** Rank by record count desc, then id asc. */
 function byRankThenId({ a, b }: { a: DirectoryEntry; b: DirectoryEntry }): number {
-  return b.recordCount - a.recordCount || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return b.recordCount - a.recordCount || compareStrings({ a: a.id, b: b.id });
 }
 
 /** Turn a tally map into sorted directory entries of one kind. */
@@ -63,20 +91,10 @@ export function buildDirectory({ records }: { records: readonly CorpusRecord[] }
   const people = new Map<string, Tally>();
   const containers = new Map<string, Tally>();
   for (const record of records) {
-    if (record.container.length > 0) {
-      bump({ id: record.container, source: record.source, tallies: containers });
+    for (const container of containerIdsForRecord({ record })) {
+      bump({ id: container, source: record.source, tallies: containers });
     }
-    const seenPeople = new Set<string>();
-    if (record.author !== undefined && record.author.length > 0) {
-      seenPeople.add(record.author);
-    }
-    for (const ref of record.refs) {
-      const handle = mentionHandle({ ref });
-      if (handle !== null) {
-        seenPeople.add(handle);
-      }
-    }
-    for (const person of seenPeople) {
+    for (const person of personIdsForRecord({ record })) {
       bump({ id: person, source: record.source, tallies: people });
     }
   }

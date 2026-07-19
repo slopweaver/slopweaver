@@ -31,9 +31,57 @@ export interface FlagTokens extends ParsedFlags {
   readonly errors: readonly string[];
 }
 
+/** The `parseArgs` options map for a spec (each declared flag typed string/boolean). Pure. */
+function flagOptions({
+  stringKeys,
+  boolKeys,
+}: {
+  stringKeys: ReadonlySet<string>;
+  boolKeys: ReadonlySet<string>;
+}): Record<string, { type: "string" | "boolean" }> {
+  const options: Record<string, { type: "string" | "boolean" }> = {};
+  for (const key of stringKeys) {
+    options[key] = { type: "string" };
+  }
+  for (const key of boolKeys) {
+    options[key] = { type: "boolean" };
+  }
+  return options;
+}
+
+/**
+ * Classify one parsed `--flag value` entry: an unknown flag, a value-flag missing its value (parseArgs
+ * yields `true`, or "ate" the next `--flag`), an absent value to skip, or an accepted value. Pure.
+ *
+ * @returns an `error` to accumulate, an `accepted` value to keep, or neither (skip)
+ */
+function classifyFlagEntry({
+  key,
+  value,
+  stringKeys,
+  boolKeys,
+}: {
+  key: string;
+  value: string | boolean | undefined;
+  stringKeys: ReadonlySet<string>;
+  boolKeys: ReadonlySet<string>;
+}): { readonly error?: string; readonly accepted?: string | boolean } {
+  if (!stringKeys.has(key) && !boolKeys.has(key)) {
+    return { error: `unknown flag: --${key}` };
+  }
+  if (value === undefined) {
+    return {};
+  }
+  if (stringKeys.has(key) && (typeof value !== "string" || value.startsWith("--"))) {
+    return { error: `--${key} requires a value` };
+  }
+  return { accepted: value };
+}
+
 /**
  * Tokenise an argv tail against a flag spec, ACCUMULATING every rejection (never short-circuits, so a
- * caller can add its own value-validation errors to the same list). Never throws.
+ * caller can add its own value-validation errors to the same list). Never throws. A thin fold over the
+ * pure {@link flagOptions} + {@link classifyFlagEntry}.
  *
  * @param args the argv tail (after the noun/verb)
  * @param spec the string + boolean flag names to accept
@@ -51,35 +99,25 @@ export function tokenizeFlags({
 }): FlagTokens {
   const stringKeys = new Set(spec.string ?? []);
   const boolKeys = new Set(spec.boolean ?? []);
-  const options: Record<string, { type: "string" | "boolean" }> = {};
-  for (const key of stringKeys) {
-    options[key] = { type: "string" };
-  }
-  for (const key of boolKeys) {
-    options[key] = { type: "boolean" };
-  }
 
   // strict:false ⇒ unknown flags land in `values` (as `true`) and missing string values become `true`,
   // rather than throwing — we turn both into our own domain errors below.
-  const parsed = parseArgs({ allowPositionals: true, args: [...args], options, strict: false });
+  const parsed = parseArgs({
+    allowPositionals: true,
+    args: [...args],
+    options: flagOptions({ boolKeys, stringKeys }),
+    strict: false,
+  });
 
   const errors: string[] = [];
   const values: Record<string, string | boolean> = {};
   for (const [key, value] of Object.entries(parsed.values)) {
-    if (!stringKeys.has(key) && !boolKeys.has(key)) {
-      errors.push(`unknown flag: --${key}`);
-      continue;
+    const classified = classifyFlagEntry({ boolKeys, key, stringKeys, value });
+    if (classified.error !== undefined) {
+      errors.push(classified.error);
+    } else if (classified.accepted !== undefined) {
+      values[key] = classified.accepted;
     }
-    if (value === undefined) {
-      continue;
-    }
-    // A value flag with no value → parseArgs yields `true`; and a value flag that "ate" the NEXT flag
-    // (`--home --json` ⇒ home:'--json') is also a missing value. Reject both, matching the prior behaviour.
-    if (stringKeys.has(key) && (typeof value !== "string" || value.startsWith("--"))) {
-      errors.push(`--${key} requires a value`);
-      continue;
-    }
-    values[key] = value;
   }
   if (!allowPositionals) {
     for (const positional of parsed.positionals) {

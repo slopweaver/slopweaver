@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { parseJsonObject } from "../lib/jsonParse.js";
 import { isOneOf, isRecord } from "../lib/parsers.js";
 import { err, ok, type Result } from "../lib/result.js";
 import { safeFs } from "../lib/safeBoundary.js";
@@ -53,18 +54,21 @@ function parseAttrs({ value }: { value: unknown }): Readonly<Record<string, Corp
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** Parse one JSONL line into a record, or return an error string describing why it was rejected. */
-function parseRow({ line }: { line: string }): { record: CorpusRecord } | { error: string } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return { error: "invalid JSON" };
-  }
-  if (!isRecord(parsed)) {
-    return { error: "not a JSON object" };
-  }
-  const { source, sourceId, url, tsIso, kind, container, text, refs, author, title, attrs, raw } = parsed;
+/** The validated core (required) fields of a corpus record — the parts that gate acceptance. */
+interface CorpusRowCore {
+  readonly source: CorpusRecord["source"];
+  readonly kind: CorpusRecord["kind"];
+  readonly sourceId: string;
+  readonly tsIso: string;
+  readonly container: string;
+  readonly text: string;
+  readonly url: string;
+  readonly refs: readonly string[];
+}
+
+/** Validate the required fields of a parsed row, or return the first rejection reason. Pure. */
+function validateRowCore({ value }: { value: Record<string, unknown> }): { core: CorpusRowCore } | { error: string } {
+  const { source, sourceId, url, tsIso, kind, container, text, refs } = value;
   if (typeof source !== "string" || !isOneOf(source, CORPUS_SOURCES)) {
     return { error: `unknown source: ${String(source)}` };
   }
@@ -85,26 +89,51 @@ function parseRow({ line }: { line: string }): { record: CorpusRecord } | { erro
   if (!Array.isArray(refs) || !refs.every((r) => typeof r === "string")) {
     return { error: "refs must be a string array" };
   }
+  return { core: { container, kind, refs, source, sourceId, text, tsIso, url } };
+}
+
+/** Assemble a record from its validated core plus best-effort optional fields (author/title/attrs/raw). Pure. */
+function assembleCorpusRecord({ core, value }: { core: CorpusRowCore; value: Record<string, unknown> }): CorpusRecord {
+  const { author, title, attrs, raw } = value;
   const parsedAttrs = parseAttrs({ value: attrs });
   // `raw` is the opaque full source payload — kept verbatim (never field-validated), dropped only if it
   // isn't an object. A malformed raw never drops the record.
   const parsedRaw = isRecord(raw) ? raw : undefined;
   return {
-    record: {
-      container,
-      kind,
-      refs,
-      source,
-      sourceId,
-      text,
-      tsIso,
-      url,
-      ...(isNonEmptyString(author) ? { author } : {}),
-      ...(isNonEmptyString(title) ? { title } : {}),
-      ...(parsedAttrs !== undefined ? { attrs: parsedAttrs } : {}),
-      ...(parsedRaw !== undefined ? { raw: parsedRaw } : {}),
-    },
+    ...core,
+    ...(isNonEmptyString(author) ? { author } : {}),
+    ...(isNonEmptyString(title) ? { title } : {}),
+    ...(parsedAttrs !== undefined ? { attrs: parsedAttrs } : {}),
+    ...(parsedRaw !== undefined ? { raw: parsedRaw } : {}),
   };
+}
+
+/**
+ * Decode one parsed JSON object into a record, or the reason it was rejected. Pure — a thin composition of
+ * {@link validateRowCore} (required-field gate) + {@link assembleCorpusRecord} (best-effort optionals).
+ *
+ * @param value the parsed row object
+ * @returns the decoded record, or a rejection reason
+ */
+export function decodeCorpusRecordRow({
+  value,
+}: {
+  value: Record<string, unknown>;
+}): { record: CorpusRecord } | { error: string } {
+  const validated = validateRowCore({ value });
+  if ("error" in validated) {
+    return { error: validated.error };
+  }
+  return { record: assembleCorpusRecord({ core: validated.core, value }) };
+}
+
+/** Parse one JSONL line into a record, or return an error string describing why it was rejected. Pure. */
+export function parseRow({ line }: { line: string }): { record: CorpusRecord } | { error: string } {
+  const parsed = parseJsonObject({ text: line });
+  if (parsed.isErr()) {
+    return { error: parsed.error };
+  }
+  return decodeCorpusRecordRow({ value: parsed.value });
 }
 
 /**

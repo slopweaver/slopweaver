@@ -4,10 +4,63 @@ import { unwrap } from "../lib/result.js";
 import type { LlmClient } from "../llm/provider.js";
 import {
   answerFromSlice,
+  groundCitations,
+  parseAnswerPayload,
   retrievedRefsFromSlice,
   stripUnresolvedCitations,
   validateAnswer,
 } from "./answerFromSlice.js";
+
+describe("parseAnswerPayload", () => {
+  it("accepts a string tldr + citations array, dropping non-string citations", () => {
+    const parsed = parseAnswerPayload({ input: { citations: ["#1", 7, "#2"], tldr: "hi" } });
+    expect(parsed.ok).toBe(true);
+    expect(unwrap(parsed).citations).toEqual(["#1", "#2"]);
+  });
+
+  it("errors when tldr is not a string", () => {
+    expect(parseAnswerPayload({ input: { citations: [], tldr: 5 } }).ok).toBe(false);
+  });
+
+  it("errors when citations is not an array", () => {
+    expect(parseAnswerPayload({ input: { citations: "x", tldr: "hi" } }).ok).toBe(false);
+  });
+
+  it("drops a blank details to undefined", () => {
+    const parsed = parseAnswerPayload({ input: { citations: [], details: "   ", tldr: "hi" } });
+    expect(unwrap(parsed).details).toBeUndefined();
+  });
+
+  it("keeps a non-blank details", () => {
+    const parsed = parseAnswerPayload({ input: { citations: [], details: "more", tldr: "hi" } });
+    expect(unwrap(parsed).details).toBe("more");
+  });
+});
+
+describe("groundCitations", () => {
+  const evidenceTokens = new Set(["#1", "#2", "#3"]);
+  const urlByToken = new Map([
+    ["#1", "u1"],
+    ["#2", "u1"],
+    ["#3", "u3"],
+  ]);
+
+  it("keeps only offered tokens and collapses shared URLs, first-appearance order", () => {
+    const grounded = groundCitations({ candidateTokens: ["#3", "#1", "#2"], evidenceTokens, urlByToken });
+    expect(grounded.citedTokens).toEqual(["#3", "#1", "#2"]);
+    expect(grounded.citations).toEqual(["u3", "u1"]);
+  });
+
+  it("drops an invented token (not in evidence)", () => {
+    const grounded = groundCitations({ candidateTokens: ["#9"], evidenceTokens, urlByToken });
+    expect(grounded.citations).toEqual([]);
+    expect([...grounded.surviving]).toEqual([]);
+  });
+
+  it("returns empty for no candidates", () => {
+    expect(groundCitations({ candidateTokens: [], evidenceTokens, urlByToken }).citations).toEqual([]);
+  });
+});
 
 const rec: CorpusRecord = {
   container: "o/r",

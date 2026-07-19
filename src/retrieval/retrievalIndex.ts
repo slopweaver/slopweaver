@@ -2,8 +2,14 @@
  * The BM25 inverted index over the corpus. Pure. The haystack per record is `title + text + refs`, so
  * an exact cross-ref key (e.g. `#42`, `TEAM-9`) is searchable. `search` ranks by summed BM25 × recency
  * decay; a negative limit fails closed to `[]` (never dumps the whole corpus).
+ *
+ * The scoring path is decomposed into pure cores — {@link uniqueQueryTerms}, {@link scoreTermPostings},
+ * {@link accumulateBm25Scores}, {@link applyDecayToScores} — each unit-tested; {@link searchScored} just
+ * composes them and applies the limit.
  */
+
 import type { CorpusRecord } from "../corpus/types.js";
+import { compareScoreDescThenIdAsc } from "../lib/compare.js";
 import { type Bm25Stats, bm25TermScore } from "./bm25.js";
 import { type DecayParams, recordDecayWeight, tsIsoToMs } from "./recencyDecay.js";
 import { tokenise } from "./tokenise.js";
@@ -53,6 +59,99 @@ export function buildRetrievalIndex({ records }: { records: readonly CorpusRecor
   };
 }
 
+/** The distinct query terms (repeated terms count once). Pure. */
+export function uniqueQueryTerms({ query }: { query: string }): readonly string[] {
+  return [...new Set(tokenise({ text: query }))];
+}
+
+/**
+ * The BM25 score each posting of one term contributes. Pure — an absent term (no postings) contributes
+ * nothing (empty array).
+ *
+ * @param postings the term's `id → termFrequency` postings (undefined ⇒ term absent)
+ * @param index the BM25 index
+ * @param bm25 optional BM25 tuning
+ * @returns `[id, score]` contributions
+ */
+export function scoreTermPostings({
+  postings,
+  index,
+  bm25,
+}: {
+  postings: ReadonlyMap<string, number> | undefined;
+  index: RetrievalIndex;
+  bm25?: { k1?: number; b?: number };
+}): readonly (readonly [string, number])[] {
+  if (postings === undefined) {
+    return [];
+  }
+  return [...postings].map(([id, tf]): readonly [string, number] => [
+    id,
+    bm25TermScore({
+      docFrequency: postings.size,
+      docLength: index.docLengthById.get(id) ?? 0,
+      stats: index.stats,
+      termFrequency: tf,
+      ...(bm25?.k1 !== undefined ? { k1: bm25.k1 } : {}),
+      ...(bm25?.b !== undefined ? { b: bm25.b } : {}),
+    }),
+  ]);
+}
+
+/**
+ * Sum BM25 contributions across every query term. Pure — a term absent from the index is skipped.
+ *
+ * @param index the BM25 index
+ * @param terms the distinct query terms
+ * @param bm25 optional BM25 tuning
+ * @returns summed score by id
+ */
+export function accumulateBm25Scores({
+  index,
+  terms,
+  bm25,
+}: {
+  index: RetrievalIndex;
+  terms: readonly string[];
+  bm25?: { k1?: number; b?: number };
+}): Map<string, number> {
+  const scores = new Map<string, number>();
+  for (const term of terms) {
+    const contributions = scoreTermPostings({
+      index,
+      postings: index.terms.get(term),
+      ...(bm25 !== undefined ? { bm25 } : {}),
+    });
+    for (const [id, score] of contributions) {
+      scores.set(id, (scores.get(id) ?? 0) + score);
+    }
+  }
+  return scores;
+}
+
+/**
+ * Weight each score by recency decay (identity when no decay). Pure.
+ *
+ * @param index the BM25 index (for per-id timestamps)
+ * @param scores the summed BM25 scores
+ * @param decay optional recency-decay params
+ * @returns `[id, weightedScore]` tuples
+ */
+export function applyDecayToScores({
+  index,
+  scores,
+  decay,
+}: {
+  index: RetrievalIndex;
+  scores: ReadonlyMap<string, number>;
+  decay?: DecayParams;
+}): readonly (readonly [string, number])[] {
+  return [...scores.entries()].map(([id, score]): readonly [string, number] => [
+    id,
+    decay !== undefined ? score * recordDecayWeight({ tsMs: index.tsMsById.get(id), ...decay }) : score,
+  ]);
+}
+
 /**
  * Score every candidate for a query: summed BM25 × recency decay. Exposes magnitudes for hybrid fusion.
  *
@@ -79,30 +178,14 @@ export function searchScored({
   if (limit !== undefined && limit < 0) {
     return [];
   }
-  const scores = new Map<string, number>();
-  for (const term of new Set(tokenise({ text: query }))) {
-    const postings = index.terms.get(term);
-    if (postings === undefined) {
-      continue;
-    }
-    for (const [id, tf] of postings) {
-      const score = bm25TermScore({
-        docFrequency: postings.size,
-        docLength: index.docLengthById.get(id) ?? 0,
-        stats: index.stats,
-        termFrequency: tf,
-        ...(bm25?.k1 !== undefined ? { k1: bm25.k1 } : {}),
-        ...(bm25?.b !== undefined ? { b: bm25.b } : {}),
-      });
-      scores.set(id, (scores.get(id) ?? 0) + score);
-    }
-  }
-  const ranked = [...scores.entries()].map(([id, score]): readonly [string, number] => {
-    const weighted =
-      decay !== undefined ? score * recordDecayWeight({ tsMs: index.tsMsById.get(id), ...decay }) : score;
-    return [id, weighted];
+  const scores = accumulateBm25Scores({
+    index,
+    terms: uniqueQueryTerms({ query }),
+    ...(bm25 !== undefined ? { bm25 } : {}),
   });
-  ranked.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const ranked = applyDecayToScores({ index, scores, ...(decay !== undefined ? { decay } : {}) }).toSorted((a, b) =>
+    compareScoreDescThenIdAsc({ a, b }),
+  );
   return limit !== undefined ? ranked.slice(0, limit) : ranked;
 }
 

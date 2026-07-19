@@ -3,8 +3,44 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EMBEDDING_DIM } from "./embeddings.js";
-import { diskVectorCacheStore } from "./vectorCacheStore.js";
+import { diskVectorCacheStore, parseVectorCacheLine, serialiseVectorRow } from "./vectorCacheStore.js";
 import type { CachedVector } from "./vectorIndex.js";
+
+describe("parseVectorCacheLine", () => {
+  const goodVector = Array.from({ length: EMBEDDING_DIM }, () => 0.1);
+
+  it("parses a well-formed row", () => {
+    const line = JSON.stringify({ contentHash: "h", sourceId: "s", vector: goodVector });
+    const parsed = parseVectorCacheLine({ line });
+    expect(parsed!.sourceId).toBe("s");
+    expect(parsed!.vector.length).toBe(EMBEDDING_DIM);
+  });
+
+  it("returns undefined for a blank line", () => {
+    expect(parseVectorCacheLine({ line: "   " })).toBeUndefined();
+  });
+
+  it("returns undefined for malformed JSON", () => {
+    expect(parseVectorCacheLine({ line: "{bad" })).toBeUndefined();
+  });
+
+  it("returns undefined for a wrong-dimension vector", () => {
+    const line = JSON.stringify({ contentHash: "h", sourceId: "s", vector: [0.1, 0.2] });
+    expect(parseVectorCacheLine({ line })).toBeUndefined();
+  });
+
+  it("returns undefined when a required field is missing", () => {
+    const line = JSON.stringify({ sourceId: "s", vector: goodVector });
+    expect(parseVectorCacheLine({ line })).toBeUndefined();
+  });
+});
+
+describe("serialiseVectorRow", () => {
+  it("serialises a vector to a JSON object string with the array form", () => {
+    const vector: CachedVector = { contentHash: "h", sourceId: "s", vector: Float32Array.from([1, 2]) };
+    expect(serialiseVectorRow({ vector })).toBe('{"contentHash":"h","sourceId":"s","vector":[1,2]}');
+  });
+});
 
 let dir: string;
 beforeEach(() => {

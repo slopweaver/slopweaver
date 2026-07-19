@@ -51,67 +51,111 @@ const BOUNDARY_TOKENS: readonly BoundaryToken[] = [
 /** The `safe*` wrapper openers whose parentheses sanction a boundary token. */
 const SAFE_OPENER = /\bsafe(?:ApiCall|Llm|Embed|FsAsync|Fs)$/;
 
+/** The noise scanner's state: normal code, a `//` line comment, a `/* *​/` block, or a string/template body. */
+type NoiseState = "code" | "line" | "block" | "single" | "double" | "template";
+
+/** One transition: the next state, the characters to emit, and how many input characters it consumed. */
+interface NoiseStep {
+  readonly state: NoiseState;
+  readonly emit: string;
+  readonly consumed: number;
+}
+
+/** In CODE: a comment/string opener switches state (emitting one blank); any other char passes through. */
+function stepCode({ c, next }: { c: string; next: string | undefined }): NoiseStep {
+  if (c === "/" && next === "/") {
+    return { consumed: 1, emit: " ", state: "line" };
+  }
+  if (c === "/" && next === "*") {
+    return { consumed: 1, emit: " ", state: "block" };
+  }
+  if (c === "'") {
+    return { consumed: 1, emit: " ", state: "single" };
+  }
+  if (c === '"') {
+    return { consumed: 1, emit: " ", state: "double" };
+  }
+  if (c === "`") {
+    return { consumed: 1, emit: " ", state: "template" };
+  }
+  return { consumed: 1, emit: c, state: "code" };
+}
+
+/** In a LINE comment: blank every char; a newline returns to code. */
+function stepLine({ c, blank }: { c: string; blank: string }): NoiseStep {
+  return { consumed: 1, emit: blank, state: c === "\n" ? "code" : "line" };
+}
+
+/** In a BLOCK comment: blank every char; the closing `*​/` returns to code (blanking both chars). */
+function stepBlock({ c, next, blank }: { c: string; next: string | undefined; blank: string }): NoiseStep {
+  if (c === "*" && next === "/") {
+    return { consumed: 2, emit: `${blank} `, state: "code" };
+  }
+  return { consumed: 1, emit: blank, state: "block" };
+}
+
+/** In a STRING/TEMPLATE body: blank every char; an escape blanks the next too; the closing quote ends it. */
+function stepStringBody({
+  state,
+  c,
+  next,
+  blank,
+}: {
+  state: NoiseState;
+  c: string;
+  next: string | undefined;
+  blank: string;
+}): NoiseStep {
+  if (c === "\\") {
+    return { consumed: 2, emit: `${blank}${next === "\n" ? "\n" : " "}`, state };
+  }
+  const closes =
+    (state === "single" && c === "'") || (state === "double" && c === '"') || (state === "template" && c === "`");
+  return { consumed: 1, emit: blank, state: closes ? "code" : state };
+}
+
+/** Dispatch the per-character transition by current state. Pure. */
+function advanceNoise({
+  state,
+  c,
+  next,
+  blank,
+}: {
+  state: NoiseState;
+  c: string;
+  next: string | undefined;
+  blank: string;
+}): NoiseStep {
+  if (state === "code") {
+    return stepCode({ c, next });
+  }
+  if (state === "line") {
+    return stepLine({ blank, c });
+  }
+  if (state === "block") {
+    return stepBlock({ blank, c, next });
+  }
+  return stepStringBody({ blank, c, next, state });
+}
+
 /**
  * Blank the contents of string literals + comments (preserving length + newlines), so paren-matching and
  * token detection see only CODE. Prevents a boundary token named in a comment/string from being scanned.
+ * A thin fold over the pure {@link advanceNoise} state machine.
  *
  * @param content the raw source
  * @returns the source with string/comment interiors replaced by spaces
  */
 export function stripNoise({ content }: { content: string }): string {
   const out: string[] = [];
-  let state: "code" | "line" | "block" | "single" | "double" | "template" = "code";
+  let state: NoiseState = "code";
   for (let i = 0; i < content.length; i += 1) {
     const c = content[i]!;
     const next = content[i + 1];
-    const blank = c === "\n" ? "\n" : " ";
-    if (state === "code") {
-      if (c === "/" && next === "/") {
-        state = "line";
-        out.push(" ");
-      } else if (c === "/" && next === "*") {
-        state = "block";
-        out.push(" ");
-      } else if (c === "'") {
-        state = "single";
-        out.push(" ");
-      } else if (c === '"') {
-        state = "double";
-        out.push(" ");
-      } else if (c === "`") {
-        state = "template";
-        out.push(" ");
-      } else {
-        out.push(c);
-      }
-      continue;
-    }
-    if (state === "line") {
-      out.push(blank);
-      if (c === "\n") {
-        state = "code";
-      }
-      continue;
-    }
-    if (state === "block") {
-      out.push(blank);
-      if (c === "*" && next === "/") {
-        out.push(" ");
-        i += 1;
-        state = "code";
-      }
-      continue;
-    }
-    // string / template body: blank until the (unescaped) closing quote
-    out.push(blank);
-    if (c === "\\") {
-      out.push(content[i + 1] === "\n" ? "\n" : " ");
-      i += 1;
-      continue;
-    }
-    if ((state === "single" && c === "'") || (state === "double" && c === '"') || (state === "template" && c === "`")) {
-      state = "code";
-    }
+    const step = advanceNoise({ blank: c === "\n" ? "\n" : " ", c, next, state });
+    out.push(step.emit);
+    state = step.state;
+    i += step.consumed - 1;
   }
   return out.join("");
 }

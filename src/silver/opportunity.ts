@@ -6,8 +6,15 @@
  *  - cross-cutting: one reference touched by many distinct containers (a shared concern).
  *  - blocker: a referenced item that reads stale or unresolved (others are waiting on it).
  *  - duplication: the same title appearing across distinct sources (parallel work).
+ *
+ * The blocker detector is split into pure cores ({@link blockerCitationInfo} + {@link blockerOpportunityForRecord})
+ * so the "stale only when a recent record still cites it" decision is unit-tested in isolation.
  */
+
 import type { CorpusRecord, CorpusSource } from "../corpus/types.js";
+import { sortedUnique } from "../lib/collections.js";
+import { compareStrings } from "../lib/compare.js";
+import { parseIsoMs } from "../lib/date.js";
 import type { GraphEdge } from "./graph.js";
 
 export interface Opportunity {
@@ -26,8 +33,8 @@ const DAY_MS = 86_400_000;
 function corpusNowMs({ records }: { records: readonly CorpusRecord[] }): number {
   let max = 0;
   for (const record of records) {
-    const t = Date.parse(record.tsIso);
-    if (!Number.isNaN(t) && t > max) {
+    const t = parseIsoMs({ tsIso: record.tsIso });
+    if (t !== undefined && t > max) {
       max = t;
     }
   }
@@ -36,8 +43,8 @@ function corpusNowMs({ records }: { records: readonly CorpusRecord[] }): number 
 
 /** Recency weight in [0,1]: 1 at `nowMs`, linearly decaying to 0 at `STALE_AFTER_DAYS` old. */
 function recencyWeight({ tsIso, nowMs }: { tsIso: string; nowMs: number }): number {
-  const t = Date.parse(tsIso);
-  if (Number.isNaN(t)) {
+  const t = parseIsoMs({ tsIso });
+  if (t === undefined) {
     return 0;
   }
   const days = (nowMs - t) / DAY_MS;
@@ -71,10 +78,6 @@ function readsUnresolved({ record }: { record: CorpusRecord }): boolean {
     .join(" ")
     .toLowerCase();
   return UNRESOLVED_MARKERS.some((marker) => haystack.includes(marker));
-}
-
-function sortedUnique({ values }: { values: readonly string[] }): readonly string[] {
-  return [...new Set(values)].toSorted();
 }
 
 interface CrossCutAccum {
@@ -127,47 +130,74 @@ interface CiteInfo {
   latestCiterMs: number;
 }
 
-function spotBlockers({ records, nowMs }: { records: readonly CorpusRecord[]; nowMs: number }): readonly Opportunity[] {
+/**
+ * Index, per referenced token, which containers cite it and the newest citer's time. Pure.
+ *
+ * @param records the corpus records
+ * @returns the citation info by cited token
+ */
+export function blockerCitationInfo({ records }: { records: readonly CorpusRecord[] }): Map<string, CiteInfo> {
   const citeInfo = new Map<string, CiteInfo>();
   for (const record of records) {
-    const citerMs = Date.parse(record.tsIso);
+    const citerMs = parseIsoMs({ tsIso: record.tsIso });
     for (const token of record.refs) {
       const info = citeInfo.get(token) ?? { containers: new Set<string>(), latestCiterMs: 0 };
       info.containers.add(record.container);
-      if (!Number.isNaN(citerMs)) {
+      if (citerMs !== undefined) {
         info.latestCiterMs = Math.max(info.latestCiterMs, citerMs);
       }
       citeInfo.set(token, info);
     }
   }
-  const opportunities: Opportunity[] = [];
-  for (const record of records) {
-    const citing = citeInfo.get(record.sourceId);
-    if (citing === undefined) {
-      continue;
-    }
-    // Staleness is intrinsic to the TARGET's own timestamp — but age ALONE isn't a blocker: a valid old
-    // record that merely predates the window must not be flagged. It's a blocker only when a RECENT record
-    // still cites it (someone is actively waiting on a stale thing). Baseline is corpus-newest, not wall time.
-    const targetStale = recencyWeight({ nowMs, tsIso: record.tsIso }) <= 0;
-    const citerRecent = citing.latestCiterMs > 0 && (nowMs - citing.latestCiterMs) / DAY_MS < STALE_AFTER_DAYS;
-    const stale = targetStale && citerRecent;
-    const unresolved = readsUnresolved({ record });
-    if (!stale && !unresolved) {
-      continue;
-    }
-    const breadth = citing.containers.size;
-    opportunities.push({
-      evidence: [evidenceOf({ record })],
-      kind: "blocker",
-      score: round4({ value: breadth * (stale ? 1.5 : 1) }),
-      subject: record.sourceId,
-      summary: stale
-        ? `${record.sourceId} is referenced but stale — ${String(breadth)} container(s) may be waiting`
-        : `${record.sourceId} is referenced and reads unresolved across ${String(breadth)} container(s)`,
-    });
+  return citeInfo;
+}
+
+/**
+ * The blocker opportunity for one target record, or `undefined` when it isn't a blocker. A record is a
+ * blocker when it is cited AND (it is stale WITH a recent citer, OR it reads unresolved). Staleness alone
+ * (a valid old record that merely predates the window) is NOT a blocker. Pure.
+ *
+ * @param record the potential target
+ * @param citing the citation info for this record's `sourceId` (undefined ⇒ never cited)
+ * @param nowMs the corpus-newest reference time
+ * @returns the blocker opportunity, or undefined
+ */
+export function blockerOpportunityForRecord({
+  record,
+  citing,
+  nowMs,
+}: {
+  record: CorpusRecord;
+  citing: CiteInfo | undefined;
+  nowMs: number;
+}): Opportunity | undefined {
+  if (citing === undefined) {
+    return undefined;
   }
-  return opportunities;
+  const targetStale = recencyWeight({ nowMs, tsIso: record.tsIso }) <= 0;
+  const citerRecent = citing.latestCiterMs > 0 && (nowMs - citing.latestCiterMs) / DAY_MS < STALE_AFTER_DAYS;
+  const stale = targetStale && citerRecent;
+  const unresolved = readsUnresolved({ record });
+  if (!stale && !unresolved) {
+    return undefined;
+  }
+  const breadth = citing.containers.size;
+  return {
+    evidence: [evidenceOf({ record })],
+    kind: "blocker",
+    score: round4({ value: breadth * (stale ? 1.5 : 1) }),
+    subject: record.sourceId,
+    summary: stale
+      ? `${record.sourceId} is referenced but stale — ${String(breadth)} container(s) may be waiting`
+      : `${record.sourceId} is referenced and reads unresolved across ${String(breadth)} container(s)`,
+  };
+}
+
+function spotBlockers({ records, nowMs }: { records: readonly CorpusRecord[]; nowMs: number }): readonly Opportunity[] {
+  const citeInfo = blockerCitationInfo({ records });
+  return records
+    .map((record) => blockerOpportunityForRecord({ citing: citeInfo.get(record.sourceId), nowMs, record }))
+    .filter((opportunity): opportunity is Opportunity => opportunity !== undefined);
 }
 
 interface DupAccum {
@@ -220,6 +250,18 @@ function spotDuplication({
   return opportunities;
 }
 
+/** Opportunity ordering: score desc, then subject asc, then kind asc. Pure. */
+export function sortOpportunities({
+  opportunities,
+}: {
+  opportunities: readonly Opportunity[];
+}): readonly Opportunity[] {
+  return opportunities.toSorted(
+    (a, b) =>
+      b.score - a.score || compareStrings({ a: a.subject, b: b.subject }) || compareStrings({ a: a.kind, b: b.kind }),
+  );
+}
+
 /**
  * Detect cross-cutting concerns, blockers, and duplication across the corpus.
  *
@@ -241,10 +283,5 @@ export function spotOpportunities({
     ...spotBlockers({ nowMs, records }),
     ...spotDuplication({ nowMs, records }),
   ];
-  return all.toSorted(
-    (a, b) =>
-      b.score - a.score ||
-      (a.subject < b.subject ? -1 : a.subject > b.subject ? 1 : 0) ||
-      (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0),
-  );
+  return sortOpportunities({ opportunities: all });
 }

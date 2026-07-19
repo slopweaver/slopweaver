@@ -11,9 +11,15 @@
  *  - **Hard clique cap**: a token is skipped if its clique would exceed `MAX_EDGES_PER_TOKEN` edges (or
  *    `MAX_HOLDERS_PER_TOKEN` holders) — bounding the O(H²) worst case so one hub token can't explode the
  *    graph. Real shared entities never fan out that far.
+ *
+ * {@link buildCrossRefGraph} is a thin shell over the pure cores below ({@link indexGraphTokens},
+ * {@link shouldSkipTokenClique}, {@link edgesForTokenClique}, {@link mergeGraphEdge},
+ * {@link sortGraphEdges}), each unit-tested so the ordering + cap + smallest-`via` rules are exercised.
  */
+
 import { extractRefs } from "../corpus/refs.js";
 import type { CorpusRecord } from "../corpus/types.js";
+import { compareStrings } from "../lib/compare.js";
 
 /** Max records one token may link before it's treated as a hub and skipped. */
 export const MAX_HOLDERS_PER_TOKEN = 50;
@@ -112,19 +118,128 @@ export function isGraphEntityToken({ token }: { token: string }): boolean {
   return false;
 }
 
-/** Stable node key for a record. */
-function nodeKey({ record }: { record: CorpusRecord }): string {
+/** Stable node key for a record (`source:sourceId`). Pure. */
+export function recordGraphNode({ record }: { record: CorpusRecord }): string {
   return `${record.source}:${record.sourceId}`;
 }
 
-/** The link tokens a record contributes: its refs plus tokens mined from its url/title/sourceId, filtered
- * to entity-shaped tokens only (see {@link isGraphEntityToken}). */
-function linkTokens({ record }: { record: CorpusRecord }): readonly string[] {
+/**
+ * The link tokens a record contributes: its refs plus tokens mined from its url/title/sourceId, filtered
+ * to entity-shaped tokens only (see {@link isGraphEntityToken}). Pure.
+ *
+ * @param record the corpus record
+ * @returns its entity link tokens
+ */
+export function recordGraphTokens({ record }: { record: CorpusRecord }): readonly string[] {
   const identityText = [record.url, record.title, record.sourceId]
     .filter((part) => part !== undefined && part.length > 0)
     .join(" ");
   const identity = [record.url, ...extractRefs({ text: identityText })];
   return [...record.refs, ...identity].filter((token) => token.length > 0 && isGraphEntityToken({ token }));
+}
+
+/**
+ * Index every record's node key and token→holders map, in record order. Pure.
+ *
+ * @param records the corpus records
+ * @returns the node key set and the token → holder-keys index
+ */
+export function indexGraphTokens({ records }: { records: readonly CorpusRecord[] }): {
+  nodes: Set<string>;
+  tokenIndex: Map<string, Set<string>>;
+} {
+  const nodes = new Set<string>();
+  const tokenIndex = new Map<string, Set<string>>();
+  for (const record of records) {
+    const key = recordGraphNode({ record });
+    nodes.add(key);
+    for (const token of recordGraphTokens({ record })) {
+      const holders = tokenIndex.get(token) ?? new Set<string>();
+      holders.add(key);
+      tokenIndex.set(token, holders);
+    }
+  }
+  return { nodes, tokenIndex };
+}
+
+/** The number of undirected edges a clique of `holderCount` holders forms (O(H²)). Pure. */
+export function cliqueSize({ holderCount }: { holderCount: number }): number {
+  return (holderCount * (holderCount - 1)) / 2;
+}
+
+/**
+ * Whether a token's clique is skipped: too small to link (<2 holders), a hub (>{@link MAX_HOLDERS_PER_TOKEN}
+ * holders), or an O(H²) blow-up (>{@link MAX_EDGES_PER_TOKEN} potential edges). Pure.
+ *
+ * @param holderCount how many records hold the token
+ * @param potentialEdges the clique's edge count ({@link cliqueSize})
+ * @returns true to skip the token
+ */
+export function shouldSkipTokenClique({
+  holderCount,
+  potentialEdges,
+}: {
+  holderCount: number;
+  potentialEdges: number;
+}): boolean {
+  return holderCount < 2 || holderCount > MAX_HOLDERS_PER_TOKEN || potentialEdges > MAX_EDGES_PER_TOKEN;
+}
+
+/** One undirected edge with endpoints ordered `a < b`. Pure. */
+export function edgeForPair({ first, second, via }: { first: string; second: string; via: string }): GraphEdge {
+  const [a, b] = first < second ? [first, second] : [second, first];
+  return { a, b, via };
+}
+
+/**
+ * Every edge in a token's clique (each holder pair, `i < j` order), all linked `via` the token. Pure.
+ *
+ * @param token the linking token
+ * @param holders the token's holder keys (already de-hubbed by the caller)
+ * @returns the clique's edges
+ */
+export function edgesForTokenClique({
+  token,
+  holders,
+}: {
+  token: string;
+  holders: readonly string[];
+}): readonly GraphEdge[] {
+  const edges: GraphEdge[] = [];
+  for (let i = 0; i < holders.length; i += 1) {
+    for (let j = i + 1; j < holders.length; j += 1) {
+      edges.push(edgeForPair({ first: holders[i]!, second: holders[j]!, via: token }));
+    }
+  }
+  return edges;
+}
+
+/**
+ * Merge one edge into the accumulator, keeping the lexicographically smallest `via` for a given endpoint
+ * pair. Mutates + returns `edges` so it composes in the build loop. Pure over its inputs.
+ *
+ * @param edges the edge accumulator (keyed `"a b"`)
+ * @param edge the edge to merge
+ * @returns the same map, updated
+ */
+export function mergeGraphEdge({
+  edges,
+  edge,
+}: {
+  edges: Map<string, GraphEdge>;
+  edge: GraphEdge;
+}): Map<string, GraphEdge> {
+  const edgeKey = `${edge.a} ${edge.b}`;
+  const existing = edges.get(edgeKey);
+  if (existing === undefined || edge.via < existing.via) {
+    edges.set(edgeKey, edge);
+  }
+  return edges;
+}
+
+/** Edges sorted by endpoint `a` then `b` (the stable output order). Pure. */
+export function sortGraphEdges({ edges }: { edges: readonly GraphEdge[] }): readonly GraphEdge[] {
+  return edges.toSorted((x, y) => compareStrings({ a: x.a, b: y.a }) || compareStrings({ a: x.b, b: y.b }));
 }
 
 /**
@@ -137,43 +252,21 @@ export function buildCrossRefGraph({ records }: { records: readonly CorpusRecord
   nodes: readonly string[];
   edges: readonly GraphEdge[];
 } {
-  const nodes = new Set<string>();
-  const tokenIndex = new Map<string, Set<string>>();
-  for (const record of records) {
-    const key = nodeKey({ record });
-    nodes.add(key);
-    for (const token of linkTokens({ record })) {
-      const holders = tokenIndex.get(token) ?? new Set<string>();
-      holders.add(key);
-      tokenIndex.set(token, holders);
-    }
-  }
-
+  const { nodes, tokenIndex } = indexGraphTokens({ records });
   const edges = new Map<string, GraphEdge>();
   for (const [token, holderSet] of tokenIndex) {
-    const potentialEdges = (holderSet.size * (holderSet.size - 1)) / 2;
-    if (holderSet.size < 2 || holderSet.size > MAX_HOLDERS_PER_TOKEN || potentialEdges > MAX_EDGES_PER_TOKEN) {
+    const holders = [...holderSet];
+    if (
+      shouldSkipTokenClique({
+        holderCount: holders.length,
+        potentialEdges: cliqueSize({ holderCount: holders.length }),
+      })
+    ) {
       continue; // too small to link, or a hub whose O(H²) clique would blow up the graph
     }
-    const holders = [...holderSet];
-    for (let i = 0; i < holders.length; i += 1) {
-      for (let j = i + 1; j < holders.length; j += 1) {
-        const first = holders[i]!; // i, j index within `holders` bounds
-        const second = holders[j]!;
-        const [a, b] = first < second ? [first, second] : [second, first];
-        const edgeKey = `${a} ${b}`;
-        const existing = edges.get(edgeKey);
-        if (existing === undefined || token < existing.via) {
-          edges.set(edgeKey, { a, b, via: token });
-        }
-      }
+    for (const edge of edgesForTokenClique({ holders, token })) {
+      mergeGraphEdge({ edge, edges });
     }
   }
-
-  return {
-    edges: [...edges.values()].toSorted((x, y) =>
-      x.a < y.a ? -1 : x.a > y.a ? 1 : x.b < y.b ? -1 : x.b > y.b ? 1 : 0,
-    ),
-    nodes: [...nodes].toSorted(),
-  };
+  return { edges: sortGraphEdges({ edges: [...edges.values()] }), nodes: [...nodes].toSorted() };
 }

@@ -7,6 +7,7 @@
  * The roster is NEVER committed: an EMPTY `templates/identity.template.json` ships, and a real
  * `identities.json` (if any) is generated into `$SLOPWEAVER_HOME`, off-repo.
  */
+import { parseJson } from "../lib/jsonParse.js";
 import { isRecord } from "../lib/parsers.js";
 
 export interface IdentityRecord {
@@ -28,6 +29,23 @@ export function buildIdentityMap({ records }: { records: readonly IdentityRecord
 }
 
 /**
+ * Parse one identity-array entry: a valid entry needs a non-empty string `id`; `handle`/`name` default to
+ * `id`/`handle` when absent. Pure — a malformed entry yields `undefined` (the caller skips it).
+ *
+ * @param entry one raw array element
+ * @returns the identity record, or `undefined` when invalid
+ */
+function parseIdentityEntry({ entry }: { entry: unknown }): IdentityRecord | undefined {
+  if (!isRecord(entry) || typeof entry["id"] !== "string" || entry["id"].length === 0) {
+    return undefined;
+  }
+  const id = entry["id"];
+  const handle = typeof entry["handle"] === "string" && entry["handle"].length > 0 ? entry["handle"] : id;
+  const name = typeof entry["name"] === "string" && entry["name"].length > 0 ? entry["name"] : handle;
+  return { handle, id, name };
+}
+
+/**
  * Parse a persisted `identities.json` array. Malformed entries are skipped; `handle`/`name` default to
  * `id`/`handle` when absent. Anything unparseable yields an empty list.
  *
@@ -35,21 +53,15 @@ export function buildIdentityMap({ records }: { records: readonly IdentityRecord
  * @returns the parsed identity records
  */
 export function parseIdentityRecords({ content }: { content: string }): readonly IdentityRecord[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) {
+  const parsed = parseJson({ text: content });
+  if (parsed.isErr() || !Array.isArray(parsed.value)) {
     return [];
   }
   const records: IdentityRecord[] = [];
-  for (const entry of parsed) {
-    if (isRecord(entry) && typeof entry["id"] === "string" && entry["id"].length > 0) {
-      const handle = typeof entry["handle"] === "string" && entry["handle"].length > 0 ? entry["handle"] : entry["id"];
-      const name = typeof entry["name"] === "string" && entry["name"].length > 0 ? entry["name"] : handle;
-      records.push({ handle, id: entry["id"], name });
+  for (const entry of parsed.value) {
+    const record = parseIdentityEntry({ entry });
+    if (record !== undefined) {
+      records.push(record);
     }
   }
   return records;

@@ -19,6 +19,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
     "@types/node": "26.1.1",
+    "@vitest/coverage-v8": "4.1.10",
     "eslint": "10.7.0",
     "eslint-plugin-regexp": "3.1.1",
     "eslint-plugin-sonarjs": "4.2.0",
@@ -43,6 +44,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check:pr-format": "tsx src/prformat/check.ts",
+    "coverage:ratchet": "tsx src/devLint/coverageRatchet.entry.ts",
+    "coverage:rebaseline": "tsx src/devLint/coverageRatchet.entry.ts --rebaseline",
     "dev:gate": "tsx src/cli/index.ts dev gate",
     "eval": "promptfoo eval -c eval/promptfooconfig.yaml",
     "eval:rebaseline": "tsx src/eval/rebaseline.ts",
@@ -53,9 +56,10 @@
     "lint": "tsx src/cli/index.ts dev lint",
     "prepare": "lefthook install || true",
     "slopweaver": "tsx src/cli/index.ts",
+    "test:coverage": "vitest run --coverage",
     "test:unit": "vitest run",
     "typecheck": "tsc --noEmit",
-    "validate": "yarn lint && yarn typecheck && yarn test:unit"
+    "validate": "yarn lint && yarn typecheck && yarn test:coverage && yarn coverage:ratchet"
   },
   "type": "module",
   "version": "0.1.0"

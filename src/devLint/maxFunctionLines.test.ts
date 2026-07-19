@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isScannablePath, scanFunctionLines } from "./maxFunctionLines.js";
+import { isScannablePath, MAX_FUNCTION_LINES, scanFunctionLines } from "./maxFunctionLines.js";
+
+/** A function whose body spans exactly `lines` source lines (`function f() {` … `}`). */
+function functionOfLines({ lines }: { lines: number }): string {
+  const body = Array.from({ length: lines - 2 }, (_, i) => `  const v${String(i)} = ${String(i)};`);
+  return ["function f() {", ...body, "}"].join("\n");
+}
 
 describe("scanFunctionLines (pure, TS AST)", () => {
   it("flags a function whose body exceeds the limit", () => {
@@ -39,6 +45,32 @@ describe("scanFunctionLines (pure, TS AST)", () => {
       "const x = 1;",
     ].join("\n");
     expect(scanFunctionLines({ content, max: 3, path: "src/x.ts" })).toEqual([]);
+  });
+});
+
+describe("MAX_FUNCTION_LINES ceiling (locked at 60)", () => {
+  it("is 60", () => {
+    expect(MAX_FUNCTION_LINES).toBe(60);
+  });
+
+  it("passes a function of exactly 60 lines", () => {
+    expect(scanFunctionLines({ content: functionOfLines({ lines: 60 }), path: "src/x.ts" })).toEqual([]);
+  });
+
+  it("flags a function of 61 lines", () => {
+    const hits = scanFunctionLines({ content: functionOfLines({ lines: 61 }), path: "src/x.ts" });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.lines).toBe(61);
+  });
+
+  it("exempts a 61-line function marked directly above", () => {
+    const content = `// max-lines-exempt: cohesive shell\n${functionOfLines({ lines: 61 })}`;
+    expect(scanFunctionLines({ content, path: "src/x.ts" })).toEqual([]);
+  });
+
+  it("does not exempt when the marker is two lines above the function", () => {
+    const content = `// max-lines-exempt: too far\n\n${functionOfLines({ lines: 61 })}`;
+    expect(scanFunctionLines({ content, path: "src/x.ts" })).toHaveLength(1);
   });
 });
 

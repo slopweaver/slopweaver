@@ -7,7 +7,9 @@ import {
   type LinearRequest,
   makeLinearApi,
   pageQueryVariables,
+  parseLinearIssueIdentity,
   parseLinearIssueNode,
+  parseLinearIssueRelations,
   shapeIssuesPage,
   shapeProjectsPage,
 } from "./fetch.js";
@@ -243,5 +245,43 @@ describe("fetchLinearActivity", () => {
       projects: async () => ({ projects: [] }),
     };
     expect((await fetchLinearActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } })).ok).toBe(false);
+  });
+});
+
+describe("parseLinearIssueIdentity", () => {
+  it("falls back title and id to the identifier and keeps present fields", () => {
+    const identity = parseLinearIssueIdentity({ node: { identifier: "ENG-1", updatedAt: "2026-01-01T00:00:00Z" } })!;
+    expect(identity.identifier).toBe("ENG-1");
+    expect(identity.title).toBe("ENG-1");
+    expect(identity.tsIso).toBe("2026-01-01T00:00:00Z");
+  });
+
+  it("drops the issue (undefined) when there is no identifier", () => {
+    expect(parseLinearIssueIdentity({ node: { title: "no id" } })).toBeUndefined();
+  });
+
+  it("omits description when absent", () => {
+    const identity = parseLinearIssueIdentity({ node: { identifier: "ENG-2" } })!;
+    expect(Object.hasOwn(identity, "description")).toBe(false);
+  });
+});
+
+describe("parseLinearIssueRelations", () => {
+  it("extracts nested state/team/project and people display names", () => {
+    expect(
+      parseLinearIssueRelations({
+        node: {
+          assignee: { displayName: "Dana" },
+          creator: { displayName: "Sam" },
+          project: { name: "Atlas" },
+          state: { name: "In Progress" },
+          team: { key: "ENG" },
+        },
+      }),
+    ).toEqual({ assignee: "Dana", author: "Sam", project: "Atlas", state: "In Progress", team: "ENG" });
+  });
+
+  it("returns an empty object when all relations are missing", () => {
+    expect(parseLinearIssueRelations({ node: {} })).toEqual({});
   });
 });
