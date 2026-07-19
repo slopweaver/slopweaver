@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RateBucket } from "../../lib/rateBucket.js";
+import type { RateScheduler } from "../../lib/resilience.js";
 import { unwrap } from "../../lib/result.js";
 import {
   fetchLinearActivity,
@@ -72,20 +72,27 @@ function fakeRequest({
   };
 }
 
-/** A bucket that never paces (huge rate) so request-count tests don't wait on wall time. */
-function fastBucket(): RateBucket {
-  return new RateBucket({ ratePerSec: 1_000_000 });
-}
+/** A pass-through scheduler that never paces, so request-count tests run instantly (no wall time). */
+const passthroughScheduler: RateScheduler = (task) => task();
 
 describe("parseLinearIssueNode (pure)", () => {
   it("shapes an inline node with relations + comments; flags no further comment pages", () => {
-    const parsed = parseLinearIssueNode({ node: issueNode({ id: "ENG-42", moreComments: false }) })!;
+    const rawNode = issueNode({ id: "ENG-42", moreComments: false });
+    const parsed = parseLinearIssueNode({ node: rawNode })!;
     expect(parsed.item.identifier).toBe("ENG-42");
     expect(parsed.item.state).toBe("In Progress");
     expect(parsed.item.assignee).toBe("Dana");
     expect(parsed.item.team).toBe("ENG");
     expect(parsed.item.labels).toEqual(["bug", "retrieval"]);
     expect(parsed.item.comments.map((c) => c.id)).toEqual(["ENG-42-c1"]);
+    expect(parsed.item.raw).toEqual(rawNode);
+    expect(parsed.item.comments[0]!.raw).toEqual({
+      body: "hi",
+      createdAt: "2026-05-02T00:00:00.000Z",
+      id: "ENG-42-c1",
+      url: "u",
+      user: { displayName: "Dana" },
+    });
     expect(parsed.commentsHasNext).toBe(false);
   });
 
@@ -102,7 +109,11 @@ describe("makeLinearApi collapses the N+1 (one request per issue-page)", () => {
       issueNode({ id: "ENG-2", moreComments: false }),
       issueNode({ id: "ENG-3", moreComments: false }),
     ];
-    const api = makeLinearApi({ bucket: fastBucket(), request: fakeRequest({ calls, issueNodes: nodes }), token: "x" });
+    const api = makeLinearApi({
+      request: fakeRequest({ calls, issueNodes: nodes }),
+      scheduler: passthroughScheduler,
+      token: "x",
+    });
     const page = await api.issues({ since: "2026-01-01" });
     expect(page.issues.map((i) => i.identifier)).toEqual(["ENG-1", "ENG-2", "ENG-3"]);
     expect(calls).toEqual(["issues"]); // ONE request for 3 issues + all their relations — not 3×7
@@ -111,7 +122,11 @@ describe("makeLinearApi collapses the N+1 (one request per issue-page)", () => {
   it("only pages comments separately for an issue that has more than one page", async () => {
     const calls: string[] = [];
     const nodes = [issueNode({ id: "ENG-1", moreComments: true }), issueNode({ id: "ENG-2", moreComments: false })];
-    const api = makeLinearApi({ bucket: fastBucket(), request: fakeRequest({ calls, issueNodes: nodes }), token: "x" });
+    const api = makeLinearApi({
+      request: fakeRequest({ calls, issueNodes: nodes }),
+      scheduler: passthroughScheduler,
+      token: "x",
+    });
     const page = await api.issues({ since: "2026-01-01" });
     expect(calls).toEqual(["issues", "comments"]); // one issue-page + one comment-page (only ENG-1 needed it)
     const eng1 = page.issues.find((i) => i.identifier === "ENG-1")!;

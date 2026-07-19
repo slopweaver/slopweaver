@@ -38,6 +38,13 @@ describe("makeGithubFetchItems", () => {
     expect(unwrap(result).map((i) => i.kind)).toEqual(["pr", "issue"]);
   });
 
+  it("keeps the raw search hit on the shaped item", async () => {
+    const rawHit = hit({ isPr: true, n: 1 });
+    const fetchItems = makeGithubFetchItems({ searchIssues: search([rawHit]) });
+    const items = unwrap(await fetchItems({ repo, window }));
+    expect(items[0]!.raw).toEqual(rawHit);
+  });
+
   it("attaches activity on enrich success and ships the item bare on enrich failure", async () => {
     const fetchActivity = async ({ number }: { number: number }): Promise<Result<GithubActivity>> =>
       number === 1 ? ok(activityStub) : err(["no activity"]);

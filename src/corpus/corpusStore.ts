@@ -15,11 +15,41 @@ import { join } from "node:path";
 import { isErrno, isOneOf, isRecord } from "../lib/parsers.js";
 import { err, ok, type Result } from "../lib/result.js";
 import { bronzeDir } from "./corpusPaths.js";
-import { CORPUS_KINDS, CORPUS_SOURCES, type CorpusRecord } from "./types.js";
+import { CORPUS_KINDS, CORPUS_SOURCES, type CorpusAttributeValue, type CorpusRecord } from "./types.js";
 
 /** Type guard: a non-empty string. Positional — TS1230 forbids destructuring in a type predicate. */
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+/** A valid attr value: a scalar or a string array. Positional — used as a type predicate. */
+function isAttributeValue(value: unknown): value is CorpusAttributeValue {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    (Array.isArray(value) && value.every((item) => typeof item === "string"))
+  );
+}
+
+/**
+ * Parse the optional `attrs` field defensively: keep only well-typed entries, drop the rest. A malformed
+ * `attrs` (or a bad entry) NEVER drops the record — rich metadata is best-effort, the record is not.
+ *
+ * @param value the raw `attrs` value from a parsed row
+ * @returns the valid attrs (undefined when absent or nothing valid survives)
+ */
+function parseAttrs({ value }: { value: unknown }): Readonly<Record<string, CorpusAttributeValue>> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const out: Record<string, CorpusAttributeValue> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (isAttributeValue(raw)) {
+      out[key] = raw;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Parse one JSONL line into a record, or return an error string describing why it was rejected. */
@@ -33,7 +63,7 @@ function parseRow({ line }: { line: string }): { record: CorpusRecord } | { erro
   if (!isRecord(parsed)) {
     return { error: "not a JSON object" };
   }
-  const { source, sourceId, url, tsIso, kind, container, text, refs, author, title } = parsed;
+  const { source, sourceId, url, tsIso, kind, container, text, refs, author, title, attrs, raw } = parsed;
   if (typeof source !== "string" || !isOneOf(source, CORPUS_SOURCES)) {
     return { error: `unknown source: ${String(source)}` };
   }
@@ -54,6 +84,10 @@ function parseRow({ line }: { line: string }): { record: CorpusRecord } | { erro
   if (!Array.isArray(refs) || !refs.every((r) => typeof r === "string")) {
     return { error: "refs must be a string array" };
   }
+  const parsedAttrs = parseAttrs({ value: attrs });
+  // `raw` is the opaque full source payload — kept verbatim (never field-validated), dropped only if it
+  // isn't an object. A malformed raw never drops the record.
+  const parsedRaw = isRecord(raw) ? raw : undefined;
   return {
     record: {
       container,
@@ -66,6 +100,8 @@ function parseRow({ line }: { line: string }): { record: CorpusRecord } | { erro
       url,
       ...(isNonEmptyString(author) ? { author } : {}),
       ...(isNonEmptyString(title) ? { title } : {}),
+      ...(parsedAttrs !== undefined ? { attrs: parsedAttrs } : {}),
+      ...(parsedRaw !== undefined ? { raw: parsedRaw } : {}),
     },
   };
 }

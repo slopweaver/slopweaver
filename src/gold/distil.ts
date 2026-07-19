@@ -137,48 +137,79 @@ export interface DistilRunResult {
   readonly digests: readonly BatchDigest[];
   readonly called: number;
   readonly hits: number;
+  /** Uncached batches left un-distilled because `maxCalls` was reached (a resume will pick them up). */
+  readonly skipped: number;
   readonly errors: readonly string[];
+}
+
+/** Per-batch progress snapshot, emitted after each batch so a long run is visible + resumable. */
+export interface DistilProgress {
+  readonly done: number;
+  readonly total: number;
+  readonly called: number;
+  readonly hits: number;
+  readonly skipped: number;
 }
 
 /**
  * Distil every batch, serving cache hits and calling the LLM only for misses. Mutates `cache` with each
- * fresh digest so the caller can persist it. A per-batch failure is recorded and skipped (non-fatal).
+ * fresh digest; `onCheckpoint` fires after each fresh digest so the caller can PERSIST per-batch (making
+ * a killed run resumable). `maxCalls` caps fresh model calls (the `--max-batches` safety valve); once
+ * reached, further misses are counted as `skipped` and left for a resume. A per-batch failure is recorded
+ * and skipped (non-fatal).
  *
  * @param batches the batches to distil
  * @param cache the content-hash → digest cache (mutated with fresh digests)
  * @param client the LLM transport
+ * @param maxCalls optional cap on fresh model calls (cached batches are always served)
+ * @param onProgress optional per-batch progress callback (non-blocking)
+ * @param onCheckpoint optional callback after each fresh digest is cached (persist the cache here)
  * @returns the digests (cached + fresh), counts, and any per-batch errors
  */
 export async function distilBatches({
   batches,
   cache,
   client,
+  maxCalls,
+  onProgress,
+  onCheckpoint,
 }: {
   batches: readonly DistilBatch[];
   cache: Map<string, BatchDigest>;
   client: LlmClient;
+  maxCalls?: number;
+  onProgress?: (progress: DistilProgress) => void;
+  onCheckpoint?: () => void;
 }): Promise<DistilRunResult> {
   const digests: BatchDigest[] = [];
   const errors: string[] = [];
   let called = 0;
   let hits = 0;
+  let skipped = 0;
+  let done = 0;
+  const total = batches.length;
   for (const batch of batches) {
     const cached = cache.get(batch.hash);
     if (cached !== undefined) {
       digests.push(cached);
       hits += 1;
-      continue;
-    }
-    const result = await distilBatch({ batch, client });
-    if (result.ok) {
-      cache.set(batch.hash, result.value);
-      digests.push(result.value);
-      called += 1;
+    } else if (maxCalls !== undefined && called >= maxCalls) {
+      skipped += 1; // budget spent — leave this miss for a resume
     } else {
-      errors.push(`${batch.source}/${batch.container}: ${result.errors.join("; ")}`);
+      const result = await distilBatch({ batch, client });
+      if (result.ok) {
+        cache.set(batch.hash, result.value);
+        digests.push(result.value);
+        called += 1;
+        onCheckpoint?.(); // persist NOW so a kill after this batch loses nothing
+      } else {
+        errors.push(`${batch.source}/${batch.container}: ${result.errors.join("; ")}`);
+      }
     }
+    done += 1;
+    onProgress?.({ called, done, hits, skipped, total });
   }
-  return { called, digests, errors, hits };
+  return { called, digests, errors, hits, skipped };
 }
 
 /**

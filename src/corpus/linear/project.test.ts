@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { type LinearIssueItem, type LinearProjectItem, projectLinearRecords } from "./project.js";
 
+const rawIssue = { identifier: "ENG-42", rawMarker: "linear-issue" };
+const rawComment = { id: "c1", rawMarker: "linear-comment" };
+const rawProject = { id: "p1", rawMarker: "linear-project" };
+
 const issue: LinearIssueItem = {
   assignee: "Dana",
   author: "Sam",
@@ -9,6 +13,7 @@ const issue: LinearIssueItem = {
       author: "Dana",
       body: "on it",
       id: "c1",
+      raw: rawComment,
       tsIso: "2026-05-02T00:00:00.000Z",
       url: "https://linear.app/acme/issue/ENG-42#comment-c1",
     },
@@ -17,6 +22,7 @@ const issue: LinearIssueItem = {
   identifier: "ENG-42",
   labels: ["bug", "retrieval"],
   project: "Search quality",
+  raw: rawIssue,
   state: "In Progress",
   team: "ENG",
   title: "recall regression",
@@ -28,6 +34,7 @@ const project: LinearProjectItem = {
   description: "make ask trustworthy",
   id: "p1",
   name: "Search quality",
+  raw: rawProject,
   state: "started",
   tsIso: "2026-05-01T00:00:00.000Z",
   url: "https://linear.app/acme/project/p1",
@@ -47,6 +54,13 @@ describe("projectLinearRecords", () => {
     expect(atom.text).toContain("Labels: bug, retrieval");
     expect(atom.text).toContain("the retriever drops old records");
     expect(atom.refs).toContain("ENG-42");
+  });
+
+  it("threads raw payloads onto issue, comment, and project records", () => {
+    const records = projectLinearRecords({ issues: [issue], projects: [project] });
+    expect(records.find((r) => r.sourceId === "ENG-42")!.raw).toEqual(rawIssue);
+    expect(records.find((r) => r.sourceId === "ENG-42:comment:c1")!.raw).toEqual(rawComment);
+    expect(records.find((r) => r.sourceId === "project:p1")!.raw).toEqual(rawProject);
   });
 
   it("projects each comment to a comment record keyed by issue + comment id", () => {

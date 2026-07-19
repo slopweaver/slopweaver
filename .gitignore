@@ -18,3 +18,7 @@ dist/
 .claude/plugins/
 
 .DS_Store
+
+# local orchestration working copies (live in work-console-state, never commit here)
+STACK.md
+.pr3.5-final-plan.md

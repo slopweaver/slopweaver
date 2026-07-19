@@ -11,7 +11,7 @@
  */
 
 import { extractRefs } from "../refs.js";
-import type { CorpusKind, CorpusRecord } from "../types.js";
+import type { CorpusAttributeValue, CorpusKind, CorpusRecord } from "../types.js";
 import type { GithubActivity } from "./activity.js";
 
 export type GithubItemKind = "pr" | "issue";
@@ -25,6 +25,7 @@ export interface GithubExportItem {
   readonly tsIso: string;
   readonly author?: string;
   readonly body?: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
   readonly activity?: GithubActivity;
 }
 
@@ -46,6 +47,30 @@ function gateSummary({ activity }: { activity: GithubActivity }): string {
   return parts.join(" · ");
 }
 
+/** Rich structured metadata for a PR/issue atom — stored in bronze, kept OUT of the embedded text. */
+function atomAttrs({ activity }: { activity: GithubActivity | undefined }): Record<string, CorpusAttributeValue> {
+  const attrs: Record<string, CorpusAttributeValue> = {};
+  if (activity === undefined) {
+    return attrs;
+  }
+  if (activity.state.length > 0) {
+    attrs["state"] = activity.state;
+  }
+  if (activity.reviewDecision !== undefined) {
+    attrs["reviewDecision"] = activity.reviewDecision;
+  }
+  if (activity.mergeable !== undefined) {
+    attrs["mergeable"] = activity.mergeable;
+  }
+  if (activity.checks !== undefined) {
+    attrs["checks"] = activity.checks;
+  }
+  if (activity.isDraft !== undefined) {
+    attrs["draft"] = activity.isDraft;
+  }
+  return attrs;
+}
+
 /** The PR/issue atom. State-prefixed title + (for PRs) a gate summary ahead of the body. */
 function toAtom({ item, container }: { item: GithubExportItem; container: string }): CorpusRecord {
   const { activity } = item;
@@ -53,6 +78,7 @@ function toAtom({ item, container }: { item: GithubExportItem; container: string
   const text = [summary, item.body].filter((part) => part !== undefined && part.length > 0).join("\n\n");
   const state = activity?.state;
   const title = state !== undefined && state.length > 0 ? `[${state}] ${item.title}` : item.title;
+  const attrs = atomAttrs({ activity });
   return {
     container,
     kind: item.kind,
@@ -67,6 +93,8 @@ function toAtom({ item, container }: { item: GithubExportItem; container: string
     }),
     text: text.length > 0 ? text : item.title,
     title,
+    ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+    ...(item.raw !== undefined ? { raw: item.raw } : {}),
   };
 }
 
@@ -84,6 +112,7 @@ function reviewRecords({ item, container }: { item: GithubExportItem; container:
       ...(review.author !== undefined ? { author: review.author } : {}),
       refs: extractRefs({ text: review.body }),
       text,
+      ...(review.raw !== undefined ? { raw: review.raw } : {}),
     };
   });
 }
@@ -106,6 +135,7 @@ function commentRecords({ item, container }: { item: GithubExportItem; container
       ...(comment.author !== undefined ? { author: comment.author } : {}),
       refs: extractRefs({ text: comment.body }),
       text,
+      ...(comment.raw !== undefined ? { raw: comment.raw } : {}),
     });
   });
   return records;
@@ -129,6 +159,7 @@ function stateRecord({ item, container }: { item: GithubExportItem; container: s
     text: `${latest.type}${actor} · state: ${item.activity?.state ?? "unknown"}`,
     tsIso: latest.tsIso.length > 0 ? latest.tsIso : item.tsIso,
     url: item.url,
+    ...(latest.raw !== undefined ? { raw: latest.raw } : {}),
   };
 }
 

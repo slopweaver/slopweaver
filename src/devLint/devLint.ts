@@ -47,6 +47,8 @@ export function lintChecks({ cwd }: { cwd: string }): readonly LintCheck[] {
     { args: [], cmd: bin("knip"), name: "knip" },
     { args: ["constraints"], cmd: "yarn", name: "constraints" },
     { args: ["scripts/check-hygiene.sh"], cmd: "bash", name: "hygiene" },
+    // Fails if a hand-rolled retry/backoff/rate-limiter is reintroduced after the PR3.5 librafication (D21).
+    { args: ["src/devLint/resilienceResidue.entry.ts"], cmd: bin("tsx"), name: "resilience-residue" },
     { args: ["src/cli/index.ts", "dev", "door-coverage"], cmd: bin("tsx"), name: "door-coverage" },
   ];
 }

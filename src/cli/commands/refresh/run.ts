@@ -31,6 +31,7 @@ import { readThreadCursors, writeThreadCursors } from "../../../corpus/slack/thr
 import type { CorpusRecord, CorpusSource, ExportWindow } from "../../../corpus/types.js";
 import { readWatermark, resolveSince } from "../../../corpus/watermark.js";
 import { logger } from "../../../lib/logger.js";
+import { createProgressEmitter } from "../../../lib/progress.js";
 import { err, ok, type Result } from "../../../lib/result.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_ERROR, EXIT_EXPECTED_EMPTY, EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
@@ -102,21 +103,24 @@ function selectedSources({
   return ok(unique);
 }
 
-/** Compute a source's window: watermark cursor → `since`, or `--all`/`--since`/default-lookback fallback. */
+/** Compute a source's window: watermark cursor → `since`, or `--all`/`--since`/lookback fallback. `lookbackDays`
+ * (the `--lookback-days` flag) overrides the per-source default depth when set. */
 function windowFor({
   source,
   home,
   until,
   sinceFlag,
   all,
+  lookbackDays,
 }: {
   source: CorpusSource;
   home: string;
   until: string;
   sinceFlag: string | undefined;
   all: boolean;
+  lookbackDays: number | undefined;
 }): ExportWindow {
-  const lookback = source === "github" ? GITHUB_LOOKBACK_DAYS : SOURCE_LOOKBACK_DAYS;
+  const lookback = lookbackDays ?? (source === "github" ? GITHUB_LOOKBACK_DAYS : SOURCE_LOOKBACK_DAYS);
   const fallbackSince = all ? EPOCH_SINCE : isoMinusDays({ days: lookback, untilDate: until.slice(0, 10) });
   const since = sinceFlag ?? resolveSince({ cursor: readWatermark({ home, source }), fallbackSince });
   return { since, until };
@@ -266,9 +270,10 @@ export async function runRefresh(argv: readonly string[]): Promise<number> {
   }
 
   const flagErrors: string[] = [];
-  if (values["lookback-days"] !== undefined) {
-    parsePositiveInteger({ errors: flagErrors, label: "--lookback-days", value: values["lookback-days"] });
-  }
+  const lookbackDays =
+    values["lookback-days"] !== undefined
+      ? parsePositiveInteger({ errors: flagErrors, label: "--lookback-days", value: values["lookback-days"] })
+      : undefined;
   if (flagErrors.length > 0) {
     flagErrors.forEach((e) => {
       logger.error(e);
@@ -293,7 +298,7 @@ export async function runRefresh(argv: readonly string[]): Promise<number> {
 
   const jobs: SourceIngestJob[] = [];
   for (const source of chosen.value) {
-    const window = windowFor({ all, home, sinceFlag, source, until });
+    const window = windowFor({ all, home, lookbackDays, sinceFlag, source, until });
     if (source === "github") {
       const built = githubJob({ noEnrich: flags.has("no-enrich"), repoSlug: values["repo"], window });
       if (built.ok === false) {
@@ -320,7 +325,20 @@ export async function runRefresh(argv: readonly string[]): Promise<number> {
     logger.info(`refresh ${source} · window ${window.since}..${shownUntil}`);
   }
 
-  const outcome = await ingestSources({ home, jobs });
+  // Non-blocking, session-visible per-source progress across the (possibly long) multi-source ingest.
+  const progress = createProgressEmitter({ verb: "refresh" });
+  const outcome = await ingestSources({
+    home,
+    jobs,
+    onProgress: (p) => {
+      progress.update({
+        counts: p.written !== undefined ? { written: p.written } : {},
+        done: p.done,
+        phase: `${p.phase}:${p.label}`,
+        total: p.total,
+      });
+    },
+  });
   const results = outcome.ok ? outcome.value : [];
   let totalWritten = 0;
   let anyFailed = false;

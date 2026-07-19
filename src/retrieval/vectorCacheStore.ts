@@ -4,7 +4,7 @@
  * corpus's vectors crosses V8's ~512MB max-string limit and throws, which would silently and permanently
  * degrade semantic search to BM25. Wrong-dimension rows are dropped on load (re-embedded), never used.
  */
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isRecord } from "../lib/parsers.js";
@@ -43,6 +43,13 @@ function parseLine({ line }: { line: string }): CachedVector | undefined {
   };
 }
 
+/** Serialise vectors to NDJSON rows (one JSON object per line, no trailing newline). */
+function toRows({ vectors }: { vectors: readonly CachedVector[] }): string {
+  return vectors
+    .map((v) => JSON.stringify({ contentHash: v.contentHash, sourceId: v.sourceId, vector: Array.from(v.vector) }))
+    .join("\n");
+}
+
 /**
  * A disk-backed vector cache at `<cacheDir>/vectors.jsonl`.
  *
@@ -52,6 +59,13 @@ function parseLine({ line }: { line: string }): CachedVector | undefined {
 export function diskVectorCacheStore({ cacheDir }: { cacheDir: string }): VectorCacheStore {
   const path = join(cacheDir, VECTOR_CACHE_FILE);
   return {
+    append: async (vectors) => {
+      if (vectors.length === 0) {
+        return;
+      }
+      mkdirSync(cacheDir, { recursive: true });
+      appendFileSync(path, `${toRows({ vectors })}\n`, "utf8"); // append-only: a kill leaves flushed rows intact
+    },
     load: async () => {
       let raw: string;
       try {
@@ -69,16 +83,21 @@ export function diskVectorCacheStore({ cacheDir }: { cacheDir: string }): Vector
       return vectors;
     },
     save: async (vectors) => {
+      // Compaction is ATOMIC: build the whole file at a temp path, then rename over the target. A kill
+      // mid-write can only leave the (discardable) temp file — never a truncated cache, so the appended
+      // resume rows are never lost part-way through a rewrite. Rename is atomic on the same filesystem.
       mkdirSync(cacheDir, { recursive: true });
-      writeFileSync(path, "", "utf8");
+      const tmp = `${path}.tmp`;
+      writeFileSync(tmp, "", "utf8");
       for (let i = 0; i < vectors.length; i += SAVE_BATCH_ROWS) {
         const rows = vectors
           .slice(i, i + SAVE_BATCH_ROWS)
           .map((v) =>
             JSON.stringify({ contentHash: v.contentHash, sourceId: v.sourceId, vector: Array.from(v.vector) }),
           );
-        appendFileSync(path, rows.length > 0 ? `${rows.join("\n")}\n` : "", "utf8");
+        appendFileSync(tmp, rows.length > 0 ? `${rows.join("\n")}\n` : "", "utf8");
       }
+      renameSync(tmp, path);
     },
   };
 }

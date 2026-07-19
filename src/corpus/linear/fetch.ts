@@ -3,8 +3,8 @@
  * GraphQL request EACH — ~7 per issue, thousands on a backfill → Linear's 2,500/hr cap), we issue ONE
  * inline GraphQL query per issue-PAGE that pulls each issue WITH its state/assignee/creator/team/project/
  * labels AND its first page of comments; only issues with more than one comment page cost an extra call.
- * So a page of N issues is ~1 request, not ~7N. Every request is paced by a shared {@link RateBucket}
- * (well under 2,500/hr) and wrapped in {@link retry} so a transient 5xx/429/network blip self-heals.
+ * So a page of N issues is ~1 request, not ~7N. Every request is paced by a shared rate scheduler
+ * (well under 2,500/hr) and wrapped in {@link retryTransient} so a transient 5xx/429/network blip self-heals.
  *
  * The GraphQL transport is an INJECTED seam (`LinearRequest`) — production uses the SDK client's
  * `rawRequest`; tests inject a fake that counts requests + returns fixture data. The node parse
@@ -13,9 +13,8 @@
 import { LinearClient } from "@linear/sdk";
 
 import { isRecord } from "../../lib/parsers.js";
-import { RateBucket } from "../../lib/rateBucket.js";
+import { createRateScheduler, type RateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
-import { retry } from "../../lib/retry.js";
 import type { ExportWindow } from "../types.js";
 import type { LinearCommentItem, LinearIssueItem, LinearProjectItem } from "./project.js";
 
@@ -162,6 +161,7 @@ function parseComments({ nodes }: { nodes: unknown }): readonly LinearCommentIte
     comments.push({
       body,
       id,
+      raw,
       tsIso: strOrEmpty({ value: raw["createdAt"] }),
       url: strOrEmpty({ value: raw["url"] }),
       ...(author !== undefined ? { author } : {}),
@@ -224,6 +224,7 @@ export function parseLinearIssueNode({ node }: { node: unknown }):
     comments: parseComments({ nodes: isRecord(node["comments"]) ? node["comments"]["nodes"] : undefined }),
     identifier,
     labels: parseLabels({ connection: node["labels"] }),
+    raw: node,
     title: str({ value: node["title"] }) ?? identifier,
     tsIso: strOrEmpty({ value: node["updatedAt"] }),
     url: strOrEmpty({ value: node["url"] }),
@@ -279,6 +280,7 @@ function parseProject({ node }: { node: unknown }): LinearProjectItem | undefine
   return {
     id,
     name,
+    raw: node,
     tsIso: strOrEmpty({ value: node["updatedAt"] }),
     url: strOrEmpty({ value: node["url"] }),
     ...(description !== undefined ? { description } : {}),
@@ -287,22 +289,22 @@ function parseProject({ node }: { node: unknown }): LinearProjectItem | undefine
 }
 
 /**
- * Build the production Linear seam. Every GraphQL request goes through ONE shared rate bucket + retry;
- * the transport defaults to the SDK client's `rawRequest` but is injectable for tests.
+ * Build the production Linear seam. Every GraphQL request goes through ONE shared rate scheduler +
+ * transient retry; the transport defaults to the SDK client's `rawRequest` but is injectable for tests.
  *
  * @param token the Linear API key
  * @param request an injected GraphQL transport (defaults to the live SDK client)
- * @param bucket an injected rate bucket (defaults to one tuned under Linear's cap)
+ * @param scheduler an injected rate scheduler (defaults to one tuned under Linear's cap)
  * @returns the live Linear seam
  */
 export function makeLinearApi({
   token,
   request,
-  bucket,
+  scheduler,
 }: {
   token: string;
   request?: LinearRequest;
-  bucket?: RateBucket;
+  scheduler?: RateScheduler;
 }): LinearApi {
   const client = new LinearClient({ apiKey: token });
   const send: LinearRequest =
@@ -311,11 +313,11 @@ export function makeLinearApi({
       const res = await client.client.rawRequest(query, variables);
       return res.data;
     });
-  const gate = bucket ?? new RateBucket({ ratePerSec: LINEAR_RATE_PER_SEC });
-  const call: LinearRequest = async ({ query, variables }) => {
-    await gate.take();
-    return retry({ operation: () => send({ query, variables }) });
-  };
+  const gate = scheduler ?? createRateScheduler({ ratePerSec: LINEAR_RATE_PER_SEC });
+  // Retry is OUTSIDE the gate so every attempt (including a post-429 retry) re-acquires a rate slot and
+  // stays paced — gating only the first try would let retries burst straight past the rate ceiling.
+  const call: LinearRequest = ({ query, variables }) =>
+    retryTransient({ operation: () => gate(() => send({ query, variables })) });
   return {
     issues: async ({ since, cursor }) => {
       const data = await call({

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +16,11 @@ afterEach(() => {
 
 const good: CachedVector = { contentHash: "h", sourceId: "#1", vector: new Float32Array(EMBEDDING_DIM).fill(0.1) };
 const wrongDim: CachedVector = { contentHash: "h", sourceId: "#2", vector: Float32Array.from([1, 0]) };
+const vec = ({ sourceId, hash }: { sourceId: string; hash: string }): CachedVector => ({
+  contentHash: hash,
+  sourceId,
+  vector: new Float32Array(EMBEDDING_DIM).fill(0.2),
+});
 
 describe("diskVectorCacheStore", () => {
   it("round-trips a full-dimension vector", async () => {
@@ -30,5 +35,34 @@ describe("diskVectorCacheStore", () => {
     const store = diskVectorCacheStore({ cacheDir: dir });
     await store.save([good, wrongDim]);
     expect((await store.load()).map((v) => v.sourceId)).toEqual(["#1"]);
+  });
+
+  it("appends chunks without truncating — both survive a reload (resumability)", async () => {
+    const store = diskVectorCacheStore({ cacheDir: dir });
+    await store.append([vec({ hash: "h1", sourceId: "#1" })]);
+    await store.append([vec({ hash: "h2", sourceId: "#2" })]);
+    expect((await store.load()).map((v) => v.sourceId)).toEqual(["#1", "#2"]);
+  });
+
+  it("keeps stale rows in file order so the latest-appended row wins on dedup by caller", async () => {
+    const store = diskVectorCacheStore({ cacheDir: dir });
+    await store.append([vec({ hash: "old", sourceId: "#1" })]);
+    await store.append([vec({ hash: "new", sourceId: "#1" })]);
+    const loaded = await store.load();
+    expect(loaded.map((v) => v.contentHash)).toEqual(["old", "new"]); // caller keeps the last (newest)
+  });
+
+  it("append is a no-op for an empty chunk", async () => {
+    const store = diskVectorCacheStore({ cacheDir: dir });
+    await store.append([]);
+    expect(await store.load()).toEqual([]);
+  });
+
+  it("compacts atomically: exact final content and no leftover temp file", async () => {
+    const store = diskVectorCacheStore({ cacheDir: dir });
+    await store.append([vec({ hash: "stale", sourceId: "#1" })]); // a row a later compaction should replace
+    await store.save([vec({ hash: "h", sourceId: "#1" }), vec({ hash: "h", sourceId: "#2" })]);
+    expect((await store.load()).map((v) => v.sourceId)).toEqual(["#1", "#2"]);
+    expect(existsSync(join(dir, "vectors.jsonl.tmp"))).toBe(false); // temp renamed away, no partial state
   });
 });

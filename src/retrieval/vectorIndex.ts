@@ -17,13 +17,19 @@ export interface CachedVector {
 
 export interface VectorCacheStore {
   load(): Promise<readonly CachedVector[]>;
+  /** Overwrite the whole cache (used to COMPACT after a full successful build). */
   save(vectors: readonly CachedVector[]): Promise<void>;
+  /** Append freshly-embedded vectors WITHOUT truncating — the per-chunk durability that makes embed resumable. */
+  append(vectors: readonly CachedVector[]): Promise<void>;
 }
 
 export interface VectorIndex {
   readonly ids: readonly string[];
   readonly vectors: readonly Float32Array[];
 }
+
+/** How many missing records to embed + flush per chunk — small enough that a kill loses little work. */
+const EMBED_CHUNK_RECORDS = 256;
 
 /** The text that gets embedded for a record (title-led, so a title-targeted query ranks). */
 export function recordText({ record }: { record: CorpusRecord }): string {
@@ -37,13 +43,24 @@ export function vectorContentHash({ modelId, record }: { modelId: string; record
     .digest("hex");
 }
 
+/** Progress snapshot while embedding — how many missing records have been embedded so far. */
+export interface EmbedProgress {
+  readonly done: number;
+  readonly total: number;
+}
+
 /**
  * Build the vector index, embedding only records whose cached hash is missing or stale.
+ *
+ * When `persist` is set, freshly-embedded vectors are APPENDED to the cache per chunk (not only at the
+ * end), so a killed embed resumes from its last flushed chunk losing no completed work; a final compaction
+ * rewrites the cache cleanly once the whole build succeeds. `onProgress` fires per chunk (non-blocking).
  *
  * @param records the corpus records
  * @param embedder the document embedder
  * @param store the vector cache
- * @param persist when true, write the (full) cache back — use only on a full-corpus build, since save overwrites
+ * @param persist when true, flush fresh vectors per chunk + compact on success (use on a full-corpus build)
+ * @param onProgress optional per-chunk embed progress callback
  * @returns the in-memory index (records whose embed failed are omitted)
  */
 export async function buildVectorIndex({
@@ -51,15 +68,17 @@ export async function buildVectorIndex({
   embedder,
   store,
   persist = false,
+  onProgress,
 }: {
   records: readonly CorpusRecord[];
   embedder: Embedder;
   store: VectorCacheStore;
   persist?: boolean;
+  onProgress?: (progress: EmbedProgress) => void;
 }): Promise<VectorIndex> {
   const cached = new Map<string, CachedVector>();
   for (const entry of await store.load()) {
-    cached.set(entry.sourceId, entry);
+    cached.set(entry.sourceId, entry); // last row wins ⇒ the newest appended vector for each id
   }
   const hashById = new Map<string, string>();
   const reuse = new Map<string, Float32Array>();
@@ -75,15 +94,24 @@ export async function buildVectorIndex({
     }
   }
 
+  // Embed misses in chunks, flushing each chunk to the cache before the next — the durability that lets a
+  // killed run resume. Progress is emitted per chunk so a long embed is visible in the session.
   const fresh = new Map<string, Float32Array>();
-  if (misses.length > 0) {
-    const vectors = await embedder.embedDocuments(misses.map((record) => recordText({ record })));
-    misses.forEach((record, i) => {
+  for (let start = 0; start < misses.length; start += EMBED_CHUNK_RECORDS) {
+    const chunk = misses.slice(start, start + EMBED_CHUNK_RECORDS);
+    const vectors = await embedder.embedDocuments(chunk.map((record) => recordText({ record })));
+    const flushed: CachedVector[] = [];
+    chunk.forEach((record, i) => {
       const vector = vectors[i];
       if (vector !== undefined) {
         fresh.set(record.sourceId, vector);
+        flushed.push({ contentHash: hashById.get(record.sourceId)!, sourceId: record.sourceId, vector });
       }
     });
+    if (persist && flushed.length > 0) {
+      await store.append(flushed);
+    }
+    onProgress?.({ done: Math.min(start + chunk.length, misses.length), total: misses.length });
   }
 
   const ids: string[] = [];
@@ -96,6 +124,8 @@ export async function buildVectorIndex({
     }
   }
 
+  // Compact once the full build succeeded: rewrite the cache to exactly the current set (drops stale rows
+  // that the per-chunk appends left behind). Skipped when nothing changed, so a pure cache-hit run is free.
   if (persist && (fresh.size > 0 || ids.length !== cached.size)) {
     await store.save(
       ids.map((id, i) => ({
@@ -148,10 +178,13 @@ export function cosineTopN({
   return scored.slice(0, limit);
 }
 
-/** An in-memory vector cache for tests. */
+/** An in-memory vector cache for tests. `append` accumulates (mirroring the disk store's NDJSON append). */
 export function inMemoryVectorCacheStore({ seed = [] }: { seed?: readonly CachedVector[] } = {}): VectorCacheStore {
   let stored: readonly CachedVector[] = seed;
   return {
+    append: async (vectors) => {
+      stored = [...stored, ...vectors];
+    },
     load: async () => stored,
     save: async (vectors) => {
       stored = vectors;

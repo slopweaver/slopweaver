@@ -11,7 +11,7 @@
  */
 
 import { extractRefs } from "../refs.js";
-import type { CorpusRecord } from "../types.js";
+import type { CorpusAttributeValue, CorpusRecord } from "../types.js";
 
 /** The id→name maps (users, channels) built once per refresh, used to resolve Slack markup. */
 export interface SlackNameMaps {
@@ -32,6 +32,7 @@ export interface SlackAttachmentRef {
   readonly user?: string;
   /** Public/permalink metadata for citation; a signed private download URL is never persisted. */
   readonly permalink?: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** A top-level Slack message, already shaped + timestamped by the fetch edge (`text` absent ⇒ files-only). */
@@ -45,6 +46,7 @@ export interface SlackMessageItem {
   readonly permalink: string;
   readonly reactions: readonly string[];
   readonly files: readonly SlackAttachmentRef[];
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** A Slack thread reply (a message with a parent `threadTs`). */
@@ -58,6 +60,7 @@ export interface SlackReplyItem {
   readonly author?: string;
   readonly permalink: string;
   readonly files: readonly SlackAttachmentRef[];
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** One channel's fetched activity: top-level messages + thread replies. */
@@ -114,6 +117,11 @@ function fileSummary({ files }: { files: readonly SlackAttachmentRef[] }): strin
   return `Attachments: ${names.join(", ")}`;
 }
 
+/** Attachment display names (title→name→id) — reused for the file summary text and the rich attrs. */
+function fileNames({ files }: { files: readonly SlackAttachmentRef[] }): readonly string[] {
+  return files.map((file) => file.title ?? file.name ?? file.id);
+}
+
 /** Project one message into its `message` record plus a `file` record per attachment. */
 function messageRecords({ message, maps }: { message: SlackMessageItem; maps: SlackNameMaps }): CorpusRecord[] {
   const container = containerFor({ channelId: message.channelId });
@@ -121,8 +129,16 @@ function messageRecords({ message, maps }: { message: SlackMessageItem; maps: Sl
   const parts = [resolved, reactionSummary({ reactions: message.reactions }), fileSummary({ files: message.files })];
   const text = parts.filter((part): part is string => part !== undefined && part.length > 0).join("\n\n");
   const channelLabel = message.channelName !== undefined ? `#${message.channelName}` : message.channelId;
+  const attrs: Record<string, CorpusAttributeValue> = { channel: channelLabel };
+  if (message.reactions.length > 0) {
+    attrs["reactions"] = message.reactions;
+  }
+  if (message.files.length > 0) {
+    attrs["files"] = fileNames({ files: message.files });
+  }
   const records: CorpusRecord[] = [
     {
+      attrs,
       container,
       kind: "message",
       refs: resolved !== undefined ? extractRefs({ text: resolved }) : [],
@@ -133,6 +149,7 @@ function messageRecords({ message, maps }: { message: SlackMessageItem; maps: Sl
       tsIso: message.tsIso,
       url: message.permalink,
       ...(message.author !== undefined ? { author: message.author } : {}),
+      ...(message.raw !== undefined ? { raw: message.raw } : {}),
     },
   ];
   records.push(
@@ -156,8 +173,14 @@ function replyRecords({ reply, maps }: { reply: SlackReplyItem; maps: SlackNameM
   const text = [resolved, fileSummary({ files: reply.files })]
     .filter((part): part is string => part !== undefined && part.length > 0)
     .join("\n\n");
+  const channelLabel = reply.channelName !== undefined ? `#${reply.channelName}` : reply.channelId;
+  const attrs: Record<string, CorpusAttributeValue> = { channel: channelLabel, threadTs: reply.threadTs };
+  if (reply.files.length > 0) {
+    attrs["files"] = fileNames({ files: reply.files });
+  }
   const records: CorpusRecord[] = [
     {
+      attrs,
       container,
       kind: "comment",
       refs: resolved !== undefined ? extractRefs({ text: resolved }) : [],
@@ -167,6 +190,7 @@ function replyRecords({ reply, maps }: { reply: SlackReplyItem; maps: SlackNameM
       tsIso: reply.tsIso,
       url: reply.permalink,
       ...(reply.author !== undefined ? { author: reply.author } : {}),
+      ...(reply.raw !== undefined ? { raw: reply.raw } : {}),
     },
   ];
   records.push(
@@ -219,6 +243,7 @@ function fileRecords({
       tsIso,
       url: file.permalink ?? permalink,
       ...(author !== undefined ? { author } : {}),
+      ...(file.raw !== undefined ? { raw: file.raw } : {}),
     };
   });
 }

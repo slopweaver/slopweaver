@@ -7,7 +7,7 @@
  */
 
 import { extractRefs } from "../refs.js";
-import type { CorpusRecord } from "../types.js";
+import type { CorpusAttributeValue, CorpusRecord } from "../types.js";
 
 /** A Linear comment, already shaped by the fetch edge. */
 export interface LinearCommentItem {
@@ -16,6 +16,7 @@ export interface LinearCommentItem {
   readonly author?: string;
   readonly tsIso: string;
   readonly url: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** A Linear issue with its current state + all comments. */
@@ -32,6 +33,7 @@ export interface LinearIssueItem {
   readonly project?: string;
   readonly labels: readonly string[];
   readonly comments: readonly LinearCommentItem[];
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** A Linear project/milestone summary. */
@@ -42,6 +44,7 @@ export interface LinearProjectItem {
   readonly url: string;
   readonly tsIso: string;
   readonly state?: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** Join defined string parts with a newline (drops undefined without faking an empty). */
@@ -72,11 +75,33 @@ function issueSummary({ issue }: { issue: LinearIssueItem }): string {
   return parts.join(" · ");
 }
 
+/** Rich structured metadata for an issue — stored in bronze, kept OUT of the embedded text. */
+function issueAttrs({ issue }: { issue: LinearIssueItem }): Record<string, CorpusAttributeValue> {
+  const attrs: Record<string, CorpusAttributeValue> = {};
+  if (issue.state !== undefined) {
+    attrs["state"] = issue.state;
+  }
+  if (issue.assignee !== undefined) {
+    attrs["assignee"] = issue.assignee;
+  }
+  if (issue.team !== undefined) {
+    attrs["team"] = issue.team;
+  }
+  if (issue.project !== undefined) {
+    attrs["project"] = issue.project;
+  }
+  if (issue.labels.length > 0) {
+    attrs["labels"] = issue.labels;
+  }
+  return attrs;
+}
+
 /** The issue atom + a comment record per comment. */
 function issueRecords({ issue }: { issue: LinearIssueItem }): CorpusRecord[] {
   const container = issueContainer({ team: issue.team });
   const summary = issueSummary({ issue });
   const text = joinDefined({ parts: [summary, issue.description] });
+  const attrs = issueAttrs({ issue });
   const records: CorpusRecord[] = [
     {
       container,
@@ -89,6 +114,8 @@ function issueRecords({ issue }: { issue: LinearIssueItem }): CorpusRecord[] {
       tsIso: issue.tsIso,
       url: issue.url,
       ...(issue.author !== undefined ? { author: issue.author } : {}),
+      ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+      ...(issue.raw !== undefined ? { raw: issue.raw } : {}),
     },
   ];
   for (const comment of issue.comments) {
@@ -105,6 +132,7 @@ function issueRecords({ issue }: { issue: LinearIssueItem }): CorpusRecord[] {
       tsIso: comment.tsIso,
       url: comment.url.length > 0 ? comment.url : issue.url,
       ...(comment.author !== undefined ? { author: comment.author } : {}),
+      ...(comment.raw !== undefined ? { raw: comment.raw } : {}),
     });
   }
   return records;
@@ -124,6 +152,7 @@ function projectRecord({ project }: { project: LinearProjectItem }): CorpusRecor
     title: project.name,
     tsIso: project.tsIso,
     url: project.url,
+    ...(project.raw !== undefined ? { raw: project.raw } : {}),
   };
 }
 

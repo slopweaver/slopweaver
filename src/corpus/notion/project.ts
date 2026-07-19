@@ -7,7 +7,7 @@
  */
 
 import { extractRefs } from "../refs.js";
-import type { CorpusRecord } from "../types.js";
+import type { CorpusAttributeValue, CorpusRecord } from "../types.js";
 
 /** A Notion comment, already shaped by the fetch edge. */
 export interface NotionCommentItem {
@@ -15,6 +15,7 @@ export interface NotionCommentItem {
   readonly body: string;
   readonly author?: string;
   readonly tsIso: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** A Notion page with its rich text rendered + chunked into sections. */
@@ -26,6 +27,7 @@ export interface NotionPageItem {
   readonly parent?: string;
   readonly chunks: readonly string[];
   readonly comments: readonly NotionCommentItem[];
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** A Notion database's metadata. */
@@ -35,6 +37,7 @@ export interface NotionDatabaseItem {
   readonly url: string;
   readonly tsIso: string;
   readonly description: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 /** Page-chunk records + comment records for one page. */
@@ -42,8 +45,17 @@ function pageRecords({ page }: { page: NotionPageItem }): CorpusRecord[] {
   const container = page.parent !== undefined && page.parent.length > 0 ? `notion/${page.parent}` : "notion";
   const chunks = page.chunks.length > 0 ? page.chunks : [page.title];
   const single = chunks.length === 1;
-  const records: CorpusRecord[] = chunks.map(
-    (chunk, index): CorpusRecord => ({
+  const hasParent = page.parent !== undefined && page.parent.length > 0;
+  const records: CorpusRecord[] = chunks.map((chunk, index): CorpusRecord => {
+    const attrs: Record<string, CorpusAttributeValue> = {};
+    if (hasParent) {
+      attrs["parent"] = page.parent!; // guarded by hasParent
+    }
+    if (!single) {
+      attrs["chunkIndex"] = index;
+      attrs["chunkCount"] = chunks.length;
+    }
+    return {
       container,
       kind: "page",
       refs: extractRefs({ text: chunk }),
@@ -53,8 +65,10 @@ function pageRecords({ page }: { page: NotionPageItem }): CorpusRecord[] {
       title: single ? page.title : `${page.title} (${String(index + 1)}/${String(chunks.length)})`,
       tsIso: page.tsIso,
       url: page.url,
-    }),
-  );
+      ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+      ...(page.raw !== undefined ? { raw: page.raw } : {}),
+    };
+  });
   for (const comment of page.comments) {
     if (comment.body.trim().length === 0) {
       continue;
@@ -69,6 +83,7 @@ function pageRecords({ page }: { page: NotionPageItem }): CorpusRecord[] {
       tsIso: comment.tsIso,
       url: page.url,
       ...(comment.author !== undefined ? { author: comment.author } : {}),
+      ...(comment.raw !== undefined ? { raw: comment.raw } : {}),
     });
   }
   return records;
@@ -86,6 +101,7 @@ function databaseRecord({ database }: { database: NotionDatabaseItem }): CorpusR
     title: database.title,
     tsIso: database.tsIso,
     url: database.url,
+    ...(database.raw !== undefined ? { raw: database.raw } : {}),
   };
 }
 

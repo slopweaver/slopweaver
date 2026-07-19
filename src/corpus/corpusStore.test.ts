@@ -34,4 +34,38 @@ describe("parseCorpusRecords", () => {
     expect(unwrap(result)).toHaveLength(0);
     expect(result.warnings[0]).toContain("unknown kind");
   });
+
+  it("reads pre-attrs bronze unchanged (backward-compatible: no attrs field ⇒ no attrs)", () => {
+    const record = unwrap(parseCorpusRecords({ content: line() }))[0]!;
+    expect(record.attrs).toBeUndefined();
+  });
+
+  it("round-trips a rich attrs payload (scalars + string array)", () => {
+    const attrs = { draft: false, labels: ["bug", "retrieval"], state: "open" };
+    const record = unwrap(parseCorpusRecords({ content: line({ attrs }) }))[0]!;
+    expect(record.attrs).toEqual(attrs);
+  });
+
+  it("drops malformed attrs WITHOUT dropping the record", () => {
+    const notAnObject = unwrap(parseCorpusRecords({ content: line({ attrs: "nope" }) }))[0]!;
+    expect(notAnObject.sourceId).toBe("#1");
+    expect(notAnObject.attrs).toBeUndefined();
+  });
+
+  it("keeps well-typed attr entries and drops only the malformed ones", () => {
+    const record = unwrap(parseCorpusRecords({ content: line({ attrs: { bad: { nested: 1 }, good: "keep" } }) }))[0]!;
+    expect(record.attrs).toEqual({ good: "keep" });
+  });
+
+  it("round-trips the full raw payload verbatim (nested objects + arrays kept)", () => {
+    const raw = { labels: [{ name: "bug" }], number: 7, state: { name: "open" } };
+    const record = unwrap(parseCorpusRecords({ content: line({ raw }) }))[0]!;
+    expect(record.raw).toEqual(raw);
+  });
+
+  it("drops a malformed (non-object) raw WITHOUT dropping the record", () => {
+    const record = unwrap(parseCorpusRecords({ content: line({ raw: "nope" }) }))[0]!;
+    expect(record.sourceId).toBe("#1");
+    expect(record.raw).toBeUndefined();
+  });
 });

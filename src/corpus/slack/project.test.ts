@@ -6,6 +6,10 @@ const maps: SlackNameMaps = {
   userNames: { U_UPLOADER: "Linus", U1: "Ada", U2: "Grace" },
 };
 
+const rawMessage = { rawMarker: "slack-message", text: "shipping the alpha release, see #123" };
+const rawReply = { rawMarker: "slack-reply", text: "nice, merging now" };
+const rawFile = { id: "F1", rawMarker: "slack-file", title: "diagram.png" };
+
 const channel: SlackChannelItems = {
   channelId: "C_PUBLIC_ALPHA",
   channelName: "alpha",
@@ -14,8 +18,9 @@ const channel: SlackChannelItems = {
       author: "U1",
       channelId: "C_PUBLIC_ALPHA",
       channelName: "alpha",
-      files: [{ id: "F1", mimetype: "image/png", title: "diagram.png" }],
+      files: [{ id: "F1", mimetype: "image/png", raw: rawFile, title: "diagram.png" }],
       permalink: "https://acme.slack.com/archives/C_PUBLIC_ALPHA/p1700000000000100",
+      raw: rawMessage,
       reactions: [":+1: x2"],
       text: "shipping the alpha release, see #123",
       ts: "1700000000.000100",
@@ -29,6 +34,7 @@ const channel: SlackChannelItems = {
       channelName: "alpha",
       files: [],
       permalink: "https://acme.slack.com/archives/C_PUBLIC_ALPHA/p1700000100000200",
+      raw: rawReply,
       text: "nice, merging now",
       threadTs: "1700000000.000100",
       ts: "1700000100.000200",
@@ -50,6 +56,13 @@ describe("projectSlackRecords", () => {
     expect(message.text).toContain("Reactions: :+1: x2");
     expect(message.text).toContain("Attachments: diagram.png");
     expect(message.refs).toContain("#123");
+  });
+
+  it("threads raw payloads onto message, reply, and file records", () => {
+    const records = projectSlackRecords({ channels: [channel] });
+    expect(records.find((r) => r.kind === "message")!.raw).toEqual(rawMessage);
+    expect(records.find((r) => r.kind === "comment")!.raw).toEqual(rawReply);
+    expect(records.find((r) => r.kind === "file")!.raw).toEqual(rawFile);
   });
 
   it("projects a thread reply to a `comment` record keyed by thread + reply ts", () => {
