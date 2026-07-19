@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { toIngestError } from "./ingestError.js";
 import { createConcurrencyLimiter, createRateScheduler, isTransientError, retryTransient } from "./resilience.js";
 
 /** A deferred promise handle, so a test controls exactly when a task resolves. */
@@ -15,23 +16,38 @@ function httpError({ status }: { status: number }): Error {
   return Object.assign(new Error(`HTTP ${String(status)}`), { status });
 }
 
+/** Map a thrown value to the typed error the classifier now consumes (the real safe-wrapper path). */
+function typed({ error, defaultKind = "http" }: { error: unknown; defaultKind?: "http" | "io" | "parse" | "llm" }) {
+  return toIngestError({ defaultKind, error, operation: "test.op", provider: "test" });
+}
+
 describe("isTransientError", () => {
-  it("treats a 429 and the transient 5xx family as retryable", () => {
-    expect(isTransientError({ error: { status: 429 } })).toBe(true);
-    expect(isTransientError({ error: { status: 500 } })).toBe(true);
-    expect(isTransientError({ error: { statusCode: 503 } })).toBe(true);
-    expect(isTransientError({ error: { response: { status: 502 } } })).toBe(true);
+  it("treats a 429 (rate-limit) and the transient 5xx family (http) as retryable", () => {
+    expect(isTransientError({ error: typed({ error: { status: 429 } }) })).toBe(true);
+    expect(isTransientError({ error: typed({ error: { status: 500 } }) })).toBe(true);
+    expect(isTransientError({ error: typed({ error: { statusCode: 503 } }) })).toBe(true);
+    expect(isTransientError({ error: typed({ error: { response: { status: 502 } } }) })).toBe(true);
   });
 
-  it("treats a known network error code and a `fetch failed` message as retryable", () => {
-    expect(isTransientError({ error: { code: "ECONNRESET" } })).toBe(true);
-    expect(isTransientError({ error: new Error("fetch failed") })).toBe(true);
+  it("treats a known network code and a `fetch failed` message (network kind) as retryable", () => {
+    expect(isTransientError({ error: typed({ error: { code: "ECONNRESET" } }) })).toBe(true);
+    expect(isTransientError({ error: typed({ error: new Error("fetch failed") }) })).toBe(true);
   });
 
-  it("treats any other 4xx / validation error as permanent", () => {
-    expect(isTransientError({ error: { status: 400 } })).toBe(false);
-    expect(isTransientError({ error: { status: 404 } })).toBe(false);
-    expect(isTransientError({ error: new Error("bad query") })).toBe(false);
+  it("treats any other 4xx (http) or a parse/io/llm error as permanent", () => {
+    expect(isTransientError({ error: typed({ error: { status: 400 } }) })).toBe(false);
+    expect(isTransientError({ error: typed({ error: { status: 404 } }) })).toBe(false);
+    expect(isTransientError({ error: typed({ defaultKind: "parse", error: new SyntaxError("bad json") }) })).toBe(
+      false,
+    );
+    expect(
+      isTransientError({
+        error: typed({ defaultKind: "io", error: Object.assign(new Error("nope"), { code: "ENOENT" }) }),
+      }),
+    ).toBe(false);
+    expect(isTransientError({ error: typed({ defaultKind: "llm", error: new Error("claude CLI timed out") }) })).toBe(
+      false,
+    );
   });
 });
 

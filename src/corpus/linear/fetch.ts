@@ -15,6 +15,7 @@ import { LinearClient } from "@linear/sdk";
 import { isRecord } from "../../lib/parsers.js";
 import { createRateScheduler, type RateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
+import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
 import type { ExportWindow } from "../types.js";
 import type { LinearCommentItem, LinearIssueItem, LinearProjectItem } from "./project.js";
 
@@ -289,6 +290,68 @@ function parseProject({ node }: { node: unknown }): LinearProjectItem | undefine
 }
 
 /**
+ * The GraphQL variables for one page of either lane — issues AND projects share the `updatedAt >= since`
+ * filter + `first`/`after` cursor shape. Pure.
+ *
+ * @param since the `updatedAt >= ` window bound
+ * @param cursor the `after` cursor (absent on the first page)
+ * @returns the GraphQL variables
+ */
+export function pageQueryVariables({
+  since,
+  cursor,
+}: {
+  since: string;
+  cursor: string | undefined;
+}): Record<string, unknown> {
+  return {
+    filter: { updatedAt: { gte: since } },
+    first: PAGE_SIZE,
+    ...(cursor !== undefined ? { after: cursor } : {}),
+  };
+}
+
+/** One shaped issues page: the parsed nodes (each with its comment-pagination state) + the next cursor. */
+interface ShapedIssuesPage {
+  readonly parsed: readonly NonNullable<ReturnType<typeof parseLinearIssueNode>>[];
+  readonly nextCursor?: string;
+}
+
+/**
+ * Shape one raw `issues` GraphQL response into parsed nodes + the page's next cursor. Pure — the
+ * transport/comment-pagination stays in the shell; this is just projection.
+ *
+ * @param data the raw GraphQL `data`
+ * @returns the parsed issue nodes + next cursor
+ */
+export function shapeIssuesPage({ data }: { data: unknown }): ShapedIssuesPage {
+  const connection = isRecord(data) ? data["issues"] : undefined;
+  const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
+  const parsed = nodes
+    .map((node) => parseLinearIssueNode({ node }))
+    .filter((p): p is NonNullable<typeof p> => p !== undefined);
+  const info = pageInfoOf({ connection });
+  return { parsed, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
+}
+
+/**
+ * Shape one raw `projects` GraphQL response into shaped projects + the next cursor. Pure.
+ *
+ * @param data the raw GraphQL `data`
+ * @returns the shaped projects + next cursor
+ */
+export function shapeProjectsPage({ data }: { data: unknown }): {
+  projects: readonly LinearProjectItem[];
+  nextCursor?: string;
+} {
+  const connection = isRecord(data) ? data["projects"] : undefined;
+  const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
+  const projects = nodes.map((node) => parseProject({ node })).filter((p): p is LinearProjectItem => p !== undefined);
+  const info = pageInfoOf({ connection });
+  return { projects, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
+}
+
+/**
  * Build the production Linear seam. Every GraphQL request goes through ONE shared rate scheduler +
  * transient retry; the transport defaults to the SDK client's `rawRequest` but is injectable for tests.
  *
@@ -307,10 +370,18 @@ export function makeLinearApi({
   scheduler?: RateScheduler;
 }): LinearApi {
   const client = new LinearClient({ apiKey: token });
+  // The one raw SDK boundary: routed through safeApiCall (typed error) and re-surfaced by orThrow so the
+  // retry/gate loop below and fetchLinearActivity's fatal policy run unchanged.
   const send: LinearRequest =
     request ??
     (async ({ query, variables }) => {
-      const res = await client.client.rawRequest(query, variables);
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () => client.client.rawRequest(query, variables),
+          operation: "linear.rawRequest",
+          provider: "linear",
+        }),
+      });
       return res.data;
     });
   const gate = scheduler ?? createRateScheduler({ ratePerSec: LINEAR_RATE_PER_SEC });
@@ -320,22 +391,10 @@ export function makeLinearApi({
     retryTransient({ operation: () => gate(() => send({ query, variables })) });
   return {
     issues: async ({ since, cursor }) => {
-      const data = await call({
-        query: ISSUES_QUERY,
-        variables: {
-          filter: { updatedAt: { gte: since } },
-          first: PAGE_SIZE,
-          ...(cursor !== undefined ? { after: cursor } : {}),
-        },
-      });
-      const connection = isRecord(data) ? data["issues"] : undefined;
-      const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
+      const data = await call({ query: ISSUES_QUERY, variables: pageQueryVariables({ cursor, since }) });
+      const shaped = shapeIssuesPage({ data });
       const issues: LinearIssueItem[] = [];
-      for (const node of nodes) {
-        const parsed = parseLinearIssueNode({ node });
-        if (parsed === undefined) {
-          continue;
-        }
+      for (const parsed of shaped.parsed) {
         if (parsed.commentsHasNext && parsed.commentsCursor !== undefined) {
           const more = await remainingComments({ after: parsed.commentsCursor, call, id: parsed.id });
           issues.push({ ...parsed.item, comments: [...parsed.item.comments, ...more] });
@@ -343,25 +402,11 @@ export function makeLinearApi({
           issues.push(parsed.item);
         }
       }
-      const info = pageInfoOf({ connection });
-      return { issues, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
+      return { issues, ...(shaped.nextCursor !== undefined ? { nextCursor: shaped.nextCursor } : {}) };
     },
     projects: async ({ since, cursor }) => {
-      const data = await call({
-        query: PROJECTS_QUERY,
-        variables: {
-          filter: { updatedAt: { gte: since } },
-          first: PAGE_SIZE,
-          ...(cursor !== undefined ? { after: cursor } : {}),
-        },
-      });
-      const connection = isRecord(data) ? data["projects"] : undefined;
-      const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
-      const projects = nodes
-        .map((node) => parseProject({ node }))
-        .filter((p): p is LinearProjectItem => p !== undefined);
-      const info = pageInfoOf({ connection });
-      return { projects, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
+      const data = await call({ query: PROJECTS_QUERY, variables: pageQueryVariables({ cursor, since }) });
+      return shapeProjectsPage({ data });
     },
   };
 }

@@ -49,6 +49,10 @@ export function lintChecks({ cwd }: { cwd: string }): readonly LintCheck[] {
     { args: ["scripts/check-hygiene.sh"], cmd: "bash", name: "hygiene" },
     // Fails if a hand-rolled retry/backoff/rate-limiter is reintroduced after the PR3.5 librafication (D21).
     { args: ["src/devLint/resilienceResidue.entry.ts"], cmd: bin("tsx"), name: "resilience-residue" },
+    // Fails if an external boundary (SDK/LLM/embed) is called outside a safe* wrapper (PR3.6 typed errors).
+    { args: ["src/devLint/boundaryResidue.entry.ts"], cmd: bin("tsx"), name: "boundary-residue" },
+    // Fails if a function body exceeds the per-function line ceiling (PR3.6 pure-core discipline).
+    { args: ["src/devLint/maxFunctionLines.entry.ts"], cmd: bin("tsx"), name: "max-function-lines" },
     { args: ["src/cli/index.ts", "dev", "door-coverage"], cmd: bin("tsx"), name: "door-coverage" },
   ];
 }

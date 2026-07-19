@@ -4,7 +4,9 @@
  * and emits a LOUD stderr warning, and the caller falls back to BM25-only. The loudness is deliberate: a
  * silent fallback once dead-featured semantic search for everyone.
  */
+
 import type { CorpusRecord } from "../corpus/types.js";
+import { safeEmbed } from "../lib/safeBoundary.js";
 import type { Embedder } from "./embeddings.js";
 import { buildVectorIndex, type EmbedProgress, type VectorCacheStore, type VectorIndex } from "./vectorIndex.js";
 
@@ -70,7 +72,15 @@ export async function prepareSemanticContext({
       store: deps.store,
       ...(onProgress !== undefined ? { onProgress } : {}),
     });
-    const [queryVector] = await deps.embedder.embedQuery([query]);
+    // The query embed boundary: a typed error degrades to BM25-only (loud warning) just like a throw.
+    const embedded = await safeEmbed({
+      execute: () => deps.embedder.embedQuery([query]),
+      operation: "embed.embedQuery",
+    });
+    if (embedded.isErr()) {
+      return degrade({ reason: embedded.error.message });
+    }
+    const [queryVector] = embedded.value;
     if (queryVector === undefined) {
       return degrade({ reason: "empty query vector" });
     }

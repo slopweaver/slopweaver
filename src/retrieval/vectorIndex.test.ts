@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { CorpusRecord } from "../corpus/types.js";
 import type { Embedder } from "./embeddings.js";
 import {
+  assembleVectorIndex,
   buildVectorIndex,
+  type CachedVector,
+  cacheRowsForVectors,
+  chunkMisses,
   cosine,
   cosineTopN,
   inMemoryVectorCacheStore,
+  planVectorBuild,
   recordText,
+  shouldCompactCache,
   type VectorIndex,
   vectorContentHash,
 } from "./vectorIndex.js";
@@ -50,6 +56,61 @@ describe("cosineTopN", () => {
   it("ranks by similarity to the query vector", () => {
     const index: VectorIndex = { ids: ["#1", "#2"], vectors: [Float32Array.from([1, 0]), Float32Array.from([0, 1])] };
     expect(cosineTopN({ index, limit: 2, queryVector: Float32Array.from([1, 0]) })[0]![0]).toBe("#1");
+  });
+});
+
+describe("planVectorBuild (pure cache partition)", () => {
+  const modelId = "m";
+  it("reuses an unchanged record's cached vector and re-embeds a stale/new one", () => {
+    const kept = rec({ sourceId: "#1", text: "a" });
+    const cached = new Map<string, CachedVector>([
+      [
+        "#1",
+        {
+          contentHash: vectorContentHash({ modelId, record: kept }),
+          sourceId: "#1",
+          vector: Float32Array.from([1, 0]),
+        },
+      ],
+      ["#2", { contentHash: "stale-hash", sourceId: "#2", vector: Float32Array.from([0, 1]) }],
+    ]);
+    const plan = planVectorBuild({ cached, modelId, records: [kept, rec({ sourceId: "#2", text: "new" })] });
+    expect([...plan.reuse.keys()]).toEqual(["#1"]);
+    expect(plan.misses.map((m) => m.sourceId)).toEqual(["#2"]);
+  });
+});
+
+describe("chunkMisses / cacheRowsForVectors / assembleVectorIndex / shouldCompactCache (pure)", () => {
+  it("splits misses into fixed-size chunks", () => {
+    const misses = [rec({ sourceId: "#1" }), rec({ sourceId: "#2" }), rec({ sourceId: "#3" })];
+    expect(chunkMisses({ misses, size: 2 }).map((c) => c.length)).toEqual([2, 1]);
+  });
+
+  it("pairs records with vectors into cache rows, dropping a record with no vector", () => {
+    const chunk = [rec({ sourceId: "#1" }), rec({ sourceId: "#2" })];
+    const hashById = new Map([
+      ["#1", "h1"],
+      ["#2", "h2"],
+    ]);
+    const rows = cacheRowsForVectors({ chunk, hashById, vectors: [Float32Array.from([1, 0])] });
+    expect(rows.map((r) => r.sourceId)).toEqual(["#1"]); // #2 had no vector → dropped
+    expect(rows[0]!.contentHash).toBe("h1");
+  });
+
+  it("assembles the index in record order from fresh + reused vectors", () => {
+    const records = [rec({ sourceId: "#1" }), rec({ sourceId: "#2" }), rec({ sourceId: "#3" })];
+    const index = assembleVectorIndex({
+      fresh: new Map([["#2", Float32Array.from([0, 1])]]),
+      records,
+      reuse: new Map([["#1", Float32Array.from([1, 0])]]),
+    });
+    expect(index.ids).toEqual(["#1", "#2"]); // #3 has no vector anywhere → omitted, order preserved
+  });
+
+  it("compacts only when fresh work happened or the row set changed size", () => {
+    expect(shouldCompactCache({ cachedSize: 5, freshCount: 1, indexSize: 5 })).toBe(true); // fresh work
+    expect(shouldCompactCache({ cachedSize: 4, freshCount: 0, indexSize: 5 })).toBe(true); // grew
+    expect(shouldCompactCache({ cachedSize: 5, freshCount: 0, indexSize: 5 })).toBe(false); // pure cache-hit run
   });
 });
 
