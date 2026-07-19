@@ -4,7 +4,11 @@ import {
   chunkText,
   cutoffMs,
   fetchNotionActivity,
+  lastEditedOf,
   type NotionApi,
+  projectCommentItem,
+  projectDatabaseItem,
+  projectRowItem,
   renderRichText,
   renderRowProperties,
   withinCutoff,
@@ -53,6 +57,42 @@ describe("renderRowProperties (data-source rows are the actual records)", () => 
     expect(text).toContain("Priority: High");
     expect(text).toContain("Owner: Sam, Dana");
     expect(text).not.toContain("Done:"); // an unchecked box renders empty → omitted, never faked
+  });
+});
+
+describe("projection cores (pure)", () => {
+  it("projects a database summary hit (title from properties, url, no cutoff drop)", () => {
+    const raw = { id: "db1", last_edited_time: "2026-05-01T00:00:00.000Z", title: [{ plain_text: "Tasks" }], url: "u" };
+    expect(lastEditedOf({ raw })).toBe("2026-05-01T00:00:00.000Z");
+    const item = projectDatabaseItem({ id: "db1", lastEdited: lastEditedOf({ raw }), raw });
+    expect(item.id).toBe("db1");
+    expect(item.title).toBe("Tasks");
+    expect(item.url).toBe("u");
+  });
+
+  it("projects a data-source ROW into a page item (title property + parent + chunks)", () => {
+    const raw = {
+      id: "row1",
+      properties: {
+        Name: { title: [{ plain_text: "A task" }], type: "title" },
+        Status: { select: { name: "Done" }, type: "select" },
+      },
+      url: "u",
+    };
+    const item = projectRowItem({ dataSourceId: "db1", id: "row1", lastEdited: "2026-05-01T00:00:00.000Z", raw });
+    expect(item.id).toBe("row1");
+    expect(item.parent).toBe("db1");
+    expect(item.title).toBe("A task");
+    expect(item.chunks.join("\n")).toContain("Status: Done");
+  });
+
+  it("shapes a comment and drops an id-less one", () => {
+    const comment = projectCommentItem({
+      raw: { created_time: "2026-05-02T00:00:00.000Z", id: "c1", rich_text: [{ plain_text: "hi" }] },
+    })!;
+    expect(comment.id).toBe("c1");
+    expect(comment.body).toBe("hi");
+    expect(projectCommentItem({ raw: { rich_text: [] } })).toBeUndefined();
   });
 });
 

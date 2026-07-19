@@ -12,6 +12,7 @@ import { WebClient } from "@slack/web-api";
 import { isRecord } from "../../lib/parsers.js";
 import { retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
+import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
 import type { ExportWindow } from "../types.js";
 import type {
   SlackAttachmentRef,
@@ -198,20 +199,156 @@ function shapeCommon({
   };
 }
 
+/** Common context threaded through the page-shaping cores (the channel + workspace a page belongs to). */
+interface ChannelContext {
+  readonly workspaceUrl: string;
+  readonly channelId: string;
+  readonly channelName: string | undefined;
+}
+
+/**
+ * Shape one `conversations.history` page's raw messages into message items (reactions + files resolved).
+ * Pure + defensive — a non-object or ts-less row is dropped, never fatal.
+ *
+ * @param messages the raw page messages
+ * @param ctx the channel context (workspace url, channel id/name)
+ * @returns the shaped message items
+ */
+export function shapeHistoryPage({
+  messages,
+  ctx,
+}: {
+  messages: readonly unknown[];
+  ctx: ChannelContext;
+}): readonly SlackMessageItem[] {
+  const items: SlackMessageItem[] = [];
+  for (const raw of messages) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const common = shapeCommon({ channelId: ctx.channelId, raw, workspaceUrl: ctx.workspaceUrl });
+    if (common === undefined) {
+      continue;
+    }
+    items.push({
+      channelId: ctx.channelId,
+      reactions: shapeReactions({ raw: raw["reactions"] }),
+      ...common,
+      ...(ctx.channelName !== undefined ? { channelName: ctx.channelName } : {}),
+    });
+  }
+  return items;
+}
+
+/**
+ * The thread parents worth polling from a history page — those with a positive `reply_count`. Pure, so
+ * the "which threads to re-read" decision is unit-tested apart from the paging IO.
+ *
+ * @param messages the raw page messages
+ * @returns the thread timestamps to poll
+ */
+export function planThreadPolls({ messages }: { messages: readonly unknown[] }): readonly { threadTs: string }[] {
+  const polls: { threadTs: string }[] = [];
+  for (const raw of messages) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const ts = optStr({ value: raw["ts"] });
+    const replyCount = typeof raw["reply_count"] === "number" ? raw["reply_count"] : 0;
+    if (ts !== undefined && replyCount > 0) {
+      polls.push({ threadTs: ts });
+    }
+  }
+  return polls;
+}
+
+/**
+ * Shape one `conversations.replies` page into reply items, skipping the parent (captured as the top-level
+ * message). Pure + defensive.
+ *
+ * @param messages the raw page messages
+ * @param ctx the channel context
+ * @param threadTs the parent thread ts (whose echo is skipped)
+ * @returns the shaped reply items
+ */
+export function shapeRepliesPage({
+  messages,
+  ctx,
+  threadTs,
+}: {
+  messages: readonly unknown[];
+  ctx: ChannelContext;
+  threadTs: string;
+}): readonly SlackReplyItem[] {
+  const replies: SlackReplyItem[] = [];
+  for (const raw of messages) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const common = shapeCommon({ channelId: ctx.channelId, raw, workspaceUrl: ctx.workspaceUrl });
+    if (common === undefined || common.ts === threadTs) {
+      continue; // skip the parent message; it's captured as the top-level message
+    }
+    replies.push({
+      channelId: ctx.channelId,
+      threadTs,
+      ...common,
+      ...(ctx.channelName !== undefined ? { channelName: ctx.channelName } : {}),
+    });
+  }
+  return replies;
+}
+
+/**
+ * Select the channels to fetch: an explicit id allowlist (drops the rest), else every discovered channel.
+ * Pure.
+ *
+ * @param discovered every channel discovery returned
+ * @param channelFilter an optional explicit id allowlist
+ * @returns the selected channels
+ */
+export function selectChannels({
+  discovered,
+  channelFilter,
+}: {
+  discovered: readonly { id: string; name?: string }[];
+  channelFilter: readonly string[] | undefined;
+}): readonly { id: string; name?: string }[] {
+  if (channelFilter === undefined) {
+    return discovered;
+  }
+  const filter = new Set(channelFilter);
+  return discovered.filter((channel) => filter.has(channel.id));
+}
+
+/**
+ * Merge per-channel thread-cursor updates onto a base map (base unmutated). Pure — the resume-cursor
+ * bookkeeping is testable apart from the crawl.
+ *
+ * @param base the stored cursors going in
+ * @param updates the newly-advanced cursors
+ * @returns the merged cursor map
+ */
+export function mergeCursorUpdates({
+  base,
+  updates,
+}: {
+  base: Readonly<Record<string, string>>;
+  updates: Readonly<Record<string, string>>;
+}): Readonly<Record<string, string>> {
+  return { ...base, ...updates };
+}
+
 /** Page a channel's history + each thread's NEW replies (since its stored cursor) into shaped items. */
 async function fetchChannel({
   api,
-  workspaceUrl,
-  channelId,
-  channelName,
+  ctx,
   oldest,
   latest,
   threadCursors,
 }: {
   api: SlackApi;
-  workspaceUrl: string;
-  channelId: string;
-  channelName: string | undefined;
+  ctx: ChannelContext;
   oldest: string;
   latest: string;
   threadCursors: ThreadCursors;
@@ -220,6 +357,7 @@ async function fetchChannel({
   warnings: readonly string[];
   cursorUpdates: Readonly<Record<string, string>>;
 }> {
+  const { channelId, channelName } = ctx;
   const messages: SlackMessageItem[] = [];
   const replies: SlackReplyItem[] = [];
   const warnings: string[] = [];
@@ -228,14 +366,7 @@ async function fetchChannel({
 
   // Read one thread's NEW replies (since its stored cursor, else the window) + advance its cursor.
   const pollThread = async ({ threadTs, stored }: { threadTs: string; stored: string | undefined }): Promise<void> => {
-    const threadResult = await fetchThread({
-      api,
-      channelId,
-      channelName,
-      oldest: stored ?? oldest,
-      threadTs,
-      workspaceUrl,
-    });
+    const threadResult = await fetchThread({ api, ctx, oldest: stored ?? oldest, threadTs });
     const fresh = newerReplies({ afterTs: stored, replies: threadResult.replies });
     replies.push(...fresh);
     warnings.push(...threadResult.warnings);
@@ -248,26 +379,10 @@ async function fetchChannel({
   let cursor: string | undefined;
   do {
     const page = await api.history({ channel: channelId, latest, oldest, ...(cursor !== undefined ? { cursor } : {}) });
-    for (const raw of page.messages) {
-      if (!isRecord(raw)) {
-        continue;
-      }
-      const common = shapeCommon({ channelId, raw, workspaceUrl });
-      if (common === undefined) {
-        continue;
-      }
-      messages.push({
-        channelId,
-        reactions: shapeReactions({ raw: raw["reactions"] }),
-        ...common,
-        ...(channelName !== undefined ? { channelName } : {}),
-      });
-      const replyCount = typeof raw["reply_count"] === "number" ? raw["reply_count"] : 0;
-      if (replyCount > 0) {
-        const key = threadKey({ channel: channelId, threadTs: common.ts });
-        visited.add(key);
-        await pollThread({ stored: threadCursors[key], threadTs: common.ts });
-      }
+    messages.push(...shapeHistoryPage({ ctx, messages: page.messages }));
+    for (const { threadTs } of planThreadPolls({ messages: page.messages })) {
+      visited.add(threadKey({ channel: channelId, threadTs }));
+      await pollThread({ stored: threadCursors[threadKey({ channel: channelId, threadTs })], threadTs });
     }
     cursor = page.nextCursor;
   } while (cursor !== undefined && cursor.length > 0);
@@ -292,16 +407,12 @@ async function fetchChannel({
 /** Page one thread's replies since `oldest` (the parent is skipped — it's already the top-level message). */
 async function fetchThread({
   api,
-  workspaceUrl,
-  channelId,
-  channelName,
+  ctx,
   threadTs,
   oldest,
 }: {
   api: SlackApi;
-  workspaceUrl: string;
-  channelId: string;
-  channelName: string | undefined;
+  ctx: ChannelContext;
   threadTs: string;
   oldest: string;
 }): Promise<{ replies: readonly SlackReplyItem[]; warnings: readonly string[] }> {
@@ -310,28 +421,19 @@ async function fetchThread({
   try {
     do {
       const page = await api.replies({
-        channel: channelId,
+        channel: ctx.channelId,
         oldest,
         ts: threadTs,
         ...(cursor !== undefined ? { cursor } : {}),
       });
-      for (const raw of page.messages) {
-        if (!isRecord(raw)) {
-          continue;
-        }
-        const common = shapeCommon({ channelId, raw, workspaceUrl });
-        if (common === undefined || common.ts === threadTs) {
-          continue; // skip the parent message; it's captured as the top-level message
-        }
-        replies.push({ channelId, threadTs, ...common, ...(channelName !== undefined ? { channelName } : {}) });
-      }
+      replies.push(...shapeRepliesPage({ ctx, messages: page.messages, threadTs }));
       cursor = page.nextCursor;
     } while (cursor !== undefined && cursor.length > 0);
   } catch (error: unknown) {
     return {
       replies,
       warnings: [
-        `thread ${channelId}/${threadTs} replies failed: ${error instanceof Error ? error.message : "unknown"}`,
+        `thread ${ctx.channelId}/${threadTs} replies failed: ${error instanceof Error ? error.message : "unknown"}`,
       ],
     };
   }
@@ -457,26 +559,23 @@ export async function fetchSlackActivity({
   const userDirectory = await discoverUsers({ api });
   warnings.push(...userDirectory.warnings);
   const maps: SlackNameMaps = { channelNames, userNames: userDirectory.users };
-  const filter = channelFilter !== undefined ? new Set(channelFilter) : undefined;
-  const selected = filter !== undefined ? discovered.filter((channel) => filter.has(channel.id)) : discovered;
+  const selected = selectChannels({ channelFilter, discovered });
   const oldest = dateToEpoch({ date: window.since, fallback: "0" });
   const latest = dateToEpoch({ date: window.until, fallback: "9999999999" });
   const channels: SlackChannelItems[] = [];
-  const updatedCursors: Record<string, string> = { ...threadCursors };
+  let updatedCursors: Readonly<Record<string, string>> = { ...threadCursors };
   for (const channel of selected) {
     try {
       const result = await fetchChannel({
         api,
-        channelId: channel.id,
-        channelName: channel.name,
+        ctx: { channelId: channel.id, channelName: channel.name, workspaceUrl },
         latest,
         oldest,
         threadCursors,
-        workspaceUrl,
       });
       channels.push(result.items);
       warnings.push(...result.warnings);
-      Object.assign(updatedCursors, result.cursorUpdates);
+      updatedCursors = mergeCursorUpdates({ base: updatedCursors, updates: result.cursorUpdates });
     } catch (error: unknown) {
       // A channel we can't read (e.g. not_in_channel) is skipped with a warning, never fatal — so one
       // unreadable channel never sinks the whole "all my channels" ingest.
@@ -497,53 +596,90 @@ export function makeSlackApi({ token }: { token: string }): SlackApi {
   const client = new WebClient(token);
   const nextCursorOf = (meta: { next_cursor?: string } | undefined): { nextCursor?: string } =>
     meta?.next_cursor !== undefined && meta.next_cursor.length > 0 ? { nextCursor: meta.next_cursor } : {};
+  // Each raw SDK call is wrapped: transient-retried, then routed through safeApiCall (typed error) and
+  // re-surfaced by orThrow so the fetchSlackActivity policy (channel/thread warnings, fatal discovery)
+  // runs unchanged. The raw `client.*` boundary lives ONLY inside a safeApiCall execute here.
   return {
     history: async ({ channel, oldest, latest, cursor }) => {
-      const res = await retryTransient({
-        operation: () =>
-          client.conversations.history({
-            channel,
-            latest,
-            limit: PAGE_LIMIT,
-            oldest,
-            ...(cursor !== undefined ? { cursor } : {}),
-          }),
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () =>
+            retryTransient({
+              operation: () =>
+                client.conversations.history({
+                  channel,
+                  latest,
+                  limit: PAGE_LIMIT,
+                  oldest,
+                  ...(cursor !== undefined ? { cursor } : {}),
+                }),
+            }),
+          operation: "slack.conversations.history",
+          provider: "slack",
+        }),
       });
       return { messages: res.messages ?? [], ...nextCursorOf(res.response_metadata) };
     },
     listChannels: async ({ cursor }) => {
-      const res = await retryTransient({
-        operation: () =>
-          client.conversations.list({
-            exclude_archived: true,
-            limit: PAGE_LIMIT,
-            types: "public_channel,private_channel",
-            ...(cursor !== undefined ? { cursor } : {}),
-          }),
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () =>
+            retryTransient({
+              operation: () =>
+                client.conversations.list({
+                  exclude_archived: true,
+                  limit: PAGE_LIMIT,
+                  types: "public_channel,private_channel",
+                  ...(cursor !== undefined ? { cursor } : {}),
+                }),
+            }),
+          operation: "slack.conversations.list",
+          provider: "slack",
+        }),
       });
       return { channels: res.channels ?? [], ...nextCursorOf(res.response_metadata) };
     },
     listUsers: async ({ cursor }) => {
-      const res = await retryTransient({
-        operation: () => client.users.list({ limit: PAGE_LIMIT, ...(cursor !== undefined ? { cursor } : {}) }),
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () =>
+            retryTransient({
+              operation: () => client.users.list({ limit: PAGE_LIMIT, ...(cursor !== undefined ? { cursor } : {}) }),
+            }),
+          operation: "slack.users.list",
+          provider: "slack",
+        }),
       });
       return { members: res.members ?? [], ...nextCursorOf(res.response_metadata) };
     },
     replies: async ({ channel, ts, oldest, cursor }) => {
-      const res = await retryTransient({
-        operation: () =>
-          client.conversations.replies({
-            channel,
-            limit: PAGE_LIMIT,
-            oldest,
-            ts,
-            ...(cursor !== undefined ? { cursor } : {}),
-          }),
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () =>
+            retryTransient({
+              operation: () =>
+                client.conversations.replies({
+                  channel,
+                  limit: PAGE_LIMIT,
+                  oldest,
+                  ts,
+                  ...(cursor !== undefined ? { cursor } : {}),
+                }),
+            }),
+          operation: "slack.conversations.replies",
+          provider: "slack",
+        }),
       });
       return { messages: res.messages ?? [], ...nextCursorOf(res.response_metadata) };
     },
     workspaceUrl: async () => {
-      const res = await retryTransient({ operation: () => client.auth.test() });
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () => retryTransient({ operation: () => client.auth.test() }),
+          operation: "slack.auth.test",
+          provider: "slack",
+        }),
+      });
       return typeof res.url === "string" && res.url.length > 0 ? res.url : undefined;
     },
   };

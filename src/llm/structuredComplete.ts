@@ -7,7 +7,9 @@
  * bypassed by a valid-looking JSON object echoed in prose). The text path is the fallback for the
  * claude-CLI transport, which emulates forced tools by emitting JSON inline.
  */
+import { legacyErrorMessages } from "../lib/ingestError.js";
 import { err, type Result } from "../lib/result.js";
+import { safeLlm } from "../lib/safeBoundary.js";
 import { extractJsonObjects } from "./extractJsonObject.js";
 import type { JsonObjectSchema, LlmClient, LlmMessage } from "./provider.js";
 
@@ -54,17 +56,22 @@ export async function completeStructured<T>({
 }): Promise<Result<T>> {
   const errors: string[] = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    let message: LlmMessage;
-    try {
-      message = await client.complete({
-        messages: [{ content: request.user, role: "user" }],
-        system: request.system,
-        toolChoice: { name: request.toolName, type: "tool" },
-        tools: [{ description: request.toolDescription, inputSchema: request.schema, name: request.toolName }],
-      });
-    } catch (error: unknown) {
-      return err([error instanceof Error ? error.message : "llm transport failed"]);
+    // The one LLM boundary: a transport throw (spawn/timeout/exit) becomes a typed llm error, surfaced as
+    // a fatal string Result (no retry — a broken transport won't self-heal within the attempt budget).
+    const completed = await safeLlm({
+      execute: () =>
+        client.complete({
+          messages: [{ content: request.user, role: "user" }],
+          system: request.system,
+          toolChoice: { name: request.toolName, type: "tool" },
+          tools: [{ description: request.toolDescription, inputSchema: request.schema, name: request.toolName }],
+        }),
+      operation: "claude.complete",
+    });
+    if (completed.isErr()) {
+      return err(legacyErrorMessages({ error: completed.error }));
     }
+    const message: LlmMessage = completed.value;
     for (const input of candidateInputs({ message })) {
       const validated = validate(input);
       if (validated.ok) {

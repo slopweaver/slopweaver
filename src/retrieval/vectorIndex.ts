@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 
 import type { CorpusRecord } from "../corpus/types.js";
+import { orThrow, safeEmbed } from "../lib/safeBoundary.js";
 import { type Embedder, MAX_EMBED_CHARS } from "./embeddings.js";
 
 export interface CachedVector {
@@ -49,8 +50,122 @@ export interface EmbedProgress {
   readonly total: number;
 }
 
+/** The build plan: which cached vectors to reuse, which records to (re)embed, and each record's hash. */
+export interface VectorBuildPlan {
+  readonly reuse: ReadonlyMap<string, Float32Array>;
+  readonly misses: readonly CorpusRecord[];
+  readonly hashById: ReadonlyMap<string, string>;
+}
+
 /**
- * Build the vector index, embedding only records whose cached hash is missing or stale.
+ * Partition records into cache-reuse vs misses, keyed by `sourceId` + content hash. Pure — the cache
+ * decision (unchanged ⇒ reuse, edited/new/model-change ⇒ re-embed) is unit-tested apart from the embed IO.
+ *
+ * @param records the corpus records
+ * @param cached the loaded cache (last-appended vector per id)
+ * @param modelId the embedder model id (part of the content hash)
+ * @returns the reuse map, the misses to embed, and each record's fresh hash
+ */
+export function planVectorBuild({
+  records,
+  cached,
+  modelId,
+}: {
+  records: readonly CorpusRecord[];
+  cached: ReadonlyMap<string, CachedVector>;
+  modelId: string;
+}): VectorBuildPlan {
+  const hashById = new Map<string, string>();
+  const reuse = new Map<string, Float32Array>();
+  const misses: CorpusRecord[] = [];
+  for (const record of records) {
+    const hash = vectorContentHash({ modelId, record });
+    hashById.set(record.sourceId, hash);
+    const hit = cached.get(record.sourceId);
+    if (hit?.contentHash === hash) {
+      reuse.set(record.sourceId, hit.vector); // unchanged ⇒ reuse its vector
+    } else {
+      misses.push(record); // new / edited / model-changed ⇒ re-embed
+    }
+  }
+  return { hashById, misses, reuse };
+}
+
+/** Split misses into embed chunks of `size` (small enough that a kill loses little work). Pure. */
+export function chunkMisses({
+  misses,
+  size = EMBED_CHUNK_RECORDS,
+}: {
+  misses: readonly CorpusRecord[];
+  size?: number;
+}): readonly (readonly CorpusRecord[])[] {
+  const chunks: (readonly CorpusRecord[])[] = [];
+  for (let start = 0; start < misses.length; start += size) {
+    chunks.push(misses.slice(start, start + size));
+  }
+  return chunks;
+}
+
+/** Pair a chunk's records with their fresh vectors into cache rows, dropping any record with no vector. Pure. */
+export function cacheRowsForVectors({
+  chunk,
+  vectors,
+  hashById,
+}: {
+  chunk: readonly CorpusRecord[];
+  vectors: readonly Float32Array[];
+  hashById: ReadonlyMap<string, string>;
+}): readonly CachedVector[] {
+  const rows: CachedVector[] = [];
+  chunk.forEach((record, i) => {
+    const vector = vectors[i];
+    if (vector !== undefined) {
+      rows.push({ contentHash: hashById.get(record.sourceId)!, sourceId: record.sourceId, vector });
+    }
+  });
+  return rows;
+}
+
+/** Assemble the in-memory index in record order from fresh + reused vectors (records with no vector omitted). Pure. */
+export function assembleVectorIndex({
+  records,
+  fresh,
+  reuse,
+}: {
+  records: readonly CorpusRecord[];
+  fresh: ReadonlyMap<string, Float32Array>;
+  reuse: ReadonlyMap<string, Float32Array>;
+}): VectorIndex {
+  const ids: string[] = [];
+  const vectors: Float32Array[] = [];
+  for (const record of records) {
+    const vector = fresh.get(record.sourceId) ?? reuse.get(record.sourceId);
+    if (vector !== undefined) {
+      ids.push(record.sourceId);
+      vectors.push(vector);
+    }
+  }
+  return { ids, vectors };
+}
+
+/** Whether to compact the cache after a build: fresh work happened, or the row set changed size. Pure. */
+export function shouldCompactCache({
+  freshCount,
+  indexSize,
+  cachedSize,
+}: {
+  freshCount: number;
+  indexSize: number;
+  cachedSize: number;
+}): boolean {
+  return freshCount > 0 || indexSize !== cachedSize;
+}
+
+/**
+ * Build the vector index, embedding only records whose cached hash is missing or stale. Thin shell over
+ * the pure cores ({@link planVectorBuild} / {@link chunkMisses} / {@link cacheRowsForVectors} /
+ * {@link assembleVectorIndex} / {@link shouldCompactCache}); the ONE effect (the embed call) goes through
+ * {@link safeEmbed} so a binding failure is a typed error, re-surfaced by {@link orThrow}.
  *
  * When `persist` is set, freshly-embedded vectors are APPENDED to the cache per chunk (not only at the
  * end), so a killed embed resumes from its last flushed chunk losing no completed work; a final compaction
@@ -80,62 +195,44 @@ export async function buildVectorIndex({
   for (const entry of await store.load()) {
     cached.set(entry.sourceId, entry); // last row wins ⇒ the newest appended vector for each id
   }
-  const hashById = new Map<string, string>();
-  const reuse = new Map<string, Float32Array>();
-  const misses: CorpusRecord[] = [];
-  for (const record of records) {
-    const hash = vectorContentHash({ modelId: embedder.modelId, record });
-    hashById.set(record.sourceId, hash);
-    const hit = cached.get(record.sourceId);
-    if (hit?.contentHash === hash) {
-      reuse.set(record.sourceId, hit.vector);
-    } else {
-      misses.push(record);
-    }
-  }
+  const { reuse, misses, hashById } = planVectorBuild({ cached, modelId: embedder.modelId, records });
 
   // Embed misses in chunks, flushing each chunk to the cache before the next — the durability that lets a
   // killed run resume. Progress is emitted per chunk so a long embed is visible in the session.
   const fresh = new Map<string, Float32Array>();
-  for (let start = 0; start < misses.length; start += EMBED_CHUNK_RECORDS) {
-    const chunk = misses.slice(start, start + EMBED_CHUNK_RECORDS);
-    const vectors = await embedder.embedDocuments(chunk.map((record) => recordText({ record })));
-    const flushed: CachedVector[] = [];
-    chunk.forEach((record, i) => {
-      const vector = vectors[i];
-      if (vector !== undefined) {
-        fresh.set(record.sourceId, vector);
-        flushed.push({ contentHash: hashById.get(record.sourceId)!, sourceId: record.sourceId, vector });
-      }
+  let embedded = 0;
+  for (const chunk of chunkMisses({ misses })) {
+    const vectors = orThrow({
+      result: await safeEmbed({
+        execute: () => embedder.embedDocuments(chunk.map((record) => recordText({ record }))),
+        operation: "embed.embedDocuments",
+      }),
     });
-    if (persist && flushed.length > 0) {
-      await store.append(flushed);
+    const rows = cacheRowsForVectors({ chunk, hashById, vectors });
+    for (const row of rows) {
+      fresh.set(row.sourceId, row.vector);
     }
-    onProgress?.({ done: Math.min(start + chunk.length, misses.length), total: misses.length });
+    if (persist && rows.length > 0) {
+      await store.append(rows);
+    }
+    embedded += chunk.length;
+    onProgress?.({ done: Math.min(embedded, misses.length), total: misses.length });
   }
 
-  const ids: string[] = [];
-  const vectors: Float32Array[] = [];
-  for (const record of records) {
-    const vector = fresh.get(record.sourceId) ?? reuse.get(record.sourceId);
-    if (vector !== undefined) {
-      ids.push(record.sourceId);
-      vectors.push(vector);
-    }
-  }
+  const index = assembleVectorIndex({ fresh, records, reuse });
 
   // Compact once the full build succeeded: rewrite the cache to exactly the current set (drops stale rows
   // that the per-chunk appends left behind). Skipped when nothing changed, so a pure cache-hit run is free.
-  if (persist && (fresh.size > 0 || ids.length !== cached.size)) {
+  if (persist && shouldCompactCache({ cachedSize: cached.size, freshCount: fresh.size, indexSize: index.ids.length })) {
     await store.save(
-      ids.map((id, i) => ({
+      index.ids.map((id, i) => ({
         contentHash: hashById.get(id)!, // every id came from `records`, all of which are in hashById
         sourceId: id,
-        vector: vectors[i] ?? new Float32Array(),
+        vector: index.vectors[i] ?? new Float32Array(),
       })),
     );
   }
-  return { ids, vectors };
+  return index;
 }
 
 /** Cosine similarity of two unit vectors (dot product); 0 on length mismatch. */

@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { unwrap } from "../../lib/result.js";
-import { fetchSlackActivity, resolveSlackReadToken, type SlackApi } from "./fetch.js";
+import {
+  fetchSlackActivity,
+  mergeCursorUpdates,
+  planThreadPolls,
+  resolveSlackReadToken,
+  type SlackApi,
+  selectChannels,
+  shapeHistoryPage,
+  shapeRepliesPage,
+} from "./fetch.js";
+
+const ctx = { channelId: "C_A", channelName: "alpha", workspaceUrl: "https://acme.slack.com" };
 
 describe("resolveSlackReadToken", () => {
   it("prefers the user token (full channel visibility), no warning", () => {
@@ -196,5 +207,78 @@ describe("fetchSlackActivity", () => {
       },
     };
     expect((await fetchSlackActivity({ api, window })).ok).toBe(false);
+  });
+});
+
+describe("shapeHistoryPage", () => {
+  it("shapes a raw message into an item with reactions, files, and a stable permalink", () => {
+    const items = shapeHistoryPage({
+      ctx,
+      messages: [{ files: [{ id: "F1" }], reactions: [{ count: 2, name: "+1" }], ts: "1700000000.000100", user: "U1" }],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]!.reactions).toEqual([":+1: x2"]);
+    expect(items[0]!.files.map((f) => f.id)).toEqual(["F1"]);
+    expect(items[0]!.permalink).toBe("https://acme.slack.com/archives/C_A/p1700000000000100");
+    expect(items[0]!.channelName).toBe("alpha");
+  });
+
+  it("drops a non-object row and a ts-less row without failing", () => {
+    expect(shapeHistoryPage({ ctx, messages: [42, { text: "no ts" }] })).toEqual([]);
+  });
+});
+
+describe("planThreadPolls", () => {
+  it("selects only messages with a positive reply_count", () => {
+    const polls = planThreadPolls({
+      messages: [
+        { reply_count: 3, ts: "1.1" },
+        { reply_count: 0, ts: "2.2" },
+        { ts: "3.3" },
+        { reply_count: 1, ts: "4.4" },
+      ],
+    });
+    expect(polls.map((p) => p.threadTs)).toEqual(["1.1", "4.4"]);
+  });
+});
+
+describe("shapeRepliesPage", () => {
+  it("shapes replies but skips the parent echo (same ts as the thread root)", () => {
+    const replies = shapeRepliesPage({
+      ctx,
+      messages: [
+        { text: "parent", ts: "1700000000.000100", user: "U1" },
+        { text: "a reply", ts: "1700000100.000200", user: "U2" },
+      ],
+      threadTs: "1700000000.000100",
+    });
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.ts).toBe("1700000100.000200");
+    expect(replies[0]!.threadTs).toBe("1700000000.000100");
+  });
+});
+
+describe("selectChannels", () => {
+  const discovered = [
+    { id: "C_A", name: "alpha" },
+    { id: "C_B", name: "beta" },
+  ];
+
+  it("returns every discovered channel when there is no filter", () => {
+    expect(selectChannels({ channelFilter: undefined, discovered })).toEqual(discovered);
+  });
+
+  it("keeps only the allowlisted ids when a filter is given", () => {
+    expect(selectChannels({ channelFilter: ["C_B"], discovered }).map((c) => c.id)).toEqual(["C_B"]);
+    expect(selectChannels({ channelFilter: ["C_MISSING"], discovered })).toEqual([]);
+  });
+});
+
+describe("mergeCursorUpdates", () => {
+  it("overlays updates onto the base without mutating the base", () => {
+    const base = { "C:1": "10", "C:2": "20" };
+    const merged = mergeCursorUpdates({ base, updates: { "C:2": "25", "C:3": "30" } });
+    expect(merged).toEqual({ "C:1": "10", "C:2": "25", "C:3": "30" });
+    expect(base).toEqual({ "C:1": "10", "C:2": "20" }); // base unmutated
   });
 });

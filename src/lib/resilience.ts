@@ -11,54 +11,36 @@
  * GitHub keeps its own `@octokit/plugin-retry` + `plugin-throttling` (already settled — see STACK.md);
  * these seams cover the Slack/Linear/Notion SDKs and the on-device embed fan-out. Nothing here needs
  * external infra, and no bespoke backoff, rate limiter, or worker pool survives.
+ *
+ * PR3.6 re-evaluated `rate-limiter-flexible` (the archive's outbound limiter) and REJECTED it: its value is
+ * a Redis-backed limiter shared across a distributed service — Slopweaver is a zero-infra single-process
+ * CLI, so `p-throttle` (strict per-crawl pacing) + `p-limit` already cover the need. The retry CLASSIFIER,
+ * though, moved onto the typed {@link ./ingestError.IngestError} (see {@link isTransientError}).
  */
 import pLimit from "p-limit";
 import pRetry from "p-retry";
 import pThrottle from "p-throttle";
 
-/** A retryable HTTP status (429 rate-limit + the transient 5xx family). */
-const TRANSIENT_STATUS: ReadonlySet<number> = new Set([429, 500, 502, 503, 504]);
-/** Node network error codes that a retry can clear. */
-const TRANSIENT_CODES: ReadonlySet<string> = new Set(["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"]);
-
-/** Read a property off an unknown error object without asserting its shape. */
-function prop({ error, key }: { error: unknown; key: string }): unknown {
-  return typeof error === "object" && error !== null && key in error
-    ? (error as Record<string, unknown>)[key]
-    : undefined;
-}
-
-/** The HTTP status carried by an error (`.status` / `.statusCode` / `.response.status`), if any. */
-function statusOf({ error }: { error: unknown }): number | undefined {
-  const direct = prop({ error, key: "status" }) ?? prop({ error, key: "statusCode" });
-  if (typeof direct === "number") {
-    return direct;
-  }
-  const response = prop({ error, key: "response" });
-  const nested = prop({ error: response, key: "status" });
-  return typeof nested === "number" ? nested : undefined;
-}
+import { hasTransientStatus, type IngestError, toIngestError } from "./ingestError.js";
 
 /**
- * Is this error worth retrying? A transient failure (429/5xx, a known network code, or a message that
- * names one) is retryable; any other 4xx / validation error is permanent and fails fast. Pure — no
- * timing, so a test asserts the classification exactly.
+ * Is this typed error worth retrying? Classifies the TYPED {@link IngestError} — not a raw thrown shape —
+ * so the status/code/kind detail that {@link toIngestError} preserved drives the decision (PR3.6 killed
+ * the old lossy boolean that re-sniffed an `unknown`). A `rate-limit` or `network` kind, or an `http`
+ * kind with a transient status (429/5xx), is retryable; every other kind (`parse`/`io`/`llm`, or a 4xx
+ * `http`) is permanent and fails fast. Pure — no timing, so a test asserts the classification exactly.
  *
- * @param error the thrown value (any shape)
+ * @param error the typed boundary error
  * @returns true when a retry could plausibly clear the failure
  */
-export function isTransientError({ error }: { error: unknown }): boolean {
-  const status = statusOf({ error });
-  if (status !== undefined && TRANSIENT_STATUS.has(status)) {
+export function isTransientError({ error }: { error: IngestError }): boolean {
+  if (error.kind === "rate-limit" || error.kind === "network") {
     return true;
   }
-  const code = prop({ error, key: "code" });
-  if (typeof code === "string" && TRANSIENT_CODES.has(code)) {
-    return true;
+  if (error.kind === "http") {
+    return hasTransientStatus({ error });
   }
-  const message = prop({ error, key: "message" });
-  const text = typeof message === "string" ? message : "";
-  return /\b(429|500|502|503|504)\b/.test(text) || /ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|fetch failed/i.test(text);
+  return false;
 }
 
 /** Tuning for {@link retryTransient} — all optional; the defaults suit an API backfill. */
@@ -88,7 +70,11 @@ export async function retryTransient<T>({
   operation: () => Promise<T>;
   policy?: RetryPolicy;
 }): Promise<T> {
-  const isRetryable = policy.isRetryable ?? ((error: unknown) => isTransientError({ error }));
+  // p-retry retries THROWS internally; the default classifier maps each thrown value to a typed error
+  // first, so the retry decision runs over the same typed classification the safe wrappers produce.
+  const isRetryable =
+    policy.isRetryable ??
+    ((error: unknown) => isTransientError({ error: toIngestError({ error, operation: "retryTransient" }) }));
   return pRetry(operation, {
     factor: 2,
     maxTimeout: policy.maxTimeoutMs ?? 30_000,

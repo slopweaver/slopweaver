@@ -9,6 +9,7 @@
     "@octokit/rest": "22.0.1",
     "@slack/web-api": "8.0.0",
     "@xenova/transformers": "2.17.2",
+    "neverthrow": "8.2.0",
     "p-limit": "7.3.0",
     "p-retry": "8.0.0",
     "p-throttle": "8.1.0",

@@ -238,6 +238,7 @@ function tokenHint({ source }: { source: "slack" | "linear" | "notion" }): strin
  * @param argv the full process argv (verb tail starts at index 3)
  * @returns the process exit code
  */
+// max-lines-exempt: CLI verb effectful shell (parse→plan→execute→report); PR3.6 decomposes only the distil verb.
 export async function runRefresh(argv: readonly string[]): Promise<number> {
   const rawRest = argv.slice(3);
   if (rawRest.includes("--help") || rawRest.includes("-h")) {

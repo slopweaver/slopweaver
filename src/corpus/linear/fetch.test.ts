@@ -6,7 +6,10 @@ import {
   type LinearApi,
   type LinearRequest,
   makeLinearApi,
+  pageQueryVariables,
   parseLinearIssueNode,
+  shapeIssuesPage,
+  shapeProjectsPage,
 } from "./fetch.js";
 import type { LinearIssueItem } from "./project.js";
 
@@ -131,6 +134,51 @@ describe("makeLinearApi collapses the N+1 (one request per issue-page)", () => {
     expect(calls).toEqual(["issues", "comments"]); // one issue-page + one comment-page (only ENG-1 needed it)
     const eng1 = page.issues.find((i) => i.identifier === "ENG-1")!;
     expect(eng1.comments.map((c) => c.id)).toEqual(["ENG-1-c1", "extra"]); // inline + paginated comments merged
+  });
+});
+
+describe("pageQueryVariables (pure — shared by the issue + project lanes)", () => {
+  it("builds the updatedAt>=since filter with no cursor on the first page", () => {
+    expect(pageQueryVariables({ cursor: undefined, since: "2026-01-01" })).toEqual({
+      filter: { updatedAt: { gte: "2026-01-01" } },
+      first: 50,
+    });
+  });
+
+  it("adds the `after` cursor on a subsequent page", () => {
+    expect(pageQueryVariables({ cursor: "abc", since: "2026-01-01" })).toEqual({
+      after: "abc",
+      filter: { updatedAt: { gte: "2026-01-01" } },
+      first: 50,
+    });
+  });
+});
+
+describe("shapeIssuesPage / shapeProjectsPage (pure)", () => {
+  it("parses issue nodes and surfaces the next cursor when there is another page", () => {
+    const shaped = shapeIssuesPage({
+      data: {
+        issues: {
+          nodes: [issueNode({ id: "ENG-1", moreComments: false }), { title: "no-identifier" }],
+          pageInfo: { endCursor: "next", hasNextPage: true },
+        },
+      },
+    });
+    expect(shaped.parsed.map((p) => p.item.identifier)).toEqual(["ENG-1"]); // the id-less node dropped
+    expect(shaped.nextCursor).toBe("next");
+  });
+
+  it("omits the next cursor when there is no further page", () => {
+    const shaped = shapeProjectsPage({
+      data: {
+        projects: {
+          nodes: [{ id: "p1", name: "Quality", updatedAt: "2026-05-01T00:00:00.000Z", url: "u" }],
+          pageInfo: { endCursor: null, hasNextPage: false },
+        },
+      },
+    });
+    expect(shaped.projects.map((p) => p.id)).toEqual(["p1"]);
+    expect(shaped.nextCursor).toBeUndefined();
   });
 });
 

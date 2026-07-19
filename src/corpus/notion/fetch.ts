@@ -11,6 +11,7 @@ import { Client } from "@notionhq/client";
 import { isRecord } from "../../lib/parsers.js";
 import { createRateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
+import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
 import type { ExportWindow } from "../types.js";
 import type { NotionCommentItem, NotionDatabaseItem, NotionPageItem } from "./project.js";
 
@@ -273,13 +274,20 @@ async function renderBlocks({
   const lines: string[] = [];
   let cursor: string | undefined;
   do {
-    const res = await call(() =>
-      client.blocks.children.list({
-        block_id: blockId,
-        page_size: PAGE_SIZE,
-        ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+    const res = orThrow({
+      result: await safeApiCall({
+        execute: () =>
+          call(() =>
+            client.blocks.children.list({
+              block_id: blockId,
+              page_size: PAGE_SIZE,
+              ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+            }),
+          ),
+        operation: "notion.blocks.children.list",
+        provider: "notion",
       }),
-    );
+    });
     for (const result of res.results) {
       const block: unknown = result;
       if (!isRecord(block)) {
@@ -331,21 +339,23 @@ async function pageComments({
   let cursor: string | undefined;
   try {
     do {
-      const res = await call(() =>
-        client.comments.list({
-          block_id: pageId,
-          ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () =>
+            call(() =>
+              client.comments.list({
+                block_id: pageId,
+                ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+              }),
+            ),
+          operation: "notion.comments.list",
+          provider: "notion",
         }),
-      );
+      });
       for (const result of res.results) {
-        const raw: unknown = result;
-        if (isRecord(raw) && typeof raw["id"] === "string") {
-          comments.push({
-            body: renderRichText({ richText: raw["rich_text"] }),
-            id: raw["id"],
-            raw,
-            tsIso: typeof raw["created_time"] === "string" ? raw["created_time"] : "",
-          });
+        const comment = projectCommentItem({ raw: result });
+        if (comment !== undefined) {
+          comments.push(comment);
         }
       }
       cursor = typeof res.next_cursor === "string" && res.next_cursor.length > 0 ? res.next_cursor : undefined;
@@ -374,33 +384,30 @@ async function dataSourceRows({
   const rows: NotionPageItem[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const res = await call(() =>
-      client.dataSources.query({
-        data_source_id: dataSourceId,
-        page_size: PAGE_SIZE,
-        ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+    const res = orThrow({
+      result: await safeApiCall({
+        execute: () =>
+          call(() =>
+            client.dataSources.query({
+              data_source_id: dataSourceId,
+              page_size: PAGE_SIZE,
+              ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+            }),
+          ),
+        operation: "notion.dataSources.query",
+        provider: "notion",
       }),
-    );
+    });
     for (const result of res.results) {
       const raw: unknown = result;
       if (!isRecord(raw) || typeof raw["id"] !== "string") {
         continue;
       }
-      const lastEdited = typeof raw["last_edited_time"] === "string" ? raw["last_edited_time"] : "";
+      const lastEdited = lastEditedOf({ raw });
       if (!withinCutoff({ cutoff, lastEdited })) {
         continue; // rows aren't ordered — filter, don't stop paging
       }
-      const { title, text } = renderRowProperties({ properties: raw["properties"] });
-      rows.push({
-        chunks: chunkText({ text }),
-        comments: [],
-        id: raw["id"],
-        parent: dataSourceId,
-        raw,
-        title: title.length > 0 ? title : "(row)",
-        tsIso: lastEdited,
-        url: typeof raw["url"] === "string" ? raw["url"] : "",
-      });
+      rows.push(projectRowItem({ dataSourceId, id: raw["id"], lastEdited, raw }));
     }
     const next = typeof res.next_cursor === "string" && res.next_cursor.length > 0 ? res.next_cursor : undefined;
     if (next === undefined) {
@@ -408,6 +415,94 @@ async function dataSourceRows({
     }
     cursor = next;
   }
+}
+
+/** The `last_edited_time` of a raw Notion object (empty when absent). Pure. */
+export function lastEditedOf({ raw }: { raw: Record<string, unknown> }): string {
+  return typeof raw["last_edited_time"] === "string" ? raw["last_edited_time"] : "";
+}
+
+/** Project a raw Notion `data_source` search hit into a database summary item (title + url). Pure. */
+export function projectDatabaseItem({
+  raw,
+  id,
+  lastEdited,
+}: {
+  raw: Record<string, unknown>;
+  id: string;
+  lastEdited: string;
+}): NotionDatabaseItem {
+  return {
+    description: "",
+    id,
+    raw,
+    title: titleFrom({ raw }),
+    tsIso: lastEdited,
+    url: typeof raw["url"] === "string" ? raw["url"] : "",
+  };
+}
+
+/** Project a raw Notion page into a page item (its rendered text chunked, comments attached). Pure. */
+export function projectPageItem({
+  raw,
+  id,
+  lastEdited,
+  text,
+  comments,
+}: {
+  raw: Record<string, unknown>;
+  id: string;
+  lastEdited: string;
+  text: string;
+  comments: readonly NotionCommentItem[];
+}): NotionPageItem {
+  return {
+    chunks: chunkText({ text }),
+    comments,
+    id,
+    raw,
+    title: titleFrom({ raw }),
+    tsIso: lastEdited,
+    url: typeof raw["url"] === "string" ? raw["url"] : "",
+  };
+}
+
+/** Project a raw data-source ROW into a page item (its properties flattened + chunked). Pure. */
+export function projectRowItem({
+  raw,
+  id,
+  dataSourceId,
+  lastEdited,
+}: {
+  raw: Record<string, unknown>;
+  id: string;
+  dataSourceId: string;
+  lastEdited: string;
+}): NotionPageItem {
+  const { title, text } = renderRowProperties({ properties: raw["properties"] });
+  return {
+    chunks: chunkText({ text }),
+    comments: [],
+    id,
+    parent: dataSourceId,
+    raw,
+    title: title.length > 0 ? title : "(row)",
+    tsIso: lastEdited,
+    url: typeof raw["url"] === "string" ? raw["url"] : "",
+  };
+}
+
+/** Project a raw Notion comment into a comment item (its rich text rendered). Pure; undefined if id-less. */
+export function projectCommentItem({ raw }: { raw: unknown }): NotionCommentItem | undefined {
+  if (!isRecord(raw) || typeof raw["id"] !== "string") {
+    return undefined;
+  }
+  return {
+    body: renderRichText({ richText: raw["rich_text"] }),
+    id: raw["id"],
+    raw,
+    tsIso: typeof raw["created_time"] === "string" ? raw["created_time"] : "",
+  };
 }
 
 /**
@@ -439,14 +534,21 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
   return {
     databases: async ({ since, cursor }) => {
       const cutoff = cutoffMs({ since });
-      const res = await call(() =>
-        client.search({
-          filter: { property: "object", value: "data_source" },
-          page_size: PAGE_SIZE,
-          sort: SORT_NEWEST_FIRST,
-          ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () =>
+            call(() =>
+              client.search({
+                filter: { property: "object", value: "data_source" },
+                page_size: PAGE_SIZE,
+                sort: SORT_NEWEST_FIRST,
+                ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+              }),
+            ),
+          operation: "notion.search.databases",
+          provider: "notion",
         }),
-      );
+      });
       const databases: NotionDatabaseItem[] = [];
       const rows: NotionPageItem[] = [];
       let reachedCutoff = false;
@@ -455,19 +557,12 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
         if (!isRecord(raw) || typeof raw["id"] !== "string") {
           continue;
         }
-        const lastEdited = typeof raw["last_edited_time"] === "string" ? raw["last_edited_time"] : "";
+        const lastEdited = lastEditedOf({ raw });
         if (!withinCutoff({ cutoff, lastEdited })) {
           reachedCutoff = true;
           break;
         }
-        databases.push({
-          description: "",
-          id: raw["id"],
-          raw,
-          title: titleFrom({ raw }),
-          tsIso: lastEdited,
-          url: typeof raw["url"] === "string" ? raw["url"] : "",
-        });
+        databases.push(projectDatabaseItem({ id: raw["id"], lastEdited, raw }));
         rows.push(...(await dataSourceRows({ call, client, cutoff, dataSourceId: raw["id"] })));
       }
       const next = nextOf({ nextCursor: res.next_cursor, reachedCutoff });
@@ -475,14 +570,21 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
     },
     pages: async ({ since, cursor }) => {
       const cutoff = cutoffMs({ since });
-      const res = await call(() =>
-        client.search({
-          filter: { property: "object", value: "page" },
-          page_size: PAGE_SIZE,
-          sort: SORT_NEWEST_FIRST,
-          ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+      const res = orThrow({
+        result: await safeApiCall({
+          execute: () =>
+            call(() =>
+              client.search({
+                filter: { property: "object", value: "page" },
+                page_size: PAGE_SIZE,
+                sort: SORT_NEWEST_FIRST,
+                ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+              }),
+            ),
+          operation: "notion.search.pages",
+          provider: "notion",
         }),
-      );
+      });
       const pages: NotionPageItem[] = [];
       const warnings: string[] = [];
       let reachedCutoff = false;
@@ -491,7 +593,7 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
         if (!isRecord(raw) || typeof raw["id"] !== "string") {
           continue;
         }
-        const lastEdited = typeof raw["last_edited_time"] === "string" ? raw["last_edited_time"] : "";
+        const lastEdited = lastEditedOf({ raw });
         if (!withinCutoff({ cutoff, lastEdited })) {
           reachedCutoff = true;
           break;
@@ -500,15 +602,7 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
         const text = await renderBlocks({ blockId: id, call, client, depth: 0 });
         const comments = await pageComments({ call, client, pageId: id });
         warnings.push(...comments.warnings);
-        pages.push({
-          chunks: chunkText({ text }),
-          comments: comments.comments,
-          id,
-          raw,
-          title: titleFrom({ raw }),
-          tsIso: lastEdited,
-          url: typeof raw["url"] === "string" ? raw["url"] : "",
-        });
+        pages.push(projectPageItem({ comments: comments.comments, id, lastEdited, raw, text }));
       }
       const next = nextOf({ nextCursor: res.next_cursor, reachedCutoff });
       return {

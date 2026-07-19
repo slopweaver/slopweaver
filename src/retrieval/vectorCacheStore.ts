@@ -8,6 +8,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import { join } from "node:path";
 
 import { isRecord } from "../lib/parsers.js";
+import { orThrow, safeFs } from "../lib/safeBoundary.js";
 import { EMBEDDING_DIM } from "./embeddings.js";
 import type { CachedVector, VectorCacheStore } from "./vectorIndex.js";
 
@@ -63,18 +64,26 @@ export function diskVectorCacheStore({ cacheDir }: { cacheDir: string }): Vector
       if (vectors.length === 0) {
         return;
       }
-      mkdirSync(cacheDir, { recursive: true });
-      appendFileSync(path, `${toRows({ vectors })}\n`, "utf8"); // append-only: a kill leaves flushed rows intact
+      // Append-only durability, routed through safeFs (typed io error, re-thrown by orThrow): a kill
+      // leaves the already-flushed rows intact.
+      orThrow({
+        result: safeFs({
+          execute: () => {
+            mkdirSync(cacheDir, { recursive: true });
+            appendFileSync(path, `${toRows({ vectors })}\n`, "utf8");
+          },
+          operation: "vectorCache.append",
+          path,
+        }),
+      });
     },
     load: async () => {
-      let raw: string;
-      try {
-        raw = readFileSync(path, "utf8");
-      } catch {
-        return [];
+      const read = safeFs({ execute: () => readFileSync(path, "utf8"), operation: "vectorCache.load", path });
+      if (read.isErr()) {
+        return []; // missing/unreadable cache ⇒ empty (re-embed), never fatal
       }
       const vectors: CachedVector[] = [];
-      for (const line of raw.split("\n")) {
+      for (const line of read.value.split("\n")) {
         const parsed = parseLine({ line });
         if (parsed !== undefined) {
           vectors.push(parsed);
@@ -86,18 +95,27 @@ export function diskVectorCacheStore({ cacheDir }: { cacheDir: string }): Vector
       // Compaction is ATOMIC: build the whole file at a temp path, then rename over the target. A kill
       // mid-write can only leave the (discardable) temp file — never a truncated cache, so the appended
       // resume rows are never lost part-way through a rewrite. Rename is atomic on the same filesystem.
-      mkdirSync(cacheDir, { recursive: true });
-      const tmp = `${path}.tmp`;
-      writeFileSync(tmp, "", "utf8");
-      for (let i = 0; i < vectors.length; i += SAVE_BATCH_ROWS) {
-        const rows = vectors
-          .slice(i, i + SAVE_BATCH_ROWS)
-          .map((v) =>
-            JSON.stringify({ contentHash: v.contentHash, sourceId: v.sourceId, vector: Array.from(v.vector) }),
-          );
-        appendFileSync(tmp, rows.length > 0 ? `${rows.join("\n")}\n` : "", "utf8");
-      }
-      renameSync(tmp, path);
+      // The whole sequence goes through safeFs (typed io error) and re-throws on failure.
+      orThrow({
+        result: safeFs({
+          execute: () => {
+            mkdirSync(cacheDir, { recursive: true });
+            const tmp = `${path}.tmp`;
+            writeFileSync(tmp, "", "utf8");
+            for (let i = 0; i < vectors.length; i += SAVE_BATCH_ROWS) {
+              const rows = vectors
+                .slice(i, i + SAVE_BATCH_ROWS)
+                .map((v) =>
+                  JSON.stringify({ contentHash: v.contentHash, sourceId: v.sourceId, vector: Array.from(v.vector) }),
+                );
+              appendFileSync(tmp, rows.length > 0 ? `${rows.join("\n")}\n` : "", "utf8");
+            }
+            renameSync(tmp, path);
+          },
+          operation: "vectorCache.save",
+          path,
+        }),
+      });
     },
   };
 }

@@ -12,8 +12,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { isErrno, isOneOf, isRecord } from "../lib/parsers.js";
+import { isOneOf, isRecord } from "../lib/parsers.js";
 import { err, ok, type Result } from "../lib/result.js";
+import { safeFs } from "../lib/safeBoundary.js";
 import { bronzeDir } from "./corpusPaths.js";
 import { CORPUS_KINDS, CORPUS_SOURCES, type CorpusAttributeValue, type CorpusRecord } from "./types.js";
 
@@ -156,16 +157,16 @@ function jsonlFiles({ dir }: { dir: string }): readonly string[] {
  * @returns the records, with a warning per corrupt line or a treated-as-empty missing dir
  */
 export function readCorpusDir({ dir }: { dir: string }): Result<readonly CorpusRecord[]> {
-  let exists = false;
-  try {
-    exists = statSync(dir).isDirectory();
-  } catch (error: unknown) {
-    if (isErrno(error) && error.code === "ENOENT") {
+  // The dir stat goes through safeFs → a typed io error, so ENOENT (missing dir ⇒ treat as empty) is
+  // read off the typed `code`, not a shape-sniffed `isErrno` guard.
+  const statted = safeFs({ execute: () => statSync(dir).isDirectory(), operation: "readCorpusDir.stat", path: dir });
+  if (statted.isErr()) {
+    if (statted.error.code === "ENOENT") {
       return ok([], [`corpus dir not found (treated as empty): ${dir}`]);
     }
-    return err([error instanceof Error ? error.message : `failed to stat ${dir}`]);
+    return err([statted.error.message]);
   }
-  if (!exists) {
+  if (!statted.value) {
     return ok([], [`not a directory (treated as empty): ${dir}`]);
   }
   const records: CorpusRecord[] = [];
