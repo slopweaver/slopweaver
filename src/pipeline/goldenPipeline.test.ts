@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runDerive } from "../cli/commands/derive/run.js";
 import { runDistilWithDeps } from "../cli/commands/distil/run.js";
-import { bronzeFile, goldDir } from "../corpus/corpusPaths.js";
+import { bronzeFile, goldDir, silverIdentitiesPath, silverIndexDir } from "../corpus/corpusPaths.js";
 import { readCorpusDir } from "../corpus/corpusStore.js";
 import type { CorpusRecord } from "../corpus/types.js";
 import type { LlmClient } from "../llm/provider.js";
@@ -21,6 +21,7 @@ import { fakeConceptEmbedder } from "../retrieval/fakeEmbedder.js";
 import { readGoldRecords } from "../retrieval/goldRecords.js";
 import { buildVectorIndex, inMemoryVectorCacheStore } from "../retrieval/vectorIndex.js";
 import { deriveSilver } from "../silver/derive.js";
+import { stateHomePaths } from "../stateHome.js";
 
 const window = { since: "2026-01-01", until: "2026-02-01" };
 
@@ -168,6 +169,99 @@ describe("golden pipeline: gold synthesis + read-back", () => {
     writeFileSync(join(home, "corpus", ".cache", "distil", "batches.json"), "{}", "utf8");
     await runDistilWithDeps({ argv: ["x", "y", "distil", "--home", home, "--max-batches", "1"], client: fakeLlm });
     expect(readFileSync(join(goldDir({ home }), "overview.md"), "utf8")).toBe(overviewBefore);
+  });
+});
+
+describe("golden pipeline: cross-source identity map", () => {
+  /** Four sources, one human (`ada` / `U1` / `Ada Lovelace` / `ada-notion`), seeded via the roster. */
+  const MULTI: readonly CorpusRecord[] = [
+    {
+      author: "ada",
+      container: "acme/web",
+      kind: "pr",
+      refs: [],
+      source: "github",
+      sourceId: "gh1",
+      text: "pr",
+      tsIso: "2026-01-10T00:00:00Z",
+      url: "https://example.test/1",
+    },
+    {
+      author: "U1",
+      container: "slack/c",
+      kind: "message",
+      refs: [],
+      source: "slack",
+      sourceId: "s1",
+      text: "msg",
+      tsIso: "2026-01-11T00:00:00Z",
+      url: "https://example.test/2",
+    },
+    {
+      author: "Ada Lovelace",
+      container: "T-1",
+      kind: "issue",
+      refs: [],
+      source: "linear",
+      sourceId: "l1",
+      text: "issue",
+      tsIso: "2026-01-12T00:00:00Z",
+      url: "https://example.test/3",
+    },
+    {
+      author: "ada-notion",
+      container: "db1",
+      kind: "page",
+      refs: [],
+      source: "notion",
+      sourceId: "n1",
+      text: "page",
+      tsIso: "2026-01-13T00:00:00Z",
+      url: "https://example.test/4",
+    },
+  ];
+
+  const ROSTER = JSON.stringify([
+    {
+      handle: "ada",
+      id: "person:ada",
+      identities: [
+        { nativeId: "ada", source: "github" },
+        { nativeId: "U1", source: "slack" },
+        { nativeId: "Ada Lovelace", source: "linear" },
+        { nativeId: "ada-notion", source: "notion" },
+      ],
+      name: "Ada Lovelace",
+    },
+  ]);
+
+  function seedMulti(): string {
+    const home = mkdtempSync(join(tmpdir(), "slopweaver-identity-"));
+    for (const record of MULTI) {
+      mkdirSync(join(home, "corpus", "bronze", record.source), { recursive: true });
+      writeFileSync(bronzeFile({ home, source: record.source, window }), JSON.stringify(record), "utf8");
+    }
+    writeFileSync(stateHomePaths({ home }).identityJson, ROSTER, "utf8");
+    return home;
+  }
+
+  it("collapses four per-source dupes into one canonical person in directory + derived identities", () => {
+    const home = seedMulti();
+    runDerive(["x", "y", "derive", "--home", home]);
+
+    const directory = JSON.parse(readFileSync(join(silverIndexDir({ home }), "directory.json"), "utf8")) as {
+      people: { id: string; sources: string[]; confidence?: string }[];
+    };
+    expect(directory.people).toHaveLength(1);
+    expect(directory.people[0]!.id).toBe("person:ada");
+    expect(directory.people[0]!.sources).toEqual(["github", "linear", "notion", "slack"]);
+    expect(directory.people[0]!.confidence).toBe("override");
+
+    const identities = JSON.parse(readFileSync(silverIdentitiesPath({ home }), "utf8")) as {
+      people: { id: string; identities: unknown[] }[];
+    };
+    expect(identities.people.map((p) => p.id)).toEqual(["person:ada"]);
+    expect(identities.people[0]!.identities).toHaveLength(4);
   });
 });
 

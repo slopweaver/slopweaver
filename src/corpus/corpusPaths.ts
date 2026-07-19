@@ -86,6 +86,18 @@ export function silverIndexDir({ home = slopweaverHome() }: { home?: string } = 
 }
 
 /**
+ * The DERIVED cross-source identity map derive writes (`silver/index/identities.json`) — distinct from the
+ * off-repo `$SLOPWEAVER_HOME/identity.json` roster ({@link stateHomePaths}.identityJson), which is the
+ * human OVERRIDE input. Derive reads the roster and writes this derived artifact for PR10/PR18 to consume.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute derived-identities JSON file path
+ */
+export function silverIdentitiesPath({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(silverIndexDir({ home }), "identities.json");
+}
+
+/**
  * The silver graph dir.
  *
  * @param home the world-model home (defaults to {@link slopweaverHome})

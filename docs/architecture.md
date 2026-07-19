@@ -37,8 +37,12 @@ touches the pipeline. Bronze is fed by direct-SDK connectors for **GitHub, Slack
   bare `refresh` stays GitHub-only. Tokens resolve from env / `$SLOPWEAVER_HOME/secrets/*` (GitHub is
   gh-first); no data leaves the machine.
 - **derive → silver** (`src/silver/`): free, deterministic synthesis — a people/container directory, a
-  cross-ref graph (shared-token cliques), and opportunity detection (cross-cutting / blocker /
-  duplication). A full re-scan each run.
+  cross-ref graph (shared-token cliques), a **cross-source identity map** (the same human across
+  GitHub/Slack/Linear/Notion resolved into one canonical person, data-first with a confidence +
+  provenance on every link), and opportunity detection (cross-cutting / blocker / duplication). A full
+  re-scan each run. The identity roster (`$SLOPWEAVER_HOME/identity.json`, off-repo) is the human
+  override/seed that always wins; low-confidence name-only links are held (surfaced, not applied). The
+  `identity` verb (`show`/`resolve`) reads it back.
 - **distil → gold** (`src/gold/`): an LLM map-reduce — batches → grounded per-container digests →
   per-source silver digests → gold markdown (overview / by-source / where-to-look). A content-hash
   batch cache re-calls the model only for batches whose bronze changed.
