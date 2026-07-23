@@ -6,6 +6,8 @@
  * records. File/image mentions are kept as reference text only, never bytes or expiring signed URLs.
  */
 
+import { classifyCurated } from "../curated/classify.js";
+import { CURATED_CLASS_ATTR, CURATED_EDGES_ATTR, encodeCuratedEdgeRef } from "../curated/types.js";
 import { extractRefs } from "../refs.js";
 import type { CorpusAttributeValue, CorpusRecord } from "../types.js";
 
@@ -28,6 +30,12 @@ export interface NotionPageItem {
   readonly chunks: readonly string[];
   readonly comments: readonly NotionCommentItem[];
   readonly raw?: Readonly<Record<string, unknown>>;
+  /** PR4.3: `notion:page:<id>` targets of this page/row's `relation` properties (curated relation edges). */
+  readonly relationTargets?: readonly string[];
+  /** PR4.3: explicit `notion:<page|database|user>:<id>` mention targets in the body (curated mention edges). */
+  readonly mentionTargets?: readonly string[];
+  /** PR4.3: ref-only file/media metadata lines (type + name + a STABLE url; never bytes or signed URLs). */
+  readonly fileRefs?: readonly string[];
 }
 
 /** A Notion database's metadata. */
@@ -61,6 +69,29 @@ function pageChunkAttrs({
   return attrs;
 }
 
+/**
+ * The curated attrs for a page/row — classification + declared relation/mention edges + ref-only files.
+ * Anchored to the page's representative record (chunk 0), so an edge's `from` node is the page node. Pure.
+ */
+function curatedPageAttrs({ page }: { page: NotionPageItem }): Record<string, CorpusAttributeValue> {
+  const attrs: Record<string, CorpusAttributeValue> = {};
+  const classification = classifyCurated({ kind: "page", text: page.chunks.join("\n"), title: page.title });
+  if (classification !== undefined) {
+    attrs[CURATED_CLASS_ATTR] = classification;
+  }
+  const edges = [
+    ...(page.relationTargets ?? []).map((target) => encodeCuratedEdgeRef({ kind: "relation", target })),
+    ...(page.mentionTargets ?? []).map((target) => encodeCuratedEdgeRef({ kind: "mention", target })),
+  ];
+  if (edges.length > 0) {
+    attrs[CURATED_EDGES_ATTR] = edges;
+  }
+  if (page.fileRefs !== undefined && page.fileRefs.length > 0) {
+    attrs["files"] = page.fileRefs;
+  }
+  return attrs;
+}
+
 /** One page-chunk record (single-chunk pages keep the bare `page:<id>` id + title). Pure. */
 function pageChunkRecord({
   page,
@@ -68,15 +99,17 @@ function pageChunkRecord({
   chunk,
   index,
   chunkCount,
+  extraAttrs = {},
 }: {
   page: NotionPageItem;
   container: string;
   chunk: string;
   index: number;
   chunkCount: number;
+  extraAttrs?: Readonly<Record<string, CorpusAttributeValue>>;
 }): CorpusRecord {
   const single = chunkCount === 1;
-  const attrs = pageChunkAttrs({ chunkCount, index, page });
+  const attrs = { ...pageChunkAttrs({ chunkCount, index, page }), ...extraAttrs };
   return {
     container,
     kind: "page",
@@ -120,8 +153,16 @@ function pageCommentRecord({
 function pageRecords({ page }: { page: NotionPageItem }): CorpusRecord[] {
   const container = page.parent !== undefined && page.parent.length > 0 ? `notion/${page.parent}` : "notion";
   const chunks = page.chunks.length > 0 ? page.chunks : [page.title];
+  const curated = curatedPageAttrs({ page });
   const records: CorpusRecord[] = chunks.map((chunk, index) =>
-    pageChunkRecord({ chunk, chunkCount: chunks.length, container, index, page }),
+    pageChunkRecord({
+      chunk,
+      chunkCount: chunks.length,
+      container,
+      index,
+      page,
+      ...(index === 0 ? { extraAttrs: curated } : {}),
+    }),
   );
   for (const comment of page.comments) {
     if (comment.body.trim().length === 0) {

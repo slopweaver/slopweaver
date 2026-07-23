@@ -64,3 +64,35 @@ describe("projectNotionRecords", () => {
     expect(records[0]!.text).toBe("all tracked services");
   });
 });
+
+describe("projectNotionRecords — curated attrs (PR4.3)", () => {
+  it("lifts relation + mention targets onto the page's chunk-0 record as encoded curated edges", () => {
+    const withEdges: NotionPageItem = {
+      ...page,
+      chunks: ["one section"],
+      mentionTargets: ["notion:page:mentioned"],
+      relationTargets: ["notion:page:rel1"],
+    };
+    const record = projectNotionRecords({ databases: [], pages: [withEdges] }).find((r) => r.kind === "page")!;
+    expect(record.attrs!["curatedEdges"]).toEqual(["relation|notion:page:rel1", "mention|notion:page:mentioned"]);
+  });
+
+  it("keeps file refs as ref-only metadata (no bytes / signed URLs) in attrs.files", () => {
+    const withFiles: NotionPageItem = { ...page, chunks: ["s"], fileRefs: ["image (https://cdn/x.png)"] };
+    const record = projectNotionRecords({ databases: [], pages: [withFiles] }).find((r) => r.kind === "page")!;
+    expect(record.attrs!["files"]).toEqual(["image (https://cdn/x.png)"]);
+  });
+
+  it("classifies a status-titled page as status", () => {
+    const statusPage: NotionPageItem = { ...page, chunks: ["on track this week"], title: "Weekly update" };
+    const record = projectNotionRecords({ databases: [], pages: [statusPage] }).find((r) => r.kind === "page")!;
+    expect(record.attrs!["classification"]).toBe("status");
+  });
+
+  it("leaves a plain page with no relations/mentions/files untagged", () => {
+    const plain: NotionPageItem = { ...page, chunks: ["just some notes"], title: "Notes" };
+    const record = projectNotionRecords({ databases: [], pages: [plain] }).find((r) => r.kind === "page")!;
+    expect(record.attrs?.["curatedEdges"]).toBe(undefined);
+    expect(record.attrs?.["classification"]).toBe(undefined);
+  });
+});

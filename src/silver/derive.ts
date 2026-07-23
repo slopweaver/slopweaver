@@ -5,8 +5,10 @@
  * run — cheap and deterministic, so there's no diffing. The verb handles reading the corpus and writing
  * the JSON artifacts.
  */
+import type { CuratedEdge } from "../corpus/curated/types.js";
 import type { StructureBronzeRow } from "../corpus/structures/types.js";
 import type { CorpusRecord } from "../corpus/types.js";
+import { buildCuratedGraph } from "./curatedGraph.js";
 import { buildDirectory, type DirectoryEntry } from "./directory.js";
 import { buildCrossRefGraph, type GraphEdge } from "./graph.js";
 import { type IdentityMap, type IdentityResolution, resolveHandle } from "./identity.js";
@@ -24,6 +26,17 @@ export interface SilverArtifacts {
   readonly identities: IdentityResolution;
   /** The org-graph surface (orgs/teams/repos/channels/states/cycles + relations), empty when no structure. */
   readonly structures: StructureArtifacts;
+  /**
+   * The curated relation graph (PR4.3): explicit DECLARED edges (Notion relations/mentions, Linear
+   * sub-issues/relations, GitHub Projects/milestones/CODEOWNERS) lifted from record attrs. Separate from
+   * the token clique graph, so it never touches (or re-blows) the PR3.5-bounded cross-ref graph. `capped`
+   * counts edges dropped by the per-record runaway guard.
+   */
+  readonly curated: {
+    readonly nodes: readonly string[];
+    readonly edges: readonly CuratedEdge[];
+    readonly capped: number;
+  };
 }
 
 /** Rewrite an opportunity's subject to a resolved handle, and reflect that in its summary. */
@@ -67,6 +80,7 @@ export function deriveSilver({
     rewriteSubject({ identityMap, opportunity }),
   );
   return {
+    curated: buildCuratedGraph({ records }),
     directory,
     graph,
     identities: resolution,
@@ -83,15 +97,17 @@ export function deriveSilver({
  * @returns the summary lines
  */
 export function planDeriveSummary({ artifacts, top }: { artifacts: SilverArtifacts; top: number }): readonly string[] {
-  const { directory, graph, opportunities, identities, structures } = artifacts;
+  const { directory, graph, opportunities, identities, structures, curated } = artifacts;
   const linked = identities.people.filter((person) => person.confidence !== "single-source").length;
   const struct = structures.directory;
+  const cappedNote = curated.capped > 0 ? ` (${String(curated.capped)} capped)` : "";
   const lines = [
     `directory: ${String(directory.people.length)} people, ${String(directory.containers.length)} containers`,
     `graph: ${String(graph.nodes.length)} nodes, ${String(graph.edges.length)} edges`,
     `opportunities: ${String(opportunities.length)}`,
     `identities: ${String(identities.people.length)} people (${String(linked)} cross-source linked, ${String(identities.candidates.length)} held, ${String(identities.conflicts.length)} conflicts)`,
     `structures: ${String(struct.orgs.length)} orgs, ${String(struct.teams.length)} teams, ${String(struct.repos.length)} repos, ${String(struct.channels.length)} channels, ${String(struct.workflowStates.length)} states, ${String(struct.cycles.length)} cycles (${String(structures.graph.edges.length)} edges)`,
+    `curated: ${String(curated.nodes.length)} nodes, ${String(curated.edges.length)} edges${cappedNote}`,
   ];
   for (const opportunity of opportunities.slice(0, top)) {
     lines.push(`  [${opportunity.kind}] ${opportunity.summary} (score ${String(opportunity.score)})`);
