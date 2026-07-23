@@ -3,9 +3,11 @@ import { unwrap } from "../../lib/result.js";
 import {
   channelNameMap,
   fetchSlackActivity,
+  fetchSlackMembers,
   mergeCursorUpdates,
   mergeSlackWarnings,
   planThreadPolls,
+  projectSlackMember,
   resolveSlackReadToken,
   type SlackApi,
   selectChannels,
@@ -333,5 +335,72 @@ describe("mergeSlackWarnings", () => {
     const extra = ["b", "c"];
     expect(mergeSlackWarnings({ base, extra })).toEqual(["a", "b", "c"]);
     expect(base).toEqual(["a"]);
+  });
+});
+
+const AT = "2026-07-20T00:00:00.000Z";
+
+describe("projectSlackMember", () => {
+  it("captures the full member (email + name + handle) and keeps the raw object", () => {
+    const raw = {
+      id: "U1",
+      is_admin: true,
+      name: "ada",
+      profile: { display_name: "Ada", email: "ada@example.com", title: "Engineer" },
+      tz: "Australia/Sydney",
+    };
+    const row = projectSlackMember({ fetchedAtIso: AT, raw })!;
+    expect(row.identity).toEqual({
+      email: "ada@example.com",
+      emailNormalised: "ada@example.com",
+      emailTrust: "trusted",
+      handle: "ada",
+      name: "Ada",
+      nativeId: "U1",
+      source: "slack",
+    });
+    expect(row.profile).toEqual({
+      active: true,
+      admin: true,
+      avatarUrl: undefined,
+      bot: false,
+      guest: false,
+      timezone: "Australia/Sydney",
+      title: "Engineer",
+    });
+    expect(row.raw).toEqual(raw);
+  });
+
+  it("warns (no guessed email) when the users:read.email scope did not populate profile.email", () => {
+    const row = projectSlackMember({ fetchedAtIso: AT, raw: { id: "U2", name: "grace", profile: {} } })!;
+    expect(row.identity.emailTrust).toBe("missing");
+    expect(row.warnings).toEqual(["no email — set the users:read.email scope for cross-source linking"]);
+  });
+
+  it("flags a bot and a deactivated member", () => {
+    expect(projectSlackMember({ fetchedAtIso: AT, raw: { id: "B1", is_bot: true, profile: {} } })!.profile.bot).toBe(
+      true,
+    );
+    expect(
+      projectSlackMember({ fetchedAtIso: AT, raw: { deleted: true, id: "D1", profile: {} } })!.profile.active,
+    ).toBe(false);
+  });
+});
+
+describe("fetchSlackMembers", () => {
+  it("pages users.list into member rows and aggregates the missing-email warning", async () => {
+    const api: SlackApi = {
+      history: async () => ({ messages: [] }),
+      listChannels: async () => ({ channels: [] }),
+      listUsers: async ({ cursor }) =>
+        cursor === undefined
+          ? { members: [{ id: "U1", profile: { email: "ada@example.com" } }], nextCursor: "c2" }
+          : { members: [{ id: "U2", profile: {} }] },
+      replies: async () => ({ messages: [] }),
+      workspaceUrl: async () => "https://acme.slack.com",
+    };
+    const result = unwrap(await fetchSlackMembers({ api, fetchedAtIso: AT }));
+    expect(result.rows.map((r) => r.sourceId)).toEqual(["U1", "U2"]);
+    expect(result.warnings).toEqual(["no email — set the users:read.email scope for cross-source linking"]);
   });
 });

@@ -17,6 +17,9 @@ import { isRecord } from "../../lib/parsers.js";
 import { createRateScheduler, type RateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
 import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
+import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
+import { aggregateMemberWarnings } from "../members/project.js";
+import type { MemberBronzeRow } from "../members/types.js";
 import type { ExportWindow } from "../types.js";
 import type { LinearCommentItem, LinearIssueItem, LinearProjectItem } from "./project.js";
 
@@ -65,6 +68,15 @@ query Projects($filter: ProjectFilter, $first: Int!, $after: String) {
   }
 }`;
 
+/** Enumerate every org member (incl. archived — flagged inactive, not dropped) with the full profile + email. */
+const USERS_QUERY = `
+query Users($first: Int!, $after: String) {
+  users(first: $first, after: $after, includeArchived: true) {
+    nodes { id name displayName email avatarUrl active admin guest timezone teams { nodes { id key name } } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
 /** A page of shaped issues from the seam. */
 export interface LinearIssuesPage {
   readonly issues: readonly LinearIssueItem[];
@@ -77,10 +89,17 @@ export interface LinearProjectsPage {
   readonly nextCursor?: string;
 }
 
+/** A page of raw Linear user nodes from the seam (projected to member rows by {@link fetchLinearMembers}). */
+export interface LinearUsersPage {
+  readonly nodes: readonly unknown[];
+  readonly nextCursor?: string;
+}
+
 /** Injected Linear seam — returns fully-resolved shaped items so `fetchLinearActivity` needs no live SDK. */
 export interface LinearApi {
   issues: (args: { since: string; cursor?: string }) => Promise<LinearIssuesPage>;
   projects: (args: { since: string; cursor?: string }) => Promise<LinearProjectsPage>;
+  users: (args: { cursor?: string }) => Promise<LinearUsersPage>;
 }
 
 /** The raw GraphQL transport seam: one inline query → its `data`. Production uses the SDK's rawRequest. */
@@ -123,6 +142,107 @@ export async function fetchLinearActivity({
 /** A non-empty string field, or undefined. */
 function str({ value }: { value: unknown }): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** The team keys off a user node's `teams` connection (skips key-less teams). Pure. */
+function linearTeamKeys({ connection }: { connection: unknown }): readonly string[] {
+  if (!isRecord(connection) || !Array.isArray(connection["nodes"])) {
+    return [];
+  }
+  return connection["nodes"]
+    .map((node) => (isRecord(node) ? str({ value: node["key"] }) : undefined))
+    .filter((key): key is string => key !== undefined);
+}
+
+/**
+ * Project one raw Linear `users` GraphQL node into a {@link MemberBronzeRow} — id + email (always present
+ * for real users) + display name + timezone/avatar/teams/active/admin/guest, keeping the full raw node.
+ * Pure — undefined for an id-less node.
+ *
+ * @param node the raw user node
+ * @param fetchedAtIso the hydration timestamp
+ * @returns the member row, or `undefined`
+ */
+export function parseLinearUserNode({
+  node,
+  fetchedAtIso,
+}: {
+  node: unknown;
+  fetchedAtIso: string;
+}): MemberBronzeRow | undefined {
+  if (!isRecord(node)) {
+    return undefined;
+  }
+  const id = str({ value: node["id"] });
+  if (id === undefined) {
+    return undefined;
+  }
+  const displayNameVal = str({ value: node["displayName"] });
+  const name = str({ value: node["name"] }) ?? displayNameVal;
+  const email = str({ value: node["email"] });
+  const timezone = str({ value: node["timezone"] });
+  const avatarUrl = str({ value: node["avatarUrl"] });
+  const teams = linearTeamKeys({ connection: node["teams"] });
+  return {
+    fetchedAtIso,
+    identity: buildMemberIdentity({
+      nativeId: id,
+      source: "linear",
+      ...(displayNameVal !== undefined ? { handle: displayNameVal } : {}),
+      ...(name !== undefined ? { name } : {}),
+      ...(email !== undefined ? { email } : {}),
+    }),
+    profile: {
+      active: node["active"] !== false,
+      bot: false,
+      ...(node["admin"] === true ? { admin: true } : {}),
+      ...(node["guest"] === true ? { guest: true } : {}),
+      ...(timezone !== undefined ? { timezone } : {}),
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+      ...(teams.length > 0 ? { teams } : {}),
+    },
+    provenance: ["linear.users"],
+    raw: node,
+    source: "linear",
+    sourceId: id,
+    version: 1,
+    warnings: email === undefined ? ["no email on Linear user"] : [],
+  };
+}
+
+/**
+ * Hydrate every Linear org member (the `users` lane, paged), projecting each node + finalising trust across
+ * the org. A failure is fatal (`err`) after the transport's retry budget.
+ *
+ * @param api the injected Linear seam
+ * @param fetchedAtIso the hydration timestamp
+ * @returns the member rows + warnings, or `err` on a fatal failure
+ */
+export async function fetchLinearMembers({
+  api,
+  fetchedAtIso,
+}: {
+  api: LinearApi;
+  fetchedAtIso: string;
+}): Promise<Result<{ rows: readonly MemberBronzeRow[]; warnings: readonly string[] }>> {
+  const rows: MemberBronzeRow[] = [];
+  try {
+    let cursor: string | undefined;
+    do {
+      const page = await api.users(cursor !== undefined ? { cursor } : {});
+      for (const node of page.nodes) {
+        const row = parseLinearUserNode({ fetchedAtIso, node });
+        if (row !== undefined) {
+          rows.push(row);
+        }
+      }
+      cursor = page.nextCursor;
+    } while (cursor !== undefined && cursor.length > 0);
+  } catch (error: unknown) {
+    return err([`linear member hydration failed: ${error instanceof Error ? error.message : "unknown"}`]);
+  }
+  const finalised = finaliseMemberTrust({ rows });
+  return ok({ rows: finalised, warnings: aggregateMemberWarnings({ rows: finalised }) });
 }
 
 /** A required string field parsed from an external node: the string, or "" when absent (honest sentinel). */
@@ -434,5 +554,26 @@ export function makeLinearApi({
       const data = await call({ query: PROJECTS_QUERY, variables: pageQueryVariables({ cursor, since }) });
       return shapeProjectsPage({ data });
     },
+    users: async ({ cursor }) => {
+      const data = await call({
+        query: USERS_QUERY,
+        variables: { first: PAGE_SIZE, ...(cursor !== undefined ? { after: cursor } : {}) },
+      });
+      return shapeUsersPage({ data });
+    },
   };
+}
+
+/**
+ * Shape one raw `users` GraphQL response into raw user nodes + the next cursor. Pure — projection to member
+ * rows stays in {@link fetchLinearMembers} so the transport is testable apart from the node parse.
+ *
+ * @param data the raw GraphQL `data`
+ * @returns the raw user nodes + next cursor
+ */
+export function shapeUsersPage({ data }: { data: unknown }): LinearUsersPage {
+  const connection = isRecord(data) ? data["users"] : undefined;
+  const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
+  const info = pageInfoOf({ connection });
+  return { nodes, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
 }

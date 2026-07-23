@@ -212,8 +212,16 @@ export function makeGithubFetchItems(deps: FetchItemsDeps): FetchGithubItems {
 
 const ResilientOctokit = Octokit.plugin(retry, throttling);
 
-/** A retry- + throttle-resilient client bound to `token` (undefined ⇒ unauthenticated, public only). */
-function makeClient({ token }: { token: string | undefined }): InstanceType<typeof ResilientOctokit> {
+/** A retry- + throttle-resilient octokit client (shared by the item lane + the member lane). */
+export type GithubClient = InstanceType<typeof ResilientOctokit>;
+
+/**
+ * A retry- + throttle-resilient client bound to `token` (undefined ⇒ unauthenticated, public only).
+ *
+ * @param token the GitHub token (undefined ⇒ unauthenticated)
+ * @returns the resilient octokit client
+ */
+export function makeGithubClient({ token }: { token: string | undefined }): GithubClient {
   return new ResilientOctokit({
     auth: token,
     throttle: {
@@ -240,7 +248,7 @@ export function githubFetchItems({
   enrich?: boolean;
   onProgress?: FetchProgress;
 }): FetchGithubItems {
-  const client = makeClient({ token });
+  const client = makeGithubClient({ token });
   const searchIssues: SearchIssues = async (args) => {
     const res = await client.rest.search.issuesAndPullRequests({
       order: args.order,

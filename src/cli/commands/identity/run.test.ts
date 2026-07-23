@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { MemberBronzeRow } from "../../../corpus/members/types.js";
 import type { CorpusRecord } from "../../../corpus/types.js";
 import type { IdentityRecord } from "../../../silver/identity.js";
 import { EXIT_EXPECTED_EMPTY, EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
@@ -37,15 +38,18 @@ const ROSTER: readonly IdentityRecord[] = [
 function fakeDeps({
   records = RECORDS,
   roster = ROSTER,
+  members = [],
 }: {
   records?: readonly CorpusRecord[];
   roster?: readonly IdentityRecord[];
+  members?: readonly MemberBronzeRow[];
 } = {}): { deps: IdentityDeps; out: string[]; err: string[]; loads: () => number } {
   const out: string[] = [];
   const err: string[] = [];
   let loads = 0;
   const deps: IdentityDeps = {
     home: () => "/home",
+    loadMembers: () => ({ rows: members, warnings: [] }),
     loadRecords: () => {
       loads += 1;
       return { records, warnings: [] };
@@ -134,5 +138,43 @@ describe("identity resolve", () => {
     const code = runIdentityResolveWithDeps({ argv: argv(["resolve", "ada"]), deps });
     expect(code).toBe(EXIT_OK);
     expect(out[0]).toBe("person:github:ada  [single-source]  ada");
+  });
+});
+
+/** A trusted member row (a real personal email) for a source/id. */
+function memberRow({
+  source,
+  nativeId,
+  email,
+}: {
+  source: MemberBronzeRow["source"];
+  nativeId: string;
+  email: string;
+}): MemberBronzeRow {
+  return {
+    fetchedAtIso: "2026-07-20T00:00:00.000Z",
+    identity: { email, emailNormalised: email.toLowerCase(), emailTrust: "trusted", name: nativeId, nativeId, source },
+    profile: { active: true, bot: false },
+    provenance: [`${source}.users`],
+    raw: {},
+    source,
+    sourceId: nativeId,
+    version: 1,
+    warnings: [],
+  };
+}
+
+describe("identity show unifies teammates from hydrated members (PR4.1, no prior derive)", () => {
+  it("merges two sources by a shared member email, with NO roster entry", () => {
+    const members = [
+      memberRow({ email: "grace@example.com", nativeId: "U9", source: "slack" }),
+      memberRow({ email: "grace@example.com", nativeId: "grace", source: "github" }),
+    ];
+    const { deps, out } = fakeDeps({ members, records: [], roster: [] });
+    const code = runIdentityShowWithDeps({ argv: argv(["show", "U9", "--json"]), deps });
+    expect(code).toBe(EXIT_OK);
+    const person = JSON.parse(out.join("\n")) as { confidence: string; identities: readonly { source: string }[] };
+    expect(person.confidence).toBe("email");
+    expect(person.identities.map((i) => i.source).toSorted()).toEqual(["github", "slack"]);
   });
 });

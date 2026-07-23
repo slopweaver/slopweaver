@@ -2,8 +2,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bronzeFile, silverIdentitiesPath } from "../../../corpus/corpusPaths.js";
+import { bronzeFile, silverIdentitiesPath, silverPeoplePath } from "../../../corpus/corpusPaths.js";
+import { writeMemberRows } from "../../../corpus/members/store.js";
+import type { MemberBronzeRow } from "../../../corpus/members/types.js";
 import type { CorpusRecord } from "../../../corpus/types.js";
+import { unwrap } from "../../../lib/result.js";
 import { stateHomePaths } from "../../../stateHome.js";
 import { EXIT_OK } from "../../exitCodes.js";
 import { runDeriveWithDeps } from "./run.js";
@@ -99,5 +102,61 @@ describe("runDeriveWithDeps — identity resolution", () => {
     const code = runDeriveWithDeps({ argv: ["x", "y", "derive", "--home", home, "--dry-run"], sink: () => {} });
     expect(code).toBe(EXIT_OK);
     expect(existsSync(silverIdentitiesPath({ home }))).toBe(false);
+  });
+});
+
+/** A trusted member row for a source/id (a real personal email — the resolver's join key). */
+function memberRow({
+  source,
+  nativeId,
+  email,
+}: {
+  source: MemberBronzeRow["source"];
+  nativeId: string;
+  email: string;
+}): MemberBronzeRow {
+  return {
+    fetchedAtIso: "2026-07-20T00:00:00.000Z",
+    identity: { email, emailNormalised: email.toLowerCase(), emailTrust: "trusted", name: nativeId, nativeId, source },
+    profile: { active: true, bot: false },
+    provenance: [`${source}.users`],
+    raw: { id: nativeId },
+    source,
+    sourceId: nativeId,
+    version: 1,
+    warnings: [],
+  };
+}
+
+describe("runDeriveWithDeps — member hydration feed (PR4.1)", () => {
+  it("reads member bronze, auto-links the team by email with NO roster, and writes people.json", () => {
+    const home = seedHome({});
+    unwrap(
+      writeMemberRows({
+        home,
+        rows: [memberRow({ email: "ada@example.com", nativeId: "U1", source: "slack" })],
+        source: "slack",
+      }),
+    );
+    unwrap(
+      writeMemberRows({
+        home,
+        rows: [memberRow({ email: "ada@example.com", nativeId: "ada", source: "github" })],
+        source: "github",
+      }),
+    );
+
+    const code = runDeriveWithDeps({ argv: ["x", "y", "derive", "--home", home], sink: () => {} });
+    expect(code).toBe(EXIT_OK);
+
+    const people = (
+      JSON.parse(readFileSync(silverPeoplePath({ home }), "utf8")) as {
+        people: { confidence: string; emails: { value: string }[]; identities: { source: string }[] }[];
+      }
+    ).people;
+    expect(people).toHaveLength(1);
+    expect(people[0]!.confidence).toBe("email");
+    expect(people[0]!.identities.map((i) => i.source).toSorted()).toEqual(["github", "slack"]);
+    expect(people[0]!.emails).toEqual([{ sources: ["github", "slack"], trust: "trusted", value: "ada@example.com" }]);
   });
 });

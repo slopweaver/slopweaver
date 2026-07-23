@@ -13,6 +13,9 @@ import { isRecord } from "../../lib/parsers.js";
 import { createRateScheduler, retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
 import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
+import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
+import { aggregateMemberWarnings } from "../members/project.js";
+import type { MemberBronzeRow } from "../members/types.js";
 import type { ExportWindow } from "../types.js";
 import type { NotionCommentItem, NotionDatabaseItem, NotionPageItem } from "./project.js";
 
@@ -40,10 +43,17 @@ export interface NotionDatabasesPage {
   readonly nextCursor?: string;
 }
 
+/** A page of raw Notion user objects from `users.list` (projected to member rows by {@link fetchNotionMembers}). */
+export interface NotionUsersPage {
+  readonly results: readonly unknown[];
+  readonly nextCursor?: string;
+}
+
 /** Injected Notion seam — returns fully-shaped items so tests need no live SDK. */
 export interface NotionApi {
   pages: (args: { since: string; cursor?: string }) => Promise<NotionPagesPage>;
   databases: (args: { since: string; cursor?: string }) => Promise<NotionDatabasesPage>;
+  users: (args: { cursor?: string }) => Promise<NotionUsersPage>;
 }
 
 /**
@@ -563,6 +573,90 @@ export function projectRowItem({
   };
 }
 
+/** A non-empty string field off a raw object, else undefined. */
+function notionStr({ value }: { value: unknown }): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Project one raw Notion `users.list` object into a {@link MemberBronzeRow}. Email is captured ONLY for a
+ * `type === "person"` (bots have none) AND only when the integration's user-email capability granted it
+ * (else a warning + `missing` trust — never a guessed email). The full raw user is kept. Pure.
+ *
+ * @param raw the raw user object
+ * @param fetchedAtIso the hydration timestamp
+ * @returns the member row, or `undefined` when id-less
+ */
+export function projectNotionUser({
+  raw,
+  fetchedAtIso,
+}: {
+  raw: unknown;
+  fetchedAtIso: string;
+}): MemberBronzeRow | undefined {
+  const id = isRecord(raw) ? notionStr({ value: raw["id"] }) : undefined;
+  if (!isRecord(raw) || id === undefined) {
+    return undefined;
+  }
+  const isBot = raw["type"] === "bot";
+  const person = isRecord(raw["person"]) ? raw["person"] : {};
+  const email = isBot ? undefined : notionStr({ value: person["email"] });
+  const name = notionStr({ value: raw["name"] });
+  const avatarUrl = notionStr({ value: raw["avatar_url"] });
+  return {
+    fetchedAtIso,
+    identity: buildMemberIdentity({
+      nativeId: id,
+      source: "notion",
+      ...(name !== undefined ? { name } : {}),
+      ...(email !== undefined ? { email } : {}),
+    }),
+    profile: { bot: isBot, ...(avatarUrl !== undefined ? { avatarUrl } : {}) },
+    provenance: ["notion.users.list"],
+    raw,
+    source: "notion",
+    sourceId: id,
+    version: 1,
+    warnings:
+      !isBot && email === undefined ? ["no email — the Notion integration lacks the read-user-email capability"] : [],
+  };
+}
+
+/**
+ * Hydrate every Notion workspace member (`users.list`, paged), projecting each + finalising trust. A
+ * failure is fatal (`err`).
+ *
+ * @param api the injected Notion seam
+ * @param fetchedAtIso the hydration timestamp
+ * @returns the member rows + warnings, or `err` on a fatal failure
+ */
+export async function fetchNotionMembers({
+  api,
+  fetchedAtIso,
+}: {
+  api: NotionApi;
+  fetchedAtIso: string;
+}): Promise<Result<{ rows: readonly MemberBronzeRow[]; warnings: readonly string[] }>> {
+  const rows: MemberBronzeRow[] = [];
+  try {
+    let cursor: string | undefined;
+    do {
+      const page = await api.users(cursor !== undefined ? { cursor } : {});
+      for (const raw of page.results) {
+        const row = projectNotionUser({ fetchedAtIso, raw });
+        if (row !== undefined) {
+          rows.push(row);
+        }
+      }
+      cursor = page.nextCursor;
+    } while (cursor !== undefined && cursor.length > 0);
+  } catch (error: unknown) {
+    return err([`notion member hydration failed: ${error instanceof Error ? error.message : "unknown"}`]);
+  }
+  const finalised = finaliseMemberTrust({ rows });
+  return ok({ rows: finalised, warnings: aggregateMemberWarnings({ rows: finalised }) });
+}
+
 /** Project a raw Notion comment into a comment item (its rich text rendered). Pure; undefined if id-less. */
 export function projectCommentItem({ raw }: { raw: unknown }): NotionCommentItem | undefined {
   if (!isRecord(raw) || typeof raw["id"] !== "string") {
@@ -694,10 +788,31 @@ function notionPagesMethod({ client, call }: { client: Client; call: GatedCall }
   };
 }
 
+/** The live `users.list` seam method: one page of raw workspace members — the sole `client.users` boundary. */
+function notionUsersMethod({ client, call }: { client: Client; call: GatedCall }): NotionApi["users"] {
+  return async ({ cursor }) => {
+    const res = orThrow({
+      result: await safeApiCall({
+        execute: () =>
+          call(() =>
+            client.users.list({
+              page_size: PAGE_SIZE,
+              ...(cursor !== undefined ? { start_cursor: cursor } : {}),
+            }),
+          ),
+        operation: "notion.users.list",
+        provider: "notion",
+      }),
+    });
+    const next = notionNextCursor({ value: res.next_cursor });
+    return { results: res.results, ...(next !== undefined ? { nextCursor: next } : {}) };
+  };
+}
+
 /**
  * Build the production Notion seam over a live `Client`. Search discovery, recursive block rendering,
- * chunking, comment fetches, AND data-source row queries — every call gated through ONE shared rate
- * scheduler (~3 req/s) + transient retry so a big recursive crawl never self-429s.
+ * chunking, comment fetches, data-source row queries, AND member hydration — every call gated through ONE
+ * shared rate scheduler (~3 req/s) + transient retry so a big recursive crawl never self-429s.
  *
  * @param token the Notion integration token
  * @returns the live Notion seam
@@ -708,5 +823,9 @@ export function makeNotionApi({ token }: { token: string }): NotionApi {
   // One shared runner: transient-retried AND rate-paced. Retry is OUTSIDE the gate so each attempt (incl. a
   // post-429 retry) re-acquires a rate slot — gating only the first try would let retries burst past the cap.
   const call: GatedCall = (task) => retryTransient({ operation: () => gate(task) });
-  return { databases: notionDatabasesMethod({ call, client }), pages: notionPagesMethod({ call, client }) };
+  return {
+    databases: notionDatabasesMethod({ call, client }),
+    pages: notionPagesMethod({ call, client }),
+    users: notionUsersMethod({ call, client }),
+  };
 }

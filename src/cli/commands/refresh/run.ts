@@ -53,6 +53,12 @@ import {
   summariseRefreshResults,
   type TokenedSource,
 } from "./core.js";
+import {
+  hydrateOneSource,
+  type MemberHydrationResult,
+  type MemberTokens,
+  summariseMemberHydration,
+} from "./members.js";
 
 const USAGE =
   "usage: slopweaver refresh [--repo owner/repo] [--source github|slack|linear|notion]... [--all-sources] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all] [--slack-channel <id>]... [--lookback-days N] [--no-enrich]";
@@ -160,6 +166,13 @@ export interface RefreshDeps {
   readonly buildSourceJob: typeof sourceJob;
   readonly readWatermark: (args: { home: string; source: CorpusSource }) => string | undefined;
   readonly ingestSources: typeof ingestSources;
+  /** Member hydration for ONE source (PR4.1) — optional so pre-PR4.1 refresh tests need no extra seam. */
+  readonly hydrateMember?: (args: {
+    source: CorpusSource;
+    home: string;
+    fetchedAtIso: string;
+    repoSlug?: string;
+  }) => Promise<MemberHydrationResult | undefined>;
   readonly logger: {
     out: (m: string) => void;
     warn: (m: string) => void;
@@ -342,7 +355,54 @@ export async function runRefreshWithDeps({
   for (const line of summary.lines) {
     deps.logger[line.level](line.text);
   }
+  await hydrateMembersStep({ deps, fetchedAtIso: deps.nowDate().toISOString(), home, options, sources });
   return refreshExitCode({ anyFailed: summary.anyFailed, totalWritten: summary.totalWritten });
+}
+
+/**
+ * Hydrate each selected source's members after activity ingest, emitting non-blocking `members:<source>`
+ * progress and folding the results into the summary. Hydration is WARNING-only — it never changes the
+ * refresh exit code. A no-op when the member seam isn't injected (pre-PR4.1 test decks).
+ */
+async function hydrateMembersStep({
+  deps,
+  sources,
+  home,
+  options,
+  fetchedAtIso,
+}: {
+  deps: RefreshDeps;
+  sources: readonly CorpusSource[];
+  home: string;
+  options: RefreshOptions;
+  fetchedAtIso: string;
+}): Promise<void> {
+  if (deps.hydrateMember === undefined) {
+    return;
+  }
+  const results: MemberHydrationResult[] = [];
+  for (const [index, source] of sources.entries()) {
+    deps.onProgress?.({ done: index, label: source, phase: "members", total: sources.length });
+    const result = await deps.hydrateMember({
+      fetchedAtIso,
+      home,
+      source,
+      ...(options.repo !== undefined ? { repoSlug: options.repo } : {}),
+    });
+    if (result !== undefined) {
+      results.push(result);
+    }
+    deps.onProgress?.({
+      done: index + 1,
+      label: source,
+      phase: "members",
+      total: sources.length,
+      ...(result !== undefined ? { written: result.written } : {}),
+    });
+  }
+  for (const line of summariseMemberHydration({ results })) {
+    deps.logger[line.level](line.text);
+  }
 }
 
 /** Production dependencies for {@link runRefreshWithDeps} (real token reads, connector factories, ingest). */
@@ -352,6 +412,26 @@ function productionRefreshDeps(): RefreshDeps {
     buildGithubJob: githubJob,
     buildSourceJob: sourceJob,
     home: slopweaverHome,
+    hydrateMember: async ({ source, home, fetchedAtIso, repoSlug }) => {
+      const repo = repoSlug !== undefined ? parseRepositorySlug({ slug: repoSlug }) : resolveRepository();
+      const github = githubToken();
+      const linear = linearToken();
+      const notion = notionToken();
+      const slack = slackReadToken().token;
+      const tokens: MemberTokens = {
+        ...(github !== undefined ? { github } : {}),
+        ...(linear !== undefined ? { linear } : {}),
+        ...(notion !== undefined ? { notion } : {}),
+        ...(slack !== undefined ? { slack } : {}),
+      };
+      return hydrateOneSource({
+        fetchedAtIso,
+        home,
+        source,
+        tokens,
+        ...(repo.ok ? { githubOrg: repo.value.owner } : {}),
+      });
+    },
     ingestSources,
     logger: {
       error: (m) => {
