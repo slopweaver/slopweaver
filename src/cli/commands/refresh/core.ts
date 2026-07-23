@@ -34,6 +34,18 @@ export interface RefreshOptions {
   readonly until?: string;
   readonly lookbackDays?: number;
   readonly home?: string;
+  /** GitHub ORG MODE opt-in: fan the per-repo pipeline over every org repo (else single-repo, unchanged). */
+  readonly allRepos: boolean;
+  /** The org to enumerate in org mode (else derived from `--repo` owner / the current remote owner). */
+  readonly githubOrg?: string;
+  /** Repo include globs (empty ⇒ all org repos). */
+  readonly includeRepos: readonly string[];
+  /** Repo exclude globs. */
+  readonly excludeRepos: readonly string[];
+  /** Max org repos to ingest activity for (the scale guard; undefined ⇒ no cap). */
+  readonly repoCap?: number;
+  /** Max active Slack channels to resolve membership for (the per-channel scale guard). */
+  readonly slackMembershipCap?: number;
 }
 
 /**
@@ -72,25 +84,36 @@ export function collectRepeated({ rest, flag }: { rest: readonly string[]; flag:
 export function parseRefreshOptions({ rest }: { rest: readonly string[] }): Result<RefreshOptions> {
   const afterSources = collectRepeated({ flag: "--source", rest });
   const afterChannels = collectRepeated({ flag: "--slack-channel", rest: afterSources.rest });
+  const afterInclude = collectRepeated({ flag: "--include-repo", rest: afterChannels.rest });
+  const afterExclude = collectRepeated({ flag: "--exclude-repo", rest: afterInclude.rest });
   const parsed = parseFlagTail({
-    rest: afterChannels.rest,
-    spec: { boolean: ["no-enrich", "all-sources", "all"], value: ["repo", "since", "until", "lookback-days", "home"] },
+    rest: afterExclude.rest,
+    spec: {
+      boolean: ["no-enrich", "all-sources", "all", "all-repos"],
+      value: ["repo", "since", "until", "lookback-days", "home", "github-org", "repo-cap", "slack-membership-cap"],
+    },
   });
   if (parsed.ok === false) {
     return err(parsed.errors);
   }
   const { values, flags } = parsed.value;
   const errors: string[] = [];
-  const lookbackDays =
-    values["lookback-days"] !== undefined
-      ? parsePositiveInteger({ errors, label: "--lookback-days", value: values["lookback-days"] })
-      : undefined;
+  const lookbackDays = optionalPositiveInt({ errors, label: "--lookback-days", value: values["lookback-days"] });
+  const repoCap = optionalPositiveInt({ errors, label: "--repo-cap", value: values["repo-cap"] });
+  const membershipCap = optionalPositiveInt({
+    errors,
+    label: "--slack-membership-cap",
+    value: values["slack-membership-cap"],
+  });
   if (errors.length > 0) {
     return err(errors);
   }
   return ok({
     all: flags.has("all"),
+    allRepos: flags.has("all-repos"),
     allSources: flags.has("all-sources"),
+    excludeRepos: afterExclude.values,
+    includeRepos: afterInclude.values,
     noEnrich: flags.has("no-enrich"),
     slackChannels: afterChannels.values,
     sources: afterSources.values,
@@ -99,7 +122,23 @@ export function parseRefreshOptions({ rest }: { rest: readonly string[] }): Resu
     ...(values["until"] !== undefined ? { until: values["until"] } : {}),
     ...(lookbackDays !== undefined ? { lookbackDays } : {}),
     ...(values["home"] !== undefined ? { home: values["home"] } : {}),
+    ...(values["github-org"] !== undefined ? { githubOrg: values["github-org"] } : {}),
+    ...(repoCap !== undefined ? { repoCap } : {}),
+    ...(membershipCap !== undefined ? { slackMembershipCap: membershipCap } : {}),
   });
+}
+
+/** Parse an optional positive-integer flag value (undefined stays undefined; a bad value pushes an error). Pure. */
+function optionalPositiveInt({
+  value,
+  label,
+  errors,
+}: {
+  value: string | undefined;
+  label: string;
+  errors: string[];
+}): number | undefined {
+  return value !== undefined ? parsePositiveInteger({ errors, label, value }) : undefined;
 }
 
 /**
@@ -151,6 +190,8 @@ export interface RefreshWindow {
  * @param all whether `--all` was set (epoch since)
  * @param lookbackDays the `--lookback-days` override, if any
  * @param readWatermark the per-source cursor reader (injected)
+ * @param orgMode whether GitHub org mode (`--all-repos`) is on — GitHub then IGNORES the per-source
+ *   watermark for the base window (the PER-REPO watermark governs resume), so the base is the lookback floor
  * @returns one window per source, in selection order
  */
 export function buildRefreshWindows({
@@ -161,6 +202,7 @@ export function buildRefreshWindows({
   all,
   lookbackDays,
   readWatermark,
+  orgMode = false,
 }: {
   sources: readonly CorpusSource[];
   home: string;
@@ -169,11 +211,15 @@ export function buildRefreshWindows({
   all: boolean;
   lookbackDays: number | undefined;
   readWatermark: (args: { home: string; source: CorpusSource }) => string | undefined;
+  orgMode?: boolean;
 }): readonly RefreshWindow[] {
   return sources.map((source) => {
     const lookback = lookbackDays ?? (source === "github" ? GITHUB_LOOKBACK_DAYS : SOURCE_LOOKBACK_DAYS);
     const fallbackSince = all ? EPOCH_SINCE : yyyyMmDdMinusDays({ date: until.slice(0, 10), days: lookback });
-    const since = sinceFlag ?? resolveSince({ cursor: readWatermark({ home, source }), fallbackSince });
+    const ignoreCursor = orgMode && source === "github";
+    const since =
+      sinceFlag ??
+      (ignoreCursor ? fallbackSince : resolveSince({ cursor: readWatermark({ home, source }), fallbackSince }));
     return { source, window: { since, until } };
   });
 }

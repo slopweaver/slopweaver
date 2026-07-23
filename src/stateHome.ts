@@ -37,6 +37,13 @@ export interface CorpusPaths {
    * (each a warning). Members are identity substrate, not activity, so they stay out of the record pipeline.
    */
   readonly members: string;
+  /**
+   * `$home/corpus/structures` — per-source structural (org/team/repo/channel/…) bronze, a SIBLING of
+   * `bronze` for the same reason as `members`: `readCorpusDir` recurses `bronze/` and would try to parse a
+   * structure row as a `CorpusRecord`. Structure is org scaffolding, not activity, so it stays out of the
+   * record pipeline (never embedded/ranked) and surfaces only into the silver directory/graph.
+   */
+  readonly structures: string;
   /** `$home/corpus/silver` — derived directory/graph/digests. */
   readonly silver: string;
   /** `$home/corpus/gold` — distilled markdown. */
@@ -45,6 +52,12 @@ export interface CorpusPaths {
   readonly cache: string;
   /** `$home/corpus/.watermark.json` — per-source incremental resume cursor. */
   readonly watermark: string;
+  /**
+   * `$home/corpus/.github-repos.watermark.json` — the PER-REPO GitHub org-mode cursor (`owner/repo` →
+   * cursor). Kept separate from the per-source watermark so one busy repo can't advance the whole org past
+   * quieter repos; the single-repo path never touches it.
+   */
+  readonly githubReposWatermark: string;
   /** `$home/corpus/.slack-threads.json` — per-thread last-seen reply cursor (incremental reply reads). */
   readonly slackThreads: string;
 }
@@ -87,11 +100,13 @@ export function stateHomePaths({ home = slopweaverHome() }: { home?: string } = 
     corpus: {
       bronze: join(corpusRoot, "bronze"),
       cache: join(corpusRoot, ".cache"),
+      githubReposWatermark: join(corpusRoot, ".github-repos.watermark.json"),
       gold: join(corpusRoot, "gold"),
       members: join(corpusRoot, "members"),
       root: corpusRoot,
       silver: join(corpusRoot, "silver"),
       slackThreads: join(corpusRoot, ".slack-threads.json"),
+      structures: join(corpusRoot, "structures"),
       watermark: join(corpusRoot, ".watermark.json"),
     },
     homeVersion: join(home, ".home-version.json"),

@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
+  # `edited`/`ready_for_review` included so the PR-format gate (which reads the PR BODY) re-runs when the
+  # description changes — not only on a code push. Without them a body-only fix can't clear a red gate.
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 
 jobs:
   build:

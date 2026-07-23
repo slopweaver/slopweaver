@@ -24,7 +24,10 @@ import {
 } from "../../../config.js";
 import { bronzeDir } from "../../../corpus/corpusPaths.js";
 import { githubFetchItems } from "../../../corpus/github/fetch.js";
+import { enumerateOrgRepos, makeGithubOrgApi } from "../../../corpus/github/org.js";
+import { fetchOrgActivity } from "../../../corpus/github/orgActivity.js";
 import { projectGithubRecords } from "../../../corpus/github/project.js";
+import { advanceGithubRepoWatermarks, readGithubRepoWatermarks } from "../../../corpus/github/repoWatermark.js";
 import { ingestSources, type SourceIngestJob } from "../../../corpus/ingestSource.js";
 import { fetchLinearActivity, makeLinearApi } from "../../../corpus/linear/fetch.js";
 import { projectLinearRecords } from "../../../corpus/linear/project.js";
@@ -59,9 +62,20 @@ import {
   type MemberTokens,
   summariseMemberHydration,
 } from "./members.js";
+import {
+  hydrateOneSourceStructures,
+  type StructureGithubOptions,
+  type StructureHydrationResult,
+  summariseStructureHydration,
+} from "./structures.js";
 
 const USAGE =
-  "usage: slopweaver refresh [--repo owner/repo] [--source github|slack|linear|notion]... [--all-sources] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all] [--slack-channel <id>]... [--lookback-days N] [--no-enrich]";
+  "usage: slopweaver refresh [--repo owner/repo] [--source github|slack|linear|notion]... [--all-sources] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all] [--slack-channel <id>]... [--lookback-days N] [--no-enrich] [--all-repos [--github-org <org>] [--include-repo <glob>]... [--exclude-repo <glob>]... [--repo-cap N]] [--slack-membership-cap N]";
+
+/** GitHub org-mode fan-out: at most this many repos fetched at once (the concurrency ceiling). */
+const ORG_CONCURRENCY = 3;
+/** GitHub org-mode fan-out: repo fetches STARTED per second (octokit's own throttle paces the inner calls). */
+const ORG_RATE_PER_SEC = 1;
 
 /** Build the GitHub ingest job (unchanged discovery+enrichment behaviour, wrapped as a source job). */
 function githubJob({
@@ -97,6 +111,110 @@ function githubJob({
     },
     source: "github",
     window,
+  });
+}
+
+/** Resolve the org to enumerate in org mode: `--github-org`, else `--repo` owner, else the current remote. */
+function resolveGithubOrg({ options }: { options: RefreshOptions }): Result<string> {
+  if (options.githubOrg !== undefined) {
+    return ok(options.githubOrg);
+  }
+  const repoResult = options.repo !== undefined ? parseRepositorySlug({ slug: options.repo }) : resolveRepository();
+  return repoResult.ok ? ok(repoResult.value.owner) : repoResult;
+}
+
+/** Progress hook fired as each org repo finishes its fetch (non-blocking). */
+type RepoProgress = (progress: { done: number; total: number }) => void;
+
+/**
+ * Build the GitHub ORG-MODE ingest job (`--all-repos`): enumerate + select the org's repos, fan the existing
+ * per-repo pipeline over them (concurrency-capped + rate-paced), and resume each from its own per-repo
+ * watermark. A repo-enumeration failure fails the job; one repo's fetch failure is a warning, never fatal.
+ */
+function githubOrgJob({
+  options,
+  window,
+  home,
+  onRepoProgress,
+}: {
+  options: RefreshOptions;
+  window: ExportWindow;
+  home: string;
+  onRepoProgress?: RepoProgress;
+}): Result<SourceIngestJob> {
+  const orgResult = resolveGithubOrg({ options });
+  if (orgResult.ok === false) {
+    return orgResult;
+  }
+  const org = orgResult.value;
+  const token = githubToken();
+  const enrich = !options.noEnrich && token !== undefined;
+  if (token === undefined) {
+    logger.warn("no GitHub auth (set GITHUB_TOKEN or run `gh auth login`) — org mode limited to public repos");
+  }
+  return ok({
+    label: `org:${org} (all-repos)`,
+    run: () =>
+      runGithubOrgActivity({
+        enrich,
+        home,
+        options,
+        org,
+        window,
+        ...(token !== undefined ? { token } : {}),
+        ...(onRepoProgress !== undefined ? { onRepoProgress } : {}),
+      }),
+    source: "github",
+    window,
+  });
+}
+
+/** Enumerate the org's repos then fan the per-repo pipeline over them, advancing each repo's own watermark. */
+async function runGithubOrgActivity({
+  org,
+  options,
+  window,
+  home,
+  enrich,
+  token,
+  onRepoProgress,
+}: {
+  org: string;
+  options: RefreshOptions;
+  window: ExportWindow;
+  home: string;
+  enrich: boolean;
+  token?: string;
+  onRepoProgress?: RepoProgress;
+}): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> {
+  const enumerated = await enumerateOrgRepos({
+    api: makeGithubOrgApi({ token }),
+    cap: options.repoCap,
+    exclude: options.excludeRepos,
+    include: options.includeRepos,
+    org,
+  });
+  if (enumerated.ok === false) {
+    return enumerated;
+  }
+  const activity = await fetchOrgActivity({
+    concurrency: ORG_CONCURRENCY,
+    fetchItems: githubFetchItems({ enrich, ...(token !== undefined ? { token } : {}) }),
+    ratePerSec: ORG_RATE_PER_SEC,
+    repoCursors: readGithubRepoWatermarks({ home }),
+    repos: enumerated.value.repos,
+    window,
+    ...(onRepoProgress !== undefined ? { onProgress: onRepoProgress } : {}),
+  });
+  const advanced = advanceGithubRepoWatermarks({ advances: activity.advances, home });
+  return ok({
+    records: activity.records,
+    warnings: [
+      ...enumerated.value.warnings,
+      `github org mode: ${String(enumerated.value.repos.length)} repo(s) selected`,
+      ...activity.warnings,
+      ...(advanced.ok ? [] : advanced.errors.map((e) => `per-repo watermark persist failed: ${e}`)),
+    ],
   });
 }
 
@@ -156,6 +274,39 @@ function resolveTokens(): Readonly<Partial<Record<TokenedSource, string | undefi
   return { linear: linearToken(), notion: notionToken(), slack: slackReadToken().token };
 }
 
+/** All four sources' tokens (present ones only) — the member/structure hydration lanes' token bag. */
+function allSourceTokens(): MemberTokens {
+  const github = githubToken();
+  const linear = linearToken();
+  const notion = notionToken();
+  const slack = slackReadToken().token;
+  return {
+    ...(github !== undefined ? { github } : {}),
+    ...(linear !== undefined ? { linear } : {}),
+    ...(notion !== undefined ? { notion } : {}),
+    ...(slack !== undefined ? { slack } : {}),
+  };
+}
+
+/** The GitHub structural selection (only in org mode, when the org resolves) — else no GitHub structure. */
+function githubStructureOptions({ options }: { options: RefreshOptions }): { github?: StructureGithubOptions } {
+  if (!options.allRepos) {
+    return {};
+  }
+  const org = resolveGithubOrg({ options });
+  if (org.ok === false) {
+    return {};
+  }
+  return {
+    github: {
+      excludeRepos: options.excludeRepos,
+      includeRepos: options.includeRepos,
+      org: org.value,
+      ...(options.repoCap !== undefined ? { repoCap: options.repoCap } : {}),
+    },
+  };
+}
+
 /** The injectable effectful seams the `refresh` shell composes (fakes in tests, production in {@link runRefresh}). */
 export interface RefreshDeps {
   readonly nowDate: () => Date;
@@ -163,6 +314,8 @@ export interface RefreshDeps {
   readonly resolveTokens: () => Readonly<Partial<Record<TokenedSource, string | undefined>>>;
   readonly slackReadToken: () => { token?: string; warning?: string };
   readonly buildGithubJob: typeof githubJob;
+  /** GitHub ORG-MODE job builder (PR4.2) — optional so pre-PR4.2 test decks need no extra seam. */
+  readonly buildGithubOrgJob?: typeof githubOrgJob;
   readonly buildSourceJob: typeof sourceJob;
   readonly readWatermark: (args: { home: string; source: CorpusSource }) => string | undefined;
   readonly ingestSources: typeof ingestSources;
@@ -173,6 +326,13 @@ export interface RefreshDeps {
     fetchedAtIso: string;
     repoSlug?: string;
   }) => Promise<MemberHydrationResult | undefined>;
+  /** Structural hydration for ONE source (PR4.2) — optional so pre-PR4.2 test decks need no extra seam. */
+  readonly hydrateStructure?: (args: {
+    source: CorpusSource;
+    home: string;
+    fetchedAtIso: string;
+    options: RefreshOptions;
+  }) => Promise<StructureHydrationResult | undefined>;
   readonly logger: {
     out: (m: string) => void;
     warn: (m: string) => void;
@@ -201,7 +361,7 @@ function buildOneSourceJob({
   deps: RefreshDeps;
 }): Result<SourceIngestJob | undefined> {
   if (source === "github") {
-    return deps.buildGithubJob({ noEnrich: options.noEnrich, repoSlug: options.repo, window });
+    return buildGithubSourceJob({ deps, home, options, window });
   }
   if (source === "gold") {
     return ok(undefined); // `gold` is synthetic and never fetched — narrows source to TokenedSource below.
@@ -212,6 +372,29 @@ function buildOneSourceJob({
   }
   const token = source === "slack" ? read!.token! : deps.resolveTokens()[source]!;
   return ok(deps.buildSourceJob({ home, slackChannels: options.slackChannels, source, token, window }));
+}
+
+/** Build the GitHub ingest job: the org-mode fan-out when `--all-repos` (+ seam), else the single-repo job. */
+function buildGithubSourceJob({
+  options,
+  window,
+  home,
+  deps,
+}: {
+  options: RefreshOptions;
+  window: RefreshWindow["window"];
+  home: string;
+  deps: RefreshDeps;
+}): Result<SourceIngestJob> {
+  if (!options.allRepos || deps.buildGithubOrgJob === undefined) {
+    return deps.buildGithubJob({ noEnrich: options.noEnrich, repoSlug: options.repo, window });
+  }
+  const onRepoProgress =
+    deps.onProgress !== undefined
+      ? ({ done, total }: { done: number; total: number }) =>
+          deps.onProgress?.({ done, label: "org repos", phase: "github.repos", total })
+      : undefined;
+  return deps.buildGithubOrgJob({ home, options, window, ...(onRepoProgress !== undefined ? { onRepoProgress } : {}) });
 }
 
 /** Build the ordered source jobs (effectful factories) + emit each window line; a GitHub repo error stops it. */
@@ -326,6 +509,7 @@ export async function runRefreshWithDeps({
     all: options.all,
     home,
     lookbackDays: options.lookbackDays,
+    orgMode: options.allRepos,
     readWatermark: deps.readWatermark,
     sinceFlag: options.since,
     sources,
@@ -355,7 +539,9 @@ export async function runRefreshWithDeps({
   for (const line of summary.lines) {
     deps.logger[line.level](line.text);
   }
-  await hydrateMembersStep({ deps, fetchedAtIso: deps.nowDate().toISOString(), home, options, sources });
+  const fetchedAtIso = deps.nowDate().toISOString();
+  await hydrateMembersStep({ deps, fetchedAtIso, home, options, sources });
+  await hydrateStructuresStep({ deps, fetchedAtIso, home, options, sources });
   return refreshExitCode({ anyFailed: summary.anyFailed, totalWritten: summary.totalWritten });
 }
 
@@ -405,33 +591,101 @@ async function hydrateMembersStep({
   }
 }
 
+/**
+ * Hydrate each selected source's STRUCTURE after activity + member hydration, emitting non-blocking
+ * `structures:<source>` progress and folding the results into the summary. Structural hydration is
+ * WARNING-only — it never changes the refresh exit code. A no-op when the seam isn't injected.
+ */
+async function hydrateStructuresStep({
+  deps,
+  sources,
+  home,
+  options,
+  fetchedAtIso,
+}: {
+  deps: RefreshDeps;
+  sources: readonly CorpusSource[];
+  home: string;
+  options: RefreshOptions;
+  fetchedAtIso: string;
+}): Promise<void> {
+  if (deps.hydrateStructure === undefined) {
+    return;
+  }
+  const results: StructureHydrationResult[] = [];
+  for (const [index, source] of sources.entries()) {
+    deps.onProgress?.({ done: index, label: source, phase: "structures", total: sources.length });
+    const result = await deps.hydrateStructure({ fetchedAtIso, home, options, source });
+    if (result !== undefined) {
+      results.push(result);
+    }
+    deps.onProgress?.({
+      done: index + 1,
+      label: source,
+      phase: "structures",
+      total: sources.length,
+      ...(result !== undefined ? { written: result.written } : {}),
+    });
+  }
+  for (const line of summariseStructureHydration({ results })) {
+    deps.logger[line.level](line.text);
+  }
+}
+
+/** Production member hydration for ONE source (real token reads + the resolved org). */
+async function productionHydrateMember({
+  source,
+  home,
+  fetchedAtIso,
+  repoSlug,
+}: {
+  source: CorpusSource;
+  home: string;
+  fetchedAtIso: string;
+  repoSlug?: string;
+}): Promise<MemberHydrationResult | undefined> {
+  const repo = repoSlug !== undefined ? parseRepositorySlug({ slug: repoSlug }) : resolveRepository();
+  return hydrateOneSource({
+    fetchedAtIso,
+    home,
+    source,
+    tokens: allSourceTokens(),
+    ...(repo.ok ? { githubOrg: repo.value.owner } : {}),
+  });
+}
+
+/** Production structural hydration for ONE source (real token reads + the org-mode selection). */
+async function productionHydrateStructure({
+  source,
+  home,
+  fetchedAtIso,
+  options,
+}: {
+  source: CorpusSource;
+  home: string;
+  fetchedAtIso: string;
+  options: RefreshOptions;
+}): Promise<StructureHydrationResult | undefined> {
+  return hydrateOneSourceStructures({
+    fetchedAtIso,
+    home,
+    source,
+    tokens: allSourceTokens(),
+    ...githubStructureOptions({ options }),
+    ...(options.slackMembershipCap !== undefined ? { slackMembershipCap: options.slackMembershipCap } : {}),
+  });
+}
+
 /** Production dependencies for {@link runRefreshWithDeps} (real token reads, connector factories, ingest). */
 function productionRefreshDeps(): RefreshDeps {
   const progress = createProgressEmitter({ verb: "refresh" });
   return {
     buildGithubJob: githubJob,
+    buildGithubOrgJob: githubOrgJob,
     buildSourceJob: sourceJob,
     home: slopweaverHome,
-    hydrateMember: async ({ source, home, fetchedAtIso, repoSlug }) => {
-      const repo = repoSlug !== undefined ? parseRepositorySlug({ slug: repoSlug }) : resolveRepository();
-      const github = githubToken();
-      const linear = linearToken();
-      const notion = notionToken();
-      const slack = slackReadToken().token;
-      const tokens: MemberTokens = {
-        ...(github !== undefined ? { github } : {}),
-        ...(linear !== undefined ? { linear } : {}),
-        ...(notion !== undefined ? { notion } : {}),
-        ...(slack !== undefined ? { slack } : {}),
-      };
-      return hydrateOneSource({
-        fetchedAtIso,
-        home,
-        source,
-        tokens,
-        ...(repo.ok ? { githubOrg: repo.value.owner } : {}),
-      });
-    },
+    hydrateMember: productionHydrateMember,
+    hydrateStructure: productionHydrateStructure,
     ingestSources,
     logger: {
       error: (m) => {

@@ -9,11 +9,18 @@
  */
 import { join } from "node:path";
 import { slopweaverHome } from "../../../config.js";
-import { silverGraphDir, silverIdentitiesPath, silverIndexDir, silverPeoplePath } from "../../../corpus/corpusPaths.js";
+import {
+  silverGraphDir,
+  silverIdentitiesPath,
+  silverIndexDir,
+  silverPeoplePath,
+  silverStructuresPath,
+} from "../../../corpus/corpusPaths.js";
 import { readCorpusDir, resolveCorpusDir } from "../../../corpus/corpusStore.js";
 import { memberIdentityCandidates } from "../../../corpus/members/project.js";
 import { readAllMembers } from "../../../corpus/members/store.js";
 import type { MemberBronzeRow } from "../../../corpus/members/types.js";
+import { readAllStructures } from "../../../corpus/structures/store.js";
 import type { CorpusRecord } from "../../../corpus/types.js";
 import { writeJsonFile } from "../../../lib/jsonFile.js";
 import { logger } from "../../../lib/logger.js";
@@ -98,6 +105,7 @@ function writeArtifacts({
     path: silverPeoplePath({ home }),
     value: { people: buildPersonDossiers({ memberRows, people: artifacts.identities.people }) },
   });
+  writeJsonFile({ path: silverStructuresPath({ home }), value: artifacts.structures });
   writeJsonFile({ path: join(silverGraphDir({ home }), "graph.json"), value: artifacts.graph });
 }
 
@@ -177,6 +185,10 @@ export function runDeriveWithDeps({ argv, sink }: { argv: readonly string[]; sin
   members.warnings.forEach((w) => {
     logger.warn(w);
   });
+  const structures = readAllStructures({ home });
+  structures.warnings.forEach((w) => {
+    logger.warn(w);
+  });
   const { identityMap, resolution } = buildResolution({
     memberRows: members.rows,
     records,
@@ -186,7 +198,7 @@ export function runDeriveWithDeps({ argv, sink }: { argv: readonly string[]; sin
   resolution.conflicts.forEach((conflict) => {
     logger.warn(`identity conflict: ${conflict}`);
   });
-  const artifacts = deriveSilver({ identityMap, records, resolution });
+  const artifacts = deriveSilver({ identityMap, records, resolution, structureRows: structures.rows });
 
   if (!dryRun) {
     writeArtifacts({ artifacts, home, memberRows: members.rows });
