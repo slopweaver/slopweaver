@@ -226,3 +226,79 @@ describe("refreshExitCode", () => {
     expect(refreshExitCode({ anyFailed: false, totalWritten: 4 })).toBe(EXIT_OK);
   });
 });
+
+describe("parseRefreshOptions (PR4.2 org-mode flags)", () => {
+  it("parses --all-repos with include/exclude globs, org, and caps", () => {
+    const parsed = unwrap(
+      parseRefreshOptions({
+        rest: [
+          "--source",
+          "github",
+          "--all-repos",
+          "--github-org",
+          "acme",
+          "--include-repo",
+          "app-*",
+          "--include-repo",
+          "lib-*",
+          "--exclude-repo",
+          "*-archive",
+          "--repo-cap",
+          "50",
+          "--slack-membership-cap",
+          "20",
+        ],
+      }),
+    );
+    expect(parsed.allRepos).toBe(true);
+    expect(parsed.githubOrg).toBe("acme");
+    expect(parsed.includeRepos).toEqual(["app-*", "lib-*"]);
+    expect(parsed.excludeRepos).toEqual(["*-archive"]);
+    expect(parsed.repoCap).toBe(50);
+    expect(parsed.slackMembershipCap).toBe(20);
+  });
+
+  it("defaults org-mode flags off (single-repo behaviour preserved)", () => {
+    const parsed = unwrap(parseRefreshOptions({ rest: [] }));
+    expect(parsed.allRepos).toBe(false);
+    expect(parsed.includeRepos).toEqual([]);
+    expect(parsed.repoCap).toBeUndefined();
+  });
+
+  it("rejects a non-positive --repo-cap", () => {
+    expect(unwrapErr(parseRefreshOptions({ rest: ["--repo-cap", "0"] }))[0]).toContain(
+      "--repo-cap must be a positive integer",
+    );
+  });
+});
+
+describe("buildRefreshWindows (PR4.2 org mode)", () => {
+  it("IGNORES the per-source github watermark in org mode (per-repo watermark governs; base = lookback)", () => {
+    const windows = buildRefreshWindows({
+      all: false,
+      home: "/tmp/x",
+      lookbackDays: undefined,
+      orgMode: true,
+      readWatermark: () => "2026-07-20T00:00:00.000Z",
+      sinceFlag: undefined,
+      sources: ["github"],
+      until: "2026-07-24",
+    });
+    // The 7-day github lookback floor, NOT the recent source cursor.
+    expect(windows[0]!.window.since).toBe("2026-07-17");
+  });
+
+  it("still uses the github watermark cursor in single-repo mode (unchanged)", () => {
+    const windows = buildRefreshWindows({
+      all: false,
+      home: "/tmp/x",
+      lookbackDays: undefined,
+      orgMode: false,
+      readWatermark: () => "2026-07-20T00:00:00.000Z",
+      sinceFlag: undefined,
+      sources: ["github"],
+      until: "2026-07-24",
+    });
+    expect(windows[0]!.window.since).toBe("2026-07-20");
+  });
+});

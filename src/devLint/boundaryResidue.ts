@@ -38,8 +38,12 @@ interface BoundaryToken {
  * before the scan, so prose ("the raw `client.*` boundary") never trips it.
  */
 const BOUNDARY_TOKENS: readonly BoundaryToken[] = [
-  // The Slack/Notion SDK client surfaces used in the connectors.
-  { label: "sdk-client-call", re: /\bclient\.(?:conversations|users|auth|blocks|comments|dataSources|search)\b/ },
+  // The Slack/Notion SDK client surfaces used in the connectors (incl. the PR4.2 structural lanes:
+  // Slack `team.info`/`usergroups.list`).
+  {
+    label: "sdk-client-call",
+    re: /\bclient\.(?:conversations|users|auth|blocks|comments|dataSources|search|team|usergroups)\b/,
+  },
   // The Linear GraphQL transport.
   { label: "graphql-raw-request", re: /\.rawRequest\s*\(/ },
   // The `claude` LLM transport (an LlmClient.complete call — not `completeStructured(`).

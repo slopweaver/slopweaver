@@ -63,6 +63,50 @@ export function memberFile({ source, home = slopweaverHome() }: { source: Identi
 }
 
 /**
+ * The structural (person-scaffolding) bronze root — a SIBLING of `bronze` (see {@link stateHomePaths}).
+ * Structure rows (org/team/repo/channel/…) never enter the `CorpusRecord` reader, which recurses `bronze/`.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute structure bronze directory path
+ */
+export function structureDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return stateHomePaths({ home }).corpus.structures;
+}
+
+/**
+ * The structure bronze JSONL file for one source (`structures/<source>.jsonl`). One file per source, appended.
+ *
+ * @param source the identity source
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute structure JSONL file path
+ */
+export function structureFile({ source, home = slopweaverHome() }: { source: IdentitySource; home?: string }): string {
+  return join(structureDir({ home }), `${source}.jsonl`);
+}
+
+/**
+ * The per-repo GitHub org-mode watermark file (`owner/repo` → cursor). Separate from the per-source
+ * watermark so a busy repo can't advance the whole org (see {@link stateHomePaths}.githubReposWatermark).
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute per-repo watermark file path
+ */
+export function githubReposWatermarkPath({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return stateHomePaths({ home }).corpus.githubReposWatermark;
+}
+
+/**
+ * The consolidated silver structure directory/graph derive writes (`silver/index/structures.json`) — the
+ * org-graph surface (orgs/teams/repos/channels/workflow-states/cycles + their relations) for PR10/PR18.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute structures JSON file path
+ */
+export function silverStructuresPath({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(silverIndexDir({ home }), "structures.json");
+}
+
+/**
  * The consolidated silver person dossier derive writes (`silver/index/people.json`) — the richer PR10/PR18
  * substrate (per canonical Person: identities + emails + aliases + attrs + raw member payloads), distinct
  * from the resolver-facing {@link silverIdentitiesPath}.
