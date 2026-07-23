@@ -6,11 +6,13 @@ import {
   chunkText,
   cutoffMs,
   fetchNotionActivity,
+  fetchNotionMembers,
   lastEditedOf,
   type NotionApi,
   notionNextCursor,
   projectCommentItem,
   projectDatabaseItem,
+  projectNotionUser,
   projectRowItem,
   renderProperty,
   renderRichText,
@@ -118,6 +120,7 @@ describe("fetchNotionActivity folds data-source rows into pages", () => {
         ],
       }),
       pages: async () => ({ pages: [] }),
+      users: async () => ({ results: [] }),
     };
     const result = unwrap(await fetchNotionActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } }));
     expect(result.databases.map((d) => d.id)).toEqual(["db1"]);
@@ -155,6 +158,7 @@ describe("fetchNotionActivity", () => {
         seen.push(`pg:${since}`);
         return { pages: [], warnings: ["notion: comments for page pg1 failed: 403"] };
       },
+      users: async () => ({ results: [] }),
     };
     const result = unwrap(await fetchNotionActivity({ api, window: { since: "2026-04-01", until: "2026-06-01" } }));
     expect(seen).toContain("pg:2026-04-01");
@@ -192,6 +196,7 @@ describe("fetchNotionActivity", () => {
                 { chunks: ["b"], comments: [], id: "pg2", title: "Two", tsIso: "2026-05-01T00:00:00.000Z", url: "u" },
               ],
             },
+      users: async () => ({ results: [] }),
     };
     const result = unwrap(await fetchNotionActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } }));
     expect(result.pages.map((p) => p.id)).toEqual(["pg1", "pg2"]);
@@ -204,6 +209,7 @@ describe("fetchNotionActivity", () => {
       pages: async () => {
         throw new Error("401 unauthorized");
       },
+      users: async () => ({ results: [] }),
     };
     const result = await fetchNotionActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } });
     expect(result.ok).toBe(false);
@@ -296,5 +302,65 @@ describe("blockChildId", () => {
   it("returns undefined without children or a string id", () => {
     expect(blockChildId({ block: { has_children: false, id: "b1" } })).toBeUndefined();
     expect(blockChildId({ block: { has_children: true } })).toBeUndefined();
+  });
+});
+
+const NOTION_AT = "2026-07-20T00:00:00.000Z";
+
+describe("projectNotionUser", () => {
+  it("captures a person's email (type person) and keeps the raw object", () => {
+    const raw = {
+      avatar_url: "https://cdn/av.png",
+      id: "u1",
+      name: "Ada",
+      person: { email: "ada@example.com" },
+      type: "person",
+    };
+    const row = projectNotionUser({ fetchedAtIso: NOTION_AT, raw })!;
+    expect(row.identity).toEqual({
+      email: "ada@example.com",
+      emailNormalised: "ada@example.com",
+      emailTrust: "trusted",
+      name: "Ada",
+      nativeId: "u1",
+      source: "notion",
+    });
+    expect(row.profile).toEqual({ avatarUrl: "https://cdn/av.png", bot: false });
+    expect(row.raw).toEqual(raw);
+  });
+
+  it("captures no email for a bot (and flags it)", () => {
+    const row = projectNotionUser({ fetchedAtIso: NOTION_AT, raw: { id: "b1", name: "Bot", type: "bot" } })!;
+    expect(row.profile.bot).toBe(true);
+    expect(row.identity.emailTrust).toBe("missing");
+    expect(row.warnings).toEqual([]);
+  });
+
+  it("warns (no guessed email) when the integration lacks the user-email capability", () => {
+    const row = projectNotionUser({
+      fetchedAtIso: NOTION_AT,
+      raw: { id: "u2", name: "Grace", person: {}, type: "person" },
+    })!;
+    expect(row.identity.emailTrust).toBe("missing");
+    expect(row.warnings).toEqual(["no email — the Notion integration lacks the read-user-email capability"]);
+  });
+});
+
+describe("fetchNotionMembers", () => {
+  it("pages users.list into member rows via the injected seam", async () => {
+    const api: NotionApi = {
+      databases: async () => ({ databases: [], rows: [] }),
+      pages: async () => ({ pages: [] }),
+      users: async ({ cursor }) =>
+        cursor === undefined
+          ? {
+              nextCursor: "c2",
+              results: [{ id: "u1", name: "Ada", person: { email: "ada@example.com" }, type: "person" }],
+            }
+          : { results: [{ id: "b1", name: "Bot", type: "bot" }] },
+    };
+    const result = unwrap(await fetchNotionMembers({ api, fetchedAtIso: NOTION_AT }));
+    expect(result.rows.map((r) => r.sourceId)).toEqual(["u1", "b1"]);
+    expect(result.rows.map((r) => r.identity.email)).toEqual(["ada@example.com", undefined]);
   });
 });

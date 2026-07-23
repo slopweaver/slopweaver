@@ -10,7 +10,7 @@
  *   $SLOPWEAVER_HOME/
  *   ├── .home-version.json        # layout marker (STATE_HOME_VERSION) — for future migration
  *   ├── corpus/                   # the medallion store (bronze → silver → gold + caches)
- *   │   ├── bronze/  silver/  gold/  .cache/  .watermark.json
+ *   │   ├── bronze/  members/  silver/  gold/  .cache/  .watermark.json
  *   ├── beliefs/                  # belief store (contents: PR10)
  *   ├── ledgers/                  # append-only run logs (dev-gate, correction ledger: PR12)
  *   ├── identity.json             # cross-integration identity map (PR4)
@@ -31,6 +31,12 @@ export interface CorpusPaths {
   readonly root: string;
   /** `$home/corpus/bronze` — raw `CorpusRecord` lines per source. */
   readonly bronze: string;
+  /**
+   * `$home/corpus/members` — per-source member (person) bronze, deliberately a SIBLING of `bronze` rather
+   * than a child: `readCorpusDir` recurses `bronze/` and would try to parse member rows as `CorpusRecord`s
+   * (each a warning). Members are identity substrate, not activity, so they stay out of the record pipeline.
+   */
+  readonly members: string;
   /** `$home/corpus/silver` — derived directory/graph/digests. */
   readonly silver: string;
   /** `$home/corpus/gold` — distilled markdown. */
@@ -82,6 +88,7 @@ export function stateHomePaths({ home = slopweaverHome() }: { home?: string } = 
       bronze: join(corpusRoot, "bronze"),
       cache: join(corpusRoot, ".cache"),
       gold: join(corpusRoot, "gold"),
+      members: join(corpusRoot, "members"),
       root: corpusRoot,
       silver: join(corpusRoot, "silver"),
       slackThreads: join(corpusRoot, ".slack-threads.json"),

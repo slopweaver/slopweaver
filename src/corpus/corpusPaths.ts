@@ -15,6 +15,7 @@
 import { join } from "node:path";
 
 import { slopweaverHome } from "../config.js";
+import type { IdentitySource } from "../silver/identity.js";
 import { stateHomePaths } from "../stateHome.js";
 import type { CorpusSource, ExportWindow } from "./types.js";
 
@@ -37,6 +38,40 @@ export function bronzeDir({ home = slopweaverHome() }: { home?: string } = {}): 
  */
 export function bronzeSourceDir({ source, home = slopweaverHome() }: { source: CorpusSource; home?: string }): string {
   return join(bronzeDir({ home }), source);
+}
+
+/**
+ * The member (person) bronze root — a SIBLING of `bronze` (see {@link stateHomePaths}). Member rows never
+ * enter the `CorpusRecord` reader, which recurses `bronze/`.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute member bronze directory path
+ */
+export function memberDir({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return stateHomePaths({ home }).corpus.members;
+}
+
+/**
+ * The member bronze JSONL file for one source (`members/<source>.jsonl`). One file per source, appended.
+ *
+ * @param source the identity source
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute member JSONL file path
+ */
+export function memberFile({ source, home = slopweaverHome() }: { source: IdentitySource; home?: string }): string {
+  return join(memberDir({ home }), `${source}.jsonl`);
+}
+
+/**
+ * The consolidated silver person dossier derive writes (`silver/index/people.json`) — the richer PR10/PR18
+ * substrate (per canonical Person: identities + emails + aliases + attrs + raw member payloads), distinct
+ * from the resolver-facing {@link silverIdentitiesPath}.
+ *
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute people-dossier JSON file path
+ */
+export function silverPeoplePath({ home = slopweaverHome() }: { home?: string } = {}): string {
+  return join(silverIndexDir({ home }), "people.json");
 }
 
 /** Make an ISO/date string safe as a filename segment (`:` and `.` are illegal on some filesystems). */

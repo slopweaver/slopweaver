@@ -9,8 +9,11 @@
  */
 import { join } from "node:path";
 import { slopweaverHome } from "../../../config.js";
-import { silverGraphDir, silverIdentitiesPath, silverIndexDir } from "../../../corpus/corpusPaths.js";
+import { silverGraphDir, silverIdentitiesPath, silverIndexDir, silverPeoplePath } from "../../../corpus/corpusPaths.js";
 import { readCorpusDir, resolveCorpusDir } from "../../../corpus/corpusStore.js";
+import { memberIdentityCandidates } from "../../../corpus/members/project.js";
+import { readAllMembers } from "../../../corpus/members/store.js";
+import type { MemberBronzeRow } from "../../../corpus/members/types.js";
 import type { CorpusRecord } from "../../../corpus/types.js";
 import { writeJsonFile } from "../../../lib/jsonFile.js";
 import { logger } from "../../../lib/logger.js";
@@ -23,6 +26,7 @@ import {
   type IdentityResolution,
 } from "../../../silver/identity.js";
 import { loadIdentityRoster } from "../../../silver/loadIdentityRoster.js";
+import { buildPersonDossiers } from "../../../silver/personDossier.js";
 import { resolveFromRecords } from "../../../silver/personResolver.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_ERROR, EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
@@ -31,22 +35,37 @@ import { parseFlagTail, parsePositiveInteger } from "../../optionParsers.js";
 const USAGE = "usage: slopweaver derive [--home <dir>] [--corpus <dir>] [--top N] [--dry-run]";
 const DEFAULT_TOP = 20;
 
-/** Build the legacy handle map + the canonical cross-source resolution from the corpus + roster, with progress. */
+/**
+ * Build the legacy handle map + the canonical cross-source resolution from the corpus + roster + hydrated
+ * MEMBERS, with progress. The member rows feed the resolver's email tier (via {@link memberIdentityCandidates}),
+ * so the whole team auto-links cross-source — not just the roster-seeded human.
+ */
 function buildResolution({
   records,
   roster,
+  memberRows,
   sink,
 }: {
   records: readonly CorpusRecord[];
   roster: readonly IdentityRecord[];
+  memberRows: readonly MemberBronzeRow[];
   sink?: ProgressSink;
 }): { identityMap: IdentityMap; resolution: IdentityResolution } {
   const emitter = createProgressEmitter({ verb: "derive", ...(sink !== undefined ? { sink } : {}) });
   emitter.update({ done: 0, phase: "resolve-identities", total: records.length });
-  const resolution = resolveFromRecords({ records, roster });
+  const resolution = resolveFromRecords({
+    extraCandidates: memberIdentityCandidates({ rows: memberRows }),
+    records,
+    roster,
+  });
   const linked = resolution.people.filter((person) => person.confidence !== "single-source").length;
   emitter.finish({
-    counts: { conflicts: resolution.conflicts.length, held: resolution.candidates.length, linked },
+    counts: {
+      conflicts: resolution.conflicts.length,
+      held: resolution.candidates.length,
+      linked,
+      members: memberRows.length,
+    },
     done: resolution.people.length,
     phase: "resolve-identities",
   });
@@ -58,14 +77,26 @@ function serialisableResolution({ resolution }: { resolution: IdentityResolution
   return { candidates: resolution.candidates, conflicts: resolution.conflicts, people: resolution.people };
 }
 
-/** Write the four silver artifacts under `corpus/silver/`. */
-function writeArtifacts({ home, artifacts }: { home: string; artifacts: ReturnType<typeof deriveSilver> }): void {
+/** Write the five silver artifacts under `corpus/silver/` (incl. the PR4.1 person dossier `people.json`). */
+function writeArtifacts({
+  home,
+  artifacts,
+  memberRows,
+}: {
+  home: string;
+  artifacts: ReturnType<typeof deriveSilver>;
+  memberRows: readonly MemberBronzeRow[];
+}): void {
   const indexDir = silverIndexDir({ home });
   writeJsonFile({ path: join(indexDir, "directory.json"), value: artifacts.directory });
   writeJsonFile({ path: join(indexDir, "opportunities.json"), value: artifacts.opportunities });
   writeJsonFile({
     path: silverIdentitiesPath({ home }),
     value: serialisableResolution({ resolution: artifacts.identities }),
+  });
+  writeJsonFile({
+    path: silverPeoplePath({ home }),
+    value: { people: buildPersonDossiers({ memberRows, people: artifacts.identities.people }) },
   });
   writeJsonFile({ path: join(silverGraphDir({ home }), "graph.json"), value: artifacts.graph });
 }
@@ -142,7 +173,12 @@ export function runDeriveWithDeps({ argv, sink }: { argv: readonly string[]; sin
   });
 
   const records = read.ok ? read.value : [];
+  const members = readAllMembers({ home });
+  members.warnings.forEach((w) => {
+    logger.warn(w);
+  });
   const { identityMap, resolution } = buildResolution({
+    memberRows: members.rows,
     records,
     roster: loadIdentityRoster({ home }),
     ...(sink !== undefined ? { sink } : {}),
@@ -153,7 +189,7 @@ export function runDeriveWithDeps({ argv, sink }: { argv: readonly string[]; sin
   const artifacts = deriveSilver({ identityMap, records, resolution });
 
   if (!dryRun) {
-    writeArtifacts({ artifacts, home });
+    writeArtifacts({ artifacts, home, memberRows: members.rows });
   }
 
   planDeriveSummary({ artifacts, top }).forEach((line) => {

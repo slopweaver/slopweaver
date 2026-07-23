@@ -15,6 +15,9 @@ import { isRecord } from "../../lib/parsers.js";
 import { retryTransient } from "../../lib/resilience.js";
 import { err, ok, type Result } from "../../lib/result.js";
 import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
+import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
+import { aggregateMemberWarnings } from "../members/project.js";
+import type { MemberBronzeRow } from "../members/types.js";
 import type { ExportWindow } from "../types.js";
 import type {
   SlackAttachmentRef,
@@ -573,6 +576,105 @@ export function usersFromPage({ members }: { members: readonly unknown[] }): Rec
     }
   }
   return users;
+}
+
+/** The Slack member profile object (defensively `{}` when absent). */
+function slackProfile({ raw }: { raw: Record<string, unknown> }): Record<string, unknown> {
+  return isRecord(raw["profile"]) ? raw["profile"] : {};
+}
+
+/**
+ * Project one raw Slack `users.list` member into a {@link MemberBronzeRow}. The full raw Member is kept;
+ * `profile.email` populates the join key ONLY when the `users:read.email` scope granted it (else a warning
+ * + `missing` trust — never a guessed email). Pure — undefined for an id-less row.
+ *
+ * @param raw the raw member object
+ * @param fetchedAtIso the hydration timestamp
+ * @returns the member row, or `undefined` when it has no id
+ */
+export function projectSlackMember({
+  raw,
+  fetchedAtIso,
+}: {
+  raw: unknown;
+  fetchedAtIso: string;
+}): MemberBronzeRow | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const id = optStr({ value: raw["id"] });
+  if (id === undefined) {
+    return undefined;
+  }
+  const profile = slackProfile({ raw });
+  const email = optStr({ value: profile["email"] });
+  const handle = optStr({ value: raw["name"] });
+  const name = memberName({ raw });
+  const title = optStr({ value: profile["title"] });
+  const timezone = optStr({ value: raw["tz"] });
+  const guest = raw["is_restricted"] === true || raw["is_ultra_restricted"] === true;
+  const avatarUrl = optStr({ value: profile["image_512"] }) ?? optStr({ value: profile["image_192"] });
+  return {
+    fetchedAtIso,
+    identity: buildMemberIdentity({
+      nativeId: id,
+      source: "slack",
+      ...(handle !== undefined ? { handle } : {}),
+      ...(name !== undefined ? { name } : {}),
+      ...(email !== undefined ? { email } : {}),
+    }),
+    profile: {
+      active: raw["deleted"] !== true,
+      bot: raw["is_bot"] === true,
+      guest,
+      ...(raw["is_admin"] === true ? { admin: true } : {}),
+      ...(title !== undefined ? { title } : {}),
+      ...(timezone !== undefined ? { timezone } : {}),
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+    },
+    provenance: ["slack.users.list"],
+    raw,
+    source: "slack",
+    sourceId: id,
+    version: 1,
+    warnings: email === undefined ? ["no email — set the users:read.email scope for cross-source linking"] : [],
+  };
+}
+
+/**
+ * Hydrate every Slack workspace member (`users.list`, paged) into member rows, with trust finalised across
+ * the workspace. Reuses the existing safe-wrapped `listUsers` seam — no new boundary. A discovery failure
+ * is fatal (`err`); an empty workspace is `ok([])`.
+ *
+ * @param api the injected Slack seam
+ * @param fetchedAtIso the hydration timestamp
+ * @returns the member rows + warnings, or `err` on a fatal discovery failure
+ */
+export async function fetchSlackMembers({
+  api,
+  fetchedAtIso,
+}: {
+  api: SlackApi;
+  fetchedAtIso: string;
+}): Promise<Result<{ rows: readonly MemberBronzeRow[]; warnings: readonly string[] }>> {
+  const rows: MemberBronzeRow[] = [];
+  let cursor: string | undefined;
+  try {
+    do {
+      const page = await api.listUsers(cursor !== undefined ? { cursor } : {});
+      for (const raw of page.members) {
+        const row = projectSlackMember({ fetchedAtIso, raw });
+        if (row !== undefined) {
+          rows.push(row);
+        }
+      }
+      cursor = page.nextCursor;
+    } while (cursor !== undefined && cursor.length > 0);
+  } catch (error: unknown) {
+    return err([`slack member hydration failed: ${error instanceof Error ? error.message : "unknown"}`]);
+  }
+  const finalised = finaliseMemberTrust({ rows });
+  return ok({ rows: finalised, warnings: aggregateMemberWarnings({ rows: finalised }) });
 }
 
 async function discoverUsers({

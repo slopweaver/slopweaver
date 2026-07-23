@@ -249,3 +249,73 @@ describe("normalisers + key", () => {
     expect(personIdentityKey({ nativeId: "U1", source: "slack" })).toBe("slack:U1");
   });
 });
+
+describe("member candidates feed the email tier (PR4.1)", () => {
+  const member = (over: Partial<PersonIdentity>): PersonIdentity => ({ nativeId: "x", source: "slack", ...over });
+
+  it("auto-links a person across sources by a shared trusted email, at email confidence, with provenance", () => {
+    const resolution = resolveFromRecords({
+      extraCandidates: [
+        member({ email: "ada@example.com", name: "Ada", nativeId: "U1", source: "slack" }),
+        member({ email: "ada@example.com", name: "ada", nativeId: "ada", source: "github" }),
+        member({ email: "ada@example.com", name: "Ada L", nativeId: "n1", source: "notion" }),
+      ],
+      records: [],
+      roster: [],
+    });
+    const person = resolvePersonForRaw({ raw: "U1", resolution, source: "slack" })!;
+    expect(person.confidence).toBe("email");
+    expect(person.identities.map((i) => i.source).toSorted()).toEqual(["github", "notion", "slack"]);
+    expect(person.provenance).toContain("email:ada@example.com");
+  });
+
+  it("HOLDS a no-email member with a colliding name (a name candidate, never an applied merge)", () => {
+    const resolution = resolveFromRecords({
+      extraCandidates: [
+        member({ name: "Ada Lovelace", nativeId: "U1", source: "slack" }),
+        member({ name: "Ada Lovelace", nativeId: "n1", source: "notion" }),
+      ],
+      records: [],
+      roster: [],
+    });
+    const slack = resolvePersonForRaw({ raw: "U1", resolution, source: "slack" })!;
+    const notion = resolvePersonForRaw({ raw: "n1", resolution, source: "notion" })!;
+    expect(slack.id).not.toBe(notion.id);
+    expect(resolution.candidates.map((c) => c.reason)).toEqual(["name:ada lovelace"]);
+  });
+
+  it("keeps the roster override winning over an inferred member email link", () => {
+    const roster: readonly IdentityRecord[] = [
+      {
+        handle: "ada",
+        id: "person:ada",
+        identities: [{ email: "ada@example.com", nativeId: "U1", source: "slack" }],
+        name: "Ada",
+      },
+    ];
+    const resolution = resolveFromRecords({
+      extraCandidates: [member({ email: "ada@example.com", nativeId: "ada", source: "github" })],
+      records: [],
+      roster,
+    });
+    const person = resolvePersonForRaw({ raw: "ada", resolution, source: "github" })!;
+    expect(person.id).toBe("person:ada");
+    expect(person.confidence).toBe("override");
+  });
+
+  it("cannot merge members whose held email was stripped at projection (no email reaches the resolver)", () => {
+    const resolution = resolveFromRecords({
+      // A weak/shared email is dropped by `memberCandidate`, so the resolver only ever sees email-less
+      // candidates for those members — which therefore stay separate rather than wrong-merging.
+      extraCandidates: [
+        member({ name: "Ada", nativeId: "U1", source: "slack" }),
+        member({ name: "Grace", nativeId: "g1", source: "github" }),
+      ],
+      records: [],
+      roster: [],
+    });
+    const slack = resolvePersonForRaw({ raw: "U1", resolution, source: "slack" })!;
+    const github = resolvePersonForRaw({ raw: "g1", resolution, source: "github" })!;
+    expect(slack.id).not.toBe(github.id);
+  });
+});

@@ -10,6 +10,9 @@
  */
 import { slopweaverHome } from "../../../config.js";
 import { readCorpusDir, resolveCorpusDir } from "../../../corpus/corpusStore.js";
+import { memberIdentityCandidates } from "../../../corpus/members/project.js";
+import { readAllMembers } from "../../../corpus/members/store.js";
+import type { MemberBronzeRow } from "../../../corpus/members/types.js";
 import type { CorpusRecord } from "../../../corpus/types.js";
 import { logger } from "../../../lib/logger.js";
 import type { IdentityRecord } from "../../../silver/identity.js";
@@ -43,6 +46,8 @@ export interface IdentityDeps {
     records: readonly CorpusRecord[];
     warnings: readonly string[];
   };
+  /** Hydrated member rows (PR4.1) — fed to the resolver's email tier so `show` unifies without a prior derive. */
+  readonly loadMembers: (args: { home: string }) => { rows: readonly MemberBronzeRow[]; warnings: readonly string[] };
   readonly logger: { out: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
 }
 
@@ -52,7 +57,7 @@ function verbTail({ argv, verb }: { argv: readonly string[]; verb: string }): re
   return rest[0] === verb ? rest.slice(1) : rest;
 }
 
-/** Load corpus + roster and resolve them into canonical people (warnings surfaced through the logger). */
+/** Load corpus + members + roster and resolve them into canonical people (warnings surfaced through the logger). */
 function resolveFor({
   deps,
   home,
@@ -63,10 +68,15 @@ function resolveFor({
   corpus: string | undefined;
 }): ReturnType<typeof resolveFromRecords> {
   const loaded = deps.loadRecords({ home, ...(corpus !== undefined ? { corpus } : {}) });
-  loaded.warnings.forEach((w) => {
+  const members = deps.loadMembers({ home });
+  [...loaded.warnings, ...members.warnings].forEach((w) => {
     deps.logger.warn(w);
   });
-  return resolveFromRecords({ records: loaded.records, roster: deps.loadRoster({ home }) });
+  return resolveFromRecords({
+    extraCandidates: memberIdentityCandidates({ rows: members.rows }),
+    records: loaded.records,
+    roster: deps.loadRoster({ home }),
+  });
 }
 
 /**
@@ -185,6 +195,7 @@ export function runIdentityResolveWithDeps({ argv, deps }: { argv: readonly stri
 function productionIdentityDeps(): IdentityDeps {
   return {
     home: slopweaverHome,
+    loadMembers: ({ home }) => readAllMembers({ home }),
     loadRecords: ({ home, corpus }) => {
       const dir = resolveCorpusDir({ home, ...(corpus !== undefined ? { corpus } : {}) });
       if (dir.ok === false) {

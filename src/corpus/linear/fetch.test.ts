@@ -3,6 +3,7 @@ import type { RateScheduler } from "../../lib/resilience.js";
 import { unwrap } from "../../lib/result.js";
 import {
   fetchLinearActivity,
+  fetchLinearMembers,
   type LinearApi,
   type LinearRequest,
   makeLinearApi,
@@ -10,6 +11,7 @@ import {
   parseLinearIssueIdentity,
   parseLinearIssueNode,
   parseLinearIssueRelations,
+  parseLinearUserNode,
   shapeIssuesPage,
   shapeProjectsPage,
 } from "./fetch.js";
@@ -201,6 +203,7 @@ describe("fetchLinearActivity", () => {
       projects: async () => ({
         projects: [{ id: "p1", name: "Quality", tsIso: "2026-05-01T00:00:00.000Z", url: "u" }],
       }),
+      users: async () => ({ nodes: [] }),
     };
     const result = unwrap(await fetchLinearActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } }));
     expect(result.issues.map((i) => i.identifier)).toEqual(["ENG-1", "ENG-2"]);
@@ -219,6 +222,7 @@ describe("fetchLinearActivity", () => {
         seenProjectSince.push(since);
         return { projects: [] };
       },
+      users: async () => ({ nodes: [] }),
     };
     await fetchLinearActivity({ api, window: { since: "2026-04-01", until: "2026-06-01" } });
     expect(seenIssueSince).toEqual(["2026-04-01"]);
@@ -232,6 +236,7 @@ describe("fetchLinearActivity", () => {
         cursor === undefined
           ? { nextCursor: "p2", projects: [{ id: "p1", name: "A", tsIso: "2026-05-01T00:00:00.000Z", url: "u" }] }
           : { projects: [{ id: "p2", name: "B", tsIso: "2026-05-01T00:00:00.000Z", url: "u" }] },
+      users: async () => ({ nodes: [] }),
     };
     const result = unwrap(await fetchLinearActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } }));
     expect(result.projects.map((p) => p.id)).toEqual(["p1", "p2"]);
@@ -243,6 +248,7 @@ describe("fetchLinearActivity", () => {
         throw new Error("rate limited");
       },
       projects: async () => ({ projects: [] }),
+      users: async () => ({ nodes: [] }),
     };
     expect((await fetchLinearActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } })).ok).toBe(false);
   });
@@ -283,5 +289,73 @@ describe("parseLinearIssueRelations", () => {
 
   it("returns an empty object when all relations are missing", () => {
     expect(parseLinearIssueRelations({ node: {} })).toEqual({});
+  });
+});
+
+const LINEAR_AT = "2026-07-20T00:00:00.000Z";
+
+describe("parseLinearUserNode", () => {
+  it("keeps id, email, display name, timezone, avatar, flags and team keys", () => {
+    const node = {
+      active: true,
+      admin: true,
+      avatarUrl: "https://cdn/av.png",
+      displayName: "ada",
+      email: "ada@example.com",
+      guest: false,
+      id: "usr_1",
+      name: "Ada Lovelace",
+      teams: {
+        nodes: [
+          { id: "t1", key: "ENG", name: "Eng" },
+          { id: "t2", key: "PLAT" },
+        ],
+      },
+      timezone: "Australia/Sydney",
+    };
+    const row = parseLinearUserNode({ fetchedAtIso: LINEAR_AT, node })!;
+    expect(row.identity).toEqual({
+      email: "ada@example.com",
+      emailNormalised: "ada@example.com",
+      emailTrust: "trusted",
+      handle: "ada",
+      name: "Ada Lovelace",
+      nativeId: "usr_1",
+      source: "linear",
+    });
+    expect(row.profile).toEqual({
+      active: true,
+      admin: true,
+      avatarUrl: "https://cdn/av.png",
+      bot: false,
+      teams: ["ENG", "PLAT"],
+      timezone: "Australia/Sydney",
+    });
+    expect(row.raw).toEqual(node);
+  });
+
+  it("marks an archived user inactive and warns when no email", () => {
+    const row = parseLinearUserNode({
+      fetchedAtIso: LINEAR_AT,
+      node: { active: false, displayName: "x", id: "usr_2" },
+    })!;
+    expect(row.profile.active).toBe(false);
+    expect(row.warnings).toEqual(["no email on Linear user"]);
+  });
+});
+
+describe("fetchLinearMembers", () => {
+  it("pages the users lane into member rows via the injected seam", async () => {
+    const api: LinearApi = {
+      issues: async () => ({ issues: [] }),
+      projects: async () => ({ projects: [] }),
+      users: async ({ cursor }) =>
+        cursor === undefined
+          ? { nextCursor: "c2", nodes: [{ displayName: "ada", email: "ada@example.com", id: "usr_1" }] }
+          : { nodes: [{ displayName: "grace", email: "grace@example.com", id: "usr_2" }] },
+    };
+    const result = unwrap(await fetchLinearMembers({ api, fetchedAtIso: LINEAR_AT }));
+    expect(result.rows.map((r) => r.sourceId)).toEqual(["usr_1", "usr_2"]);
+    expect(result.rows.map((r) => r.identity.email)).toEqual(["ada@example.com", "grace@example.com"]);
   });
 });

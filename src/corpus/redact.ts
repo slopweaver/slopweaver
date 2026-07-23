@@ -36,9 +36,30 @@ const PASSES: readonly Pass[] = [
  * @returns the scrubbed text and the categories that matched
  */
 export function redactText({ text }: { text: string }): { text: string; redactions: readonly RedactionCategory[] } {
+  return applyPasses({ passes: PASSES, text });
+}
+
+/**
+ * Scrub only the SECRET classes (tokens + long digit runs), deliberately PRESERVING emails. Member bronze
+ * captures each person's email as the cross-source join key (D8) and lives off-repo under `$SLOPWEAVER_HOME`,
+ * so the email-scrubbing {@link redactText} would destroy the very field member hydration exists to keep —
+ * while tokens/secrets must still never touch disk.
+ *
+ * @param text the raw text to scrub
+ * @returns the scrubbed text (emails intact) and the categories that matched
+ */
+export function redactSecrets({ text }: { text: string }): { text: string; redactions: readonly RedactionCategory[] } {
+  return applyPasses({ passes: PASSES.filter((pass) => pass.category !== "email"), text });
+}
+
+/** Apply an ordered pass list to text, tracking which categories fired (deduped, in pass order). Pure. */
+function applyPasses({ passes, text }: { passes: readonly Pass[]; text: string }): {
+  text: string;
+  redactions: readonly RedactionCategory[];
+} {
   let out = text;
   const fired: RedactionCategory[] = [];
-  for (const { category, re, replacement } of PASSES) {
+  for (const { category, re, replacement } of passes) {
     // `String.replace` with a global regex is stateless (resets lastIndex), so no `.test()` footgun.
     const next = out.replace(re, replacement);
     if (next !== out && !fired.includes(category)) {

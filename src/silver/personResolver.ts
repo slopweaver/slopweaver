@@ -318,21 +318,30 @@ export function resolvePeople({
 
 /**
  * Resolve straight from a corpus + roster — the common wiring both `derive` and the `identity` verb use.
- * Pure orchestration over {@link identityCandidatesForRecord} + {@link resolvePeople}.
+ * Pure orchestration over {@link identityCandidatesForRecord} + {@link resolvePeople}. `extraCandidates`
+ * (PR4.1) are hydrated MEMBER identities carrying real emails — appended to the record-derived candidates
+ * so the resolver's existing `email` tier auto-links the whole team cross-source. Additive: an empty
+ * `extraCandidates` (the default) reproduces the pre-PR4.1 behaviour exactly.
  *
  * @param records the corpus records to discover per-source identities from
  * @param roster the parsed roster (the human seed/override)
+ * @param extraCandidates additional per-source identities (e.g. hydrated members) — default empty
  * @returns the cross-source identity resolution
  */
 export function resolveFromRecords({
   records,
   roster,
+  extraCandidates = [],
 }: {
   records: readonly CorpusRecord[];
   roster: readonly IdentityRecord[];
+  extraCandidates?: readonly PersonIdentity[];
 }): IdentityResolution {
   return resolvePeople({
-    candidates: records.flatMap((record) => identityCandidatesForRecord({ record })),
+    // Members lead: an email-bearing member candidate forms its email group FIRST, so the email-less
+    // activity candidate for the same `<source>:<nativeId>` then joins that group by key (rather than
+    // claiming a single-source group the member's email could no longer merge).
+    candidates: [...extraCandidates, ...records.flatMap((record) => identityCandidatesForRecord({ record }))],
     overrides: roster,
   });
 }
