@@ -76,6 +76,17 @@ describe("buildDigestPrompt", () => {
     expect(user).toContain("Container: o/r");
     expect(user).toContain("did a thing");
   });
+
+  it("renders a curated record's classification tag so gold can weight it (PR4.3)", () => {
+    const tagged: CorpusRecord = { ...rec, attrs: { classification: "decision" }, kind: "discussion" };
+    const { user } = buildDigestPrompt({ batch: { ...batch, records: [tagged] } });
+    expect(user).toContain("[decision]");
+  });
+
+  it("omits the classification tag for an ordinary untagged record", () => {
+    const { user } = buildDigestPrompt({ batch });
+    expect(user.includes("[decision]") || user.includes("[strategy]")).toBe(false);
+  });
 });
 
 describe("distilBatch", () => {

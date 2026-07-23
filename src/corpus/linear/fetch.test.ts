@@ -8,10 +8,13 @@ import {
   type LinearRequest,
   makeLinearApi,
   pageQueryVariables,
+  parseDocumentNode,
+  parseInitiativeNode,
   parseLinearIssueIdentity,
   parseLinearIssueNode,
   parseLinearIssueRelations,
   parseLinearUserNode,
+  parseProjectUpdates,
   shapeIssuesPage,
   shapeProjectsPage,
 } from "./fetch.js";
@@ -105,6 +108,61 @@ describe("parseLinearIssueNode (pure)", () => {
 
   it("returns undefined for a node with no identifier", () => {
     expect(parseLinearIssueNode({ node: { title: "x" } })).toBeUndefined();
+  });
+
+  it("captures sub-issue/relation edges + ref-only attachments from the inline node (PR4.3)", () => {
+    const node = {
+      ...issueNode({ id: "ENG-42", moreComments: false }),
+      attachments: { nodes: [{ id: "a1", title: "Spec", url: "https://figma/s" }] },
+      children: { nodes: [{ identifier: "ENG-43" }] },
+      relations: { nodes: [{ relatedIssue: { identifier: "ENG-99" }, type: "blocks" }] },
+    };
+    const parsed = parseLinearIssueNode({ node })!;
+    expect(parsed.item.edgeRefs).toEqual(["sub-issue|linear:ENG-43", "blocks|linear:ENG-99"]);
+    expect(parsed.item.attachments).toEqual(["Spec (https://figma/s)"]);
+  });
+});
+
+describe("curated node parsers (pure — PR4.3)", () => {
+  it("parses project updates, skipping body-less ones", () => {
+    const connection = {
+      nodes: [
+        {
+          body: "on track",
+          createdAt: "2026-05-03T00:00:00.000Z",
+          health: "onTrack",
+          id: "u1",
+          url: "u",
+          user: { displayName: "Sam" },
+        },
+        { id: "u2" },
+      ],
+    };
+    const updates = parseProjectUpdates({ connection });
+    expect(updates).toEqual([
+      {
+        author: "Sam",
+        body: "on track",
+        health: "onTrack",
+        id: "u1",
+        raw: connection.nodes[0],
+        tsIso: "2026-05-03T00:00:00.000Z",
+        url: "u",
+      },
+    ]);
+  });
+
+  it("parses an initiative and a document, and drops id-less/name-less nodes", () => {
+    expect(
+      parseInitiativeNode({ node: { id: "i1", name: "North star", updatedAt: "2026-05-01T00:00:00.000Z", url: "u" } })!
+        .id,
+    ).toBe("i1");
+    expect(parseInitiativeNode({ node: { id: "i2" } })).toBeUndefined();
+    expect(
+      parseDocumentNode({ node: { id: "d1", title: "Roadmap", updatedAt: "2026-05-01T00:00:00.000Z", url: "u" } })!
+        .title,
+    ).toBe("Roadmap");
+    expect(parseDocumentNode({ node: { title: "no id" } })).toBeUndefined();
   });
 });
 
@@ -208,6 +266,46 @@ describe("fetchLinearActivity", () => {
     const result = unwrap(await fetchLinearActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } }));
     expect(result.issues.map((i) => i.identifier)).toEqual(["ENG-1", "ENG-2"]);
     expect(result.projects.map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("collects the best-effort initiatives lane when present, and stays empty when absent", async () => {
+    const withInitiatives: LinearApi = {
+      initiatives: async () => ({
+        initiatives: [{ id: "i1", name: "North star", tsIso: "2026-05-01T00:00:00.000Z", url: "u" }],
+      }),
+      issues: async () => ({ issues: [] }),
+      projects: async () => ({ projects: [] }),
+      users: async () => ({ nodes: [] }),
+    };
+    const withResult = unwrap(
+      await fetchLinearActivity({ api: withInitiatives, window: { since: "2026-01-01", until: "2026-06-01" } }),
+    );
+    expect(withResult.initiatives.map((i) => i.id)).toEqual(["i1"]);
+
+    const noLane: LinearApi = {
+      issues: async () => ({ issues: [] }),
+      projects: async () => ({ projects: [] }),
+      users: async () => ({ nodes: [] }),
+    };
+    const noResult = unwrap(
+      await fetchLinearActivity({ api: noLane, window: { since: "2026-01-01", until: "2026-06-01" } }),
+    );
+    expect(noResult.initiatives).toEqual([]);
+    expect(noResult.warnings).toEqual([]);
+  });
+
+  it("degrades a failing best-effort lane to a warning, never a fatal error", async () => {
+    const api: LinearApi = {
+      documents: async () => {
+        throw new Error("documents not enabled");
+      },
+      issues: async () => ({ issues: [] }),
+      projects: async () => ({ projects: [] }),
+      users: async () => ({ nodes: [] }),
+    };
+    const result = unwrap(await fetchLinearActivity({ api, window: { since: "2026-01-01", until: "2026-06-01" } }));
+    expect(result.documents).toEqual([]);
+    expect(result.warnings.some((w) => w.includes("documents lane unavailable"))).toBe(true);
   });
 
   it("threads the window `since` to BOTH issues and projects (projects must not ignore it)", async () => {

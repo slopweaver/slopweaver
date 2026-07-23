@@ -19,11 +19,16 @@ import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
 import { aggregateMemberWarnings } from "../members/project.js";
 import type { MemberBronzeRow } from "../members/types.js";
 import type { ExportWindow } from "../types.js";
+import { shapeBookmark, shapeCanvasFile, shapePin } from "./curated.js";
 import type {
   SlackAttachmentRef,
+  SlackBookmarkItem,
+  SlackCanvasItem,
   SlackChannelItems,
+  SlackCuratedItems,
   SlackMessageItem,
   SlackNameMaps,
+  SlackPinItem,
   SlackReplyItem,
 } from "./project.js";
 import { latestReplyTs, newerReplies, type ThreadCursors, threadKey } from "./threadCursors.js";
@@ -77,13 +82,26 @@ export interface SlackUsersPage {
   readonly nextCursor?: string;
 }
 
-/** Injected Slack seam. Raw shapes stay `unknown`; the fetch parses them defensively. */
+/** A page of raw files from `files.list` (used for the durable canvas-discovery path). */
+export interface SlackFilesPage {
+  readonly files: readonly unknown[];
+  readonly nextCursor?: string;
+}
+
+/**
+ * Injected Slack seam. Raw shapes stay `unknown`; the fetch parses them defensively. The curated methods
+ * (`pins`/`bookmarks`/`files`) are OPTIONAL — a best-effort lane whose absence or failure degrades to a
+ * warning, never a fatal error (so a missing scope never sinks the message crawl).
+ */
 export interface SlackApi {
   workspaceUrl: () => Promise<string | undefined>;
   listChannels: (args: { cursor?: string }) => Promise<SlackChannelsPage>;
   listUsers: (args: { cursor?: string }) => Promise<SlackUsersPage>;
   history: (args: { channel: string; oldest: string; latest: string; cursor?: string }) => Promise<SlackMessagesPage>;
   replies: (args: { channel: string; ts: string; oldest: string; cursor?: string }) => Promise<SlackMessagesPage>;
+  pins?: (args: { channel: string }) => Promise<{ items: readonly unknown[] }>;
+  bookmarks?: (args: { channel: string }) => Promise<{ bookmarks: readonly unknown[] }>;
+  files?: (args: { cursor?: string }) => Promise<SlackFilesPage>;
 }
 
 /** Coerce an unknown to a non-empty string, or undefined. */
@@ -756,6 +774,7 @@ export async function fetchSlackActivity({
     warnings: readonly string[];
     threadCursors: ThreadCursors;
     maps: SlackNameMaps;
+    curated: SlackCuratedItems;
   }>
 > {
   let workspaceUrl: string | undefined;
@@ -773,19 +792,152 @@ export async function fetchSlackActivity({
   // `<#Cxxx>` mentions resolve), users from `users.list`. They feed pure markup resolution in projection.
   const userDirectory = await discoverUsers({ api });
   const maps: SlackNameMaps = { channelNames: channelNameMap({ discovered }), userNames: userDirectory.users };
+  const selected = selectChannels({ channelFilter, discovered });
   const crawl = await crawlChannels({
     api,
     bounds: slackWindowBounds({ window }),
-    selected: selectChannels({ channelFilter, discovered }),
+    selected,
     threadCursors,
     workspaceUrl,
   });
+  const curated = await fetchSlackCurated({ api, maps, selected, workspaceUrl });
   return ok({
     channels: crawl.channels,
+    curated: curated.items,
     maps,
     threadCursors: crawl.cursors,
-    warnings: mergeSlackWarnings({ base: userDirectory.warnings, extra: crawl.warnings }),
+    warnings: mergeSlackWarnings({ base: [...userDirectory.warnings, ...crawl.warnings], extra: curated.warnings }),
   });
+}
+
+/**
+ * Gather the curated Slack surfaces best-effort: pins + bookmarks per selected channel, and canvases via
+ * a workspace-wide `files.list`. Every lane is optional (a missing method or a scope gap warns + skips),
+ * so the curated pass NEVER sinks the message crawl. Ref-only throughout.
+ */
+async function fetchSlackCurated({
+  api,
+  selected,
+  workspaceUrl,
+  maps,
+}: {
+  api: SlackApi;
+  selected: readonly { id: string; name?: string }[];
+  workspaceUrl: string;
+  maps: SlackNameMaps;
+}): Promise<{ items: SlackCuratedItems; warnings: readonly string[] }> {
+  const pins: SlackPinItem[] = [];
+  const bookmarks: SlackBookmarkItem[] = [];
+  const warnings: string[] = [];
+  for (const channel of selected) {
+    pins.push(...(await channelPins({ api, channel, maps, warnings, workspaceUrl })));
+    bookmarks.push(...(await channelBookmarks({ api, channel, warnings })));
+  }
+  const canvases = await workspaceCanvases({ api, warnings });
+  return { items: { bookmarks, canvases, pins }, warnings };
+}
+
+/** One channel's pinned messages (best-effort — a scope gap/failure warns + returns none). */
+async function channelPins({
+  api,
+  channel,
+  workspaceUrl,
+  maps,
+  warnings,
+}: {
+  api: SlackApi;
+  channel: { id: string; name?: string };
+  workspaceUrl: string;
+  maps: SlackNameMaps;
+  warnings: string[];
+}): Promise<readonly SlackPinItem[]> {
+  if (api.pins === undefined) {
+    return [];
+  }
+  try {
+    const res = await api.pins({ channel: channel.id });
+    return res.items
+      .map((item) => {
+        const author = pinAuthor({ item, maps });
+        return shapePin({
+          channelId: channel.id,
+          item,
+          workspaceUrl,
+          ...(channel.name !== undefined ? { channelName: channel.name } : {}),
+          ...(author !== undefined ? { authorName: author } : {}),
+        });
+      })
+      .filter((pin): pin is SlackPinItem => pin !== undefined);
+  } catch (error: unknown) {
+    warnings.push(`slack pins for ${channel.id} skipped: ${error instanceof Error ? error.message : "unknown"}`);
+    return [];
+  }
+}
+
+/** The resolved display name of a pinned message's author (via the user map), or undefined. Pure. */
+function pinAuthor({ item, maps }: { item: unknown; maps: SlackNameMaps }): string | undefined {
+  const message = isRecord(item) && isRecord(item["message"]) ? item["message"] : undefined;
+  const user = message !== undefined && typeof message["user"] === "string" ? message["user"] : undefined;
+  return user !== undefined ? maps.userNames[user] : undefined;
+}
+
+/** One channel's bookmarks (best-effort — a scope gap/failure warns + returns none). */
+async function channelBookmarks({
+  api,
+  channel,
+  warnings,
+}: {
+  api: SlackApi;
+  channel: { id: string; name?: string };
+  warnings: string[];
+}): Promise<readonly SlackBookmarkItem[]> {
+  if (api.bookmarks === undefined) {
+    return [];
+  }
+  try {
+    const res = await api.bookmarks({ channel: channel.id });
+    return res.bookmarks
+      .map((raw) =>
+        shapeBookmark({
+          channelId: channel.id,
+          raw,
+          ...(channel.name !== undefined ? { channelName: channel.name } : {}),
+        }),
+      )
+      .filter((bookmark): bookmark is SlackBookmarkItem => bookmark !== undefined);
+  } catch (error: unknown) {
+    warnings.push(`slack bookmarks for ${channel.id} skipped: ${error instanceof Error ? error.message : "unknown"}`);
+    return [];
+  }
+}
+
+/** Every workspace canvas via `files.list` (best-effort, paged; non-canvas files are dropped). */
+async function workspaceCanvases({
+  api,
+  warnings,
+}: {
+  api: SlackApi;
+  warnings: string[];
+}): Promise<readonly SlackCanvasItem[]> {
+  const fetchFiles = api.files;
+  if (fetchFiles === undefined) {
+    return [];
+  }
+  try {
+    const files = await collectCursorPages({
+      fetchPage: ({ cursor }) =>
+        fetchFiles(cursor !== undefined ? { cursor } : {}).then((page) => ({
+          items: page.files,
+          nextCursor: page.nextCursor,
+        })),
+    });
+    return files
+      .map((file) => shapeCanvasFile({ file }))
+      .filter((canvas): canvas is SlackCanvasItem => canvas !== undefined);
+  } catch (error: unknown) {
+    warnings.push(`slack canvases skipped: ${error instanceof Error ? error.message : "unknown"}`);
+    return [];
+  }
 }
 
 /** Crawl each selected channel (unreadable ones warn + skip, never fatal), merging warnings + cursors. */
@@ -937,6 +1089,51 @@ function slackWorkspaceUrl({ client }: { client: WebClient }): SlackApi["workspa
   };
 }
 
+/** The live `pins.list` seam method (curated lane). */
+function slackPins({ client }: { client: WebClient }): NonNullable<SlackApi["pins"]> {
+  return async ({ channel }) => {
+    const res = orThrow({
+      result: await safeApiCall({
+        execute: () => retryTransient({ operation: () => client.pins.list({ channel }) }),
+        operation: "slack.pins.list",
+        provider: "slack",
+      }),
+    });
+    return { items: res.items ?? [] };
+  };
+}
+
+/** The live `bookmarks.list` seam method (curated lane). */
+function slackBookmarks({ client }: { client: WebClient }): NonNullable<SlackApi["bookmarks"]> {
+  return async ({ channel }) => {
+    const res = orThrow({
+      result: await safeApiCall({
+        execute: () => retryTransient({ operation: () => client.bookmarks.list({ channel_id: channel }) }),
+        operation: "slack.bookmarks.list",
+        provider: "slack",
+      }),
+    });
+    return { bookmarks: res.bookmarks ?? [] };
+  };
+}
+
+/**
+ * The live `files.list` seam method (curated canvas-discovery lane). `files.list` uses legacy count/page
+ * pagination, not cursors; canvases are few, so we fetch one generous page and surface no next cursor.
+ */
+function slackFiles({ client }: { client: WebClient }): NonNullable<SlackApi["files"]> {
+  return async () => {
+    const res = orThrow({
+      result: await safeApiCall({
+        execute: () => retryTransient({ operation: () => client.files.list({ count: PAGE_LIMIT }) }),
+        operation: "slack.files.list",
+        provider: "slack",
+      }),
+    });
+    return { files: res.files ?? [] };
+  };
+}
+
 /**
  * Build the production Slack seam over a live `WebClient`. The only place a real Slack client is
  * constructed; everything else runs against {@link SlackApi}.
@@ -947,9 +1144,12 @@ function slackWorkspaceUrl({ client }: { client: WebClient }): SlackApi["workspa
 export function makeSlackApi({ token }: { token: string }): SlackApi {
   const client = new WebClient(token);
   return {
+    bookmarks: slackBookmarks({ client }),
+    files: slackFiles({ client }),
     history: slackHistory({ client }),
     listChannels: slackListChannels({ client }),
     listUsers: slackListUsers({ client }),
+    pins: slackPins({ client }),
     replies: slackReplies({ client }),
     workspaceUrl: slackWorkspaceUrl({ client }),
   };

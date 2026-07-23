@@ -100,6 +100,34 @@ describe("projection cores (pure)", () => {
     expect(comment.body).toBe("hi");
     expect(projectCommentItem({ raw: { rich_text: [] } })).toBeUndefined();
   });
+
+  it("captures a row's relation targets + file property refs (ref-only) on the shaped item", () => {
+    const raw = {
+      id: "row1",
+      properties: {
+        "Blocked by": { relation: [{ id: "other" }], type: "relation" },
+        Docs: { files: [{ external: { url: "https://cdn/s.pdf" }, name: "s.pdf", type: "external" }], type: "files" },
+        Name: { title: [{ plain_text: "A task" }], type: "title" },
+      },
+      url: "u",
+    };
+    const item = projectRowItem({ dataSourceId: "db1", id: "row1", lastEdited: "2026-05-01T00:00:00.000Z", raw });
+    expect(item.relationTargets).toEqual(["notion:page:other"]);
+    expect(item.fileRefs).toEqual(["file: s.pdf (https://cdn/s.pdf)"]);
+  });
+
+  it("carries row comments through to the shaped item (no longer hard-coded empty)", () => {
+    const raw = { id: "row1", properties: { Name: { title: [{ plain_text: "A task" }], type: "title" } }, url: "u" };
+    const comments = [{ body: "decision made", id: "c1", tsIso: "2026-05-02T00:00:00.000Z" }];
+    const item = projectRowItem({
+      comments,
+      dataSourceId: "db1",
+      id: "row1",
+      lastEdited: "2026-05-01T00:00:00.000Z",
+      raw,
+    });
+    expect(item.comments).toEqual(comments);
+  });
 });
 
 describe("fetchNotionActivity folds data-source rows into pages", () => {

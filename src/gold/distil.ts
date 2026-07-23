@@ -50,11 +50,18 @@ const SYSTEM = [
   "Write a one-sentence summary, then a handful of concrete points.",
   "Ground EVERY point: cite the url or id of the record(s) it comes from. A point with no citation is dropped.",
   "Prefer decisions, outcomes, blockers, and ownership over restating chatter.",
+  "Records tagged [strategy]/[decision]/[status]/[ownership] are deliberately-authored artefacts — weight them above ordinary chatter.",
 ].join(" ");
+
+/** The `[classification]` tag for a record, when it carries one (PR4.3 curated weighting). Pure. */
+function classificationTag({ record }: { record: CorpusRecord }): string {
+  const value = record.attrs?.["classification"];
+  return typeof value === "string" ? ` [${value}]` : "";
+}
 
 /** Render one record as a prompt block (capped so a batch stays within budget). */
 function recordBlock({ record }: { record: CorpusRecord }): string {
-  const head = `[${record.kind}${record.author !== undefined ? ` by ${record.author}` : ""} · ${record.tsIso}]`;
+  const head = `[${record.kind}${record.author !== undefined ? ` by ${record.author}` : ""} · ${record.tsIso}]${classificationTag({ record })}`;
   const body = [record.title, record.text]
     .filter((part) => part !== undefined)
     .join("\n")

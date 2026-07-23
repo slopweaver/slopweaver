@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { projectSlackRecords, resolveSlackMarkup, type SlackChannelItems, type SlackNameMaps } from "./project.js";
+import {
+  projectSlackRecords,
+  resolveSlackMarkup,
+  type SlackChannelItems,
+  type SlackCuratedItems,
+  type SlackNameMaps,
+} from "./project.js";
 
 const maps: SlackNameMaps = {
   channelNames: { C_PUBLIC_ALPHA: "alpha", C_RELEASES: "releases" },
@@ -201,5 +207,59 @@ describe("resolveSlackMarkup", () => {
     expect(resolveSlackMarkup({ maps, text: "no markup, just #123 and @nobody" })).toBe(
       "no markup, just #123 and @nobody",
     );
+  });
+});
+
+describe("projectSlackRecords — curated surfaces (PR4.3)", () => {
+  const curated: SlackCuratedItems = {
+    bookmarks: [
+      {
+        channelId: "C1",
+        channelName: "eng",
+        id: "Bk1",
+        link: "https://runbook",
+        title: "Runbook",
+        tsIso: "2026-05-01T00:00:00.000Z",
+      },
+    ],
+    canvases: [
+      {
+        id: "F1",
+        permalink: "https://acme.slack.com/canvas/F1",
+        title: "Rollout plan",
+        tsIso: "2026-05-01T00:00:00.000Z",
+      },
+    ],
+    pins: [
+      {
+        author: "Sam",
+        channelId: "C1",
+        channelName: "eng",
+        permalink: "https://acme.slack.com/p1",
+        text: "read this first",
+        ts: "1700000000.001",
+        tsIso: "2026-05-01T00:00:00.000Z",
+      },
+    ],
+  };
+
+  it("projects a pin to a `pin` record cited by its permalink", () => {
+    const record = projectSlackRecords({ channels: [], curated }).find((r) => r.kind === "pin")!;
+    expect(record.sourceId).toBe("C1:pin:1700000000.001");
+    expect(record.text).toBe("read this first");
+    expect(record.url).toBe("https://acme.slack.com/p1");
+  });
+
+  it("projects a bookmark to a `bookmark` record", () => {
+    const record = projectSlackRecords({ channels: [], curated }).find((r) => r.kind === "bookmark")!;
+    expect(record.sourceId).toBe("C1:bookmark:Bk1");
+    expect(record.url).toBe("https://runbook");
+  });
+
+  it("projects a canvas to a `canvas` record classified `strategy`", () => {
+    const record = projectSlackRecords({ channels: [], curated }).find((r) => r.kind === "canvas")!;
+    expect(record.sourceId).toBe("canvas:F1");
+    expect(record.attrs!["classification"]).toBe("strategy");
+    expect(record.url).toBe("https://acme.slack.com/canvas/F1");
   });
 });

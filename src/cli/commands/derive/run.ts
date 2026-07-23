@@ -107,6 +107,7 @@ function writeArtifacts({
   });
   writeJsonFile({ path: silverStructuresPath({ home }), value: artifacts.structures });
   writeJsonFile({ path: join(silverGraphDir({ home }), "graph.json"), value: artifacts.graph });
+  writeJsonFile({ path: join(silverGraphDir({ home }), "curated.json"), value: artifacts.curated });
 }
 
 /**
@@ -199,6 +200,9 @@ export function runDeriveWithDeps({ argv, sink }: { argv: readonly string[]; sin
     logger.warn(`identity conflict: ${conflict}`);
   });
   const artifacts = deriveSilver({ identityMap, records, resolution, structureRows: structures.rows });
+  if (artifacts.curated.capped > 0) {
+    logger.warn(`curated graph: dropped ${String(artifacts.curated.capped)} edge(s) over the per-record cap`);
+  }
 
   if (!dryRun) {
     writeArtifacts({ artifacts, home, memberRows: members.rows });

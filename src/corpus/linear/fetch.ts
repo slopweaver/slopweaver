@@ -21,7 +21,15 @@ import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
 import { aggregateMemberWarnings } from "../members/project.js";
 import type { MemberBronzeRow } from "../members/types.js";
 import type { ExportWindow } from "../types.js";
-import type { LinearCommentItem, LinearIssueItem, LinearProjectItem } from "./project.js";
+import { issueAttachmentRefs, issueEdgeRefs } from "./curated.js";
+import type {
+  LinearCommentItem,
+  LinearDocumentItem,
+  LinearInitiativeItem,
+  LinearIssueItem,
+  LinearProjectItem,
+  LinearUpdateItem,
+} from "./project.js";
 
 const PAGE_SIZE = 50;
 const COMMENTS_PAGE_SIZE = 50;
@@ -35,6 +43,10 @@ const ISSUE_FIELDS = `
   creator { displayName }
   team { key }
   project { name }
+  parent { identifier }
+  children(first: 50) { nodes { identifier } }
+  relations(first: 50) { nodes { type relatedIssue { identifier } } }
+  attachments(first: 20) { nodes { id title url } }
   labels(first: 30) { nodes { name } }
   comments(first: ${String(COMMENTS_PAGE_SIZE)}) {
     nodes { id body url createdAt user { displayName } }
@@ -63,7 +75,30 @@ query IssueComments($id: String!, $after: String) {
 const PROJECTS_QUERY = `
 query Projects($filter: ProjectFilter, $first: Int!, $after: String) {
   projects(filter: $filter, first: $first, after: $after) {
-    nodes { id name description url updatedAt state }
+    nodes {
+      id name description url updatedAt state
+      projectUpdates(first: 10) {
+        nodes { id body url createdAt health user { displayName } }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+/** Initiatives (the top-level strategy artefact) — a best-effort lane; some workspaces/plans lack it. */
+const INITIATIVES_QUERY = `
+query Initiatives($first: Int!, $after: String) {
+  initiatives(first: $first, after: $after) {
+    nodes { id name description url updatedAt }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+/** Documents (deliberately-authored specs/docs) — a best-effort lane. */
+const DOCUMENTS_QUERY = `
+query Documents($first: Int!, $after: String) {
+  documents(first: $first, after: $after) {
+    nodes { id title content url updatedAt }
     pageInfo { hasNextPage endCursor }
   }
 }`;
@@ -95,11 +130,29 @@ export interface LinearUsersPage {
   readonly nextCursor?: string;
 }
 
-/** Injected Linear seam — returns fully-resolved shaped items so `fetchLinearActivity` needs no live SDK. */
+/** A page of shaped initiatives from the seam. */
+export interface LinearInitiativesPage {
+  readonly initiatives: readonly LinearInitiativeItem[];
+  readonly nextCursor?: string;
+}
+
+/** A page of shaped documents from the seam. */
+export interface LinearDocumentsPage {
+  readonly documents: readonly LinearDocumentItem[];
+  readonly nextCursor?: string;
+}
+
+/**
+ * Injected Linear seam — returns fully-resolved shaped items so `fetchLinearActivity` needs no live SDK.
+ * `initiatives`/`documents` are OPTIONAL: a best-effort curated lane a workspace/plan may not expose, so
+ * their absence (or failure) degrades to a warning, never a fatal error.
+ */
 export interface LinearApi {
   issues: (args: { since: string; cursor?: string }) => Promise<LinearIssuesPage>;
   projects: (args: { since: string; cursor?: string }) => Promise<LinearProjectsPage>;
   users: (args: { cursor?: string }) => Promise<LinearUsersPage>;
+  initiatives?: (args: { cursor?: string }) => Promise<LinearInitiativesPage>;
+  documents?: (args: { cursor?: string }) => Promise<LinearDocumentsPage>;
 }
 
 /** The raw GraphQL transport seam: one inline query → its `data`. Production uses the SDK's rawRequest. */
@@ -113,13 +166,15 @@ export type LinearRequest = (args: { query: string; variables: Record<string, un
  * @param window the export window (`since` is the `updatedAt >= ` bound)
  * @returns the shaped issues + projects, or `err` on a fatal failure
  */
-export async function fetchLinearActivity({
-  api,
-  window,
-}: {
-  api: LinearApi;
-  window: ExportWindow;
-}): Promise<Result<{ issues: readonly LinearIssueItem[]; projects: readonly LinearProjectItem[] }>> {
+export async function fetchLinearActivity({ api, window }: { api: LinearApi; window: ExportWindow }): Promise<
+  Result<{
+    issues: readonly LinearIssueItem[];
+    projects: readonly LinearProjectItem[];
+    initiatives: readonly LinearInitiativeItem[];
+    documents: readonly LinearDocumentItem[];
+    warnings: readonly string[];
+  }>
+> {
   try {
     const issues = await collectCursorPages({
       fetchPage: ({ cursor }) =>
@@ -133,9 +188,63 @@ export async function fetchLinearActivity({
           .projects({ since: window.since, ...(cursor !== undefined ? { cursor } : {}) })
           .then((page) => ({ items: page.projects, nextCursor: page.nextCursor })),
     });
-    return ok({ issues, projects });
+    const curated = await fetchLinearCurated({ api });
+    return ok({
+      documents: curated.documents,
+      initiatives: curated.initiatives,
+      issues,
+      projects,
+      warnings: curated.warnings,
+    });
   } catch (error: unknown) {
     return err([`fetch failed: ${error instanceof Error ? error.message : "unknown"}`]);
+  }
+}
+
+/** Best-effort curated lanes (initiatives + documents): a missing/failed lane warns, never throws. */
+async function fetchLinearCurated({ api }: { api: LinearApi }): Promise<{
+  initiatives: readonly LinearInitiativeItem[];
+  documents: readonly LinearDocumentItem[];
+  warnings: readonly string[];
+}> {
+  const warnings: string[] = [];
+  const initiatives = await bestEffortLane({
+    fetch: api.initiatives,
+    label: "initiatives",
+    pick: (page) => ({ items: page.initiatives, nextCursor: page.nextCursor }),
+    warnings,
+  });
+  const documents = await bestEffortLane({
+    fetch: api.documents,
+    label: "documents",
+    pick: (page) => ({ items: page.documents, nextCursor: page.nextCursor }),
+    warnings,
+  });
+  return { documents, initiatives, warnings };
+}
+
+/** Page one optional curated lane to exhaustion; a missing lane returns `[]`, a failing one warns + returns `[]`. */
+async function bestEffortLane<TItem, TPage>({
+  fetch,
+  pick,
+  label,
+  warnings,
+}: {
+  fetch: ((args: { cursor?: string }) => Promise<TPage>) | undefined;
+  pick: (page: TPage) => { items: readonly TItem[]; nextCursor: string | undefined };
+  label: string;
+  warnings: string[];
+}): Promise<readonly TItem[]> {
+  if (fetch === undefined) {
+    return [];
+  }
+  try {
+    return await collectCursorPages({
+      fetchPage: ({ cursor }) => fetch(cursor !== undefined ? { cursor } : {}).then(pick),
+    });
+  } catch (error: unknown) {
+    warnings.push(`linear ${label} lane unavailable: ${error instanceof Error ? error.message : "unknown"}`);
+    return [];
   }
 }
 
@@ -375,12 +484,16 @@ export function parseLinearIssueNode({ node }: { node: unknown }):
   }
   const id = str({ value: node["id"] }) ?? identity.identifier;
   const commentsPage = pageInfoOf({ connection: node["comments"] });
+  const edgeRefs = issueEdgeRefs({ node });
+  const attachments = issueAttachmentRefs({ node });
   const item: LinearIssueItem = {
     comments: parseComments({ nodes: isRecord(node["comments"]) ? node["comments"]["nodes"] : undefined }),
     labels: parseLabels({ connection: node["labels"] }),
     raw: node,
     ...identity,
     ...parseLinearIssueRelations({ node }),
+    ...(edgeRefs.length > 0 ? { edgeRefs } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
   };
   return {
     commentsHasNext: commentsPage.hasNext,
@@ -412,7 +525,35 @@ async function remainingComments({
   return comments;
 }
 
-/** Shape one project node. */
+/** Shape a project's `projectUpdates` connection into update items (skips body-less updates). Pure. */
+export function parseProjectUpdates({ connection }: { connection: unknown }): readonly LinearUpdateItem[] {
+  const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
+  const updates: LinearUpdateItem[] = [];
+  for (const raw of nodes) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const id = str({ value: raw["id"] });
+    const body = str({ value: raw["body"] });
+    if (id === undefined || body === undefined) {
+      continue;
+    }
+    const author = displayName({ value: raw["user"] });
+    const health = str({ value: raw["health"] });
+    updates.push({
+      body,
+      id,
+      raw,
+      tsIso: strOrEmpty({ value: raw["createdAt"] }),
+      url: strOrEmpty({ value: raw["url"] }),
+      ...(author !== undefined ? { author } : {}),
+      ...(health !== undefined ? { health } : {}),
+    });
+  }
+  return updates;
+}
+
+/** Shape one project node (with its status updates). */
 function parseProject({ node }: { node: unknown }): LinearProjectItem | undefined {
   if (!isRecord(node)) {
     return undefined;
@@ -424,6 +565,7 @@ function parseProject({ node }: { node: unknown }): LinearProjectItem | undefine
   }
   const description = str({ value: node["description"] });
   const state = str({ value: node["state"] });
+  const updates = parseProjectUpdates({ connection: node["projectUpdates"] });
   return {
     id,
     name,
@@ -432,6 +574,49 @@ function parseProject({ node }: { node: unknown }): LinearProjectItem | undefine
     url: strOrEmpty({ value: node["url"] }),
     ...(description !== undefined ? { description } : {}),
     ...(state !== undefined ? { state } : {}),
+    ...(updates.length > 0 ? { updates } : {}),
+  };
+}
+
+/** Shape one initiative node (id + name required). Pure. */
+export function parseInitiativeNode({ node }: { node: unknown }): LinearInitiativeItem | undefined {
+  if (!isRecord(node)) {
+    return undefined;
+  }
+  const id = str({ value: node["id"] });
+  const name = str({ value: node["name"] });
+  if (id === undefined || name === undefined) {
+    return undefined;
+  }
+  const description = str({ value: node["description"] });
+  return {
+    id,
+    name,
+    raw: node,
+    tsIso: strOrEmpty({ value: node["updatedAt"] }),
+    url: strOrEmpty({ value: node["url"] }),
+    ...(description !== undefined ? { description } : {}),
+  };
+}
+
+/** Shape one document node (id + title required). Pure. */
+export function parseDocumentNode({ node }: { node: unknown }): LinearDocumentItem | undefined {
+  if (!isRecord(node)) {
+    return undefined;
+  }
+  const id = str({ value: node["id"] });
+  const title = str({ value: node["title"] });
+  if (id === undefined || title === undefined) {
+    return undefined;
+  }
+  const content = str({ value: node["content"] });
+  return {
+    id,
+    raw: node,
+    title,
+    tsIso: strOrEmpty({ value: node["updatedAt"] }),
+    url: strOrEmpty({ value: node["url"] }),
+    ...(content !== undefined ? { content } : {}),
   };
 }
 
@@ -497,6 +682,28 @@ export function shapeProjectsPage({ data }: { data: unknown }): {
   return { projects, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
 }
 
+/** Shape one raw `initiatives` GraphQL response into shaped initiatives + the next cursor. Pure. */
+export function shapeInitiativesPage({ data }: { data: unknown }): LinearInitiativesPage {
+  const connection = isRecord(data) ? data["initiatives"] : undefined;
+  const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
+  const initiatives = nodes
+    .map((node) => parseInitiativeNode({ node }))
+    .filter((p): p is LinearInitiativeItem => p !== undefined);
+  const info = pageInfoOf({ connection });
+  return { initiatives, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
+}
+
+/** Shape one raw `documents` GraphQL response into shaped documents + the next cursor. Pure. */
+export function shapeDocumentsPage({ data }: { data: unknown }): LinearDocumentsPage {
+  const connection = isRecord(data) ? data["documents"] : undefined;
+  const nodes = isRecord(connection) && Array.isArray(connection["nodes"]) ? connection["nodes"] : [];
+  const documents = nodes
+    .map((node) => parseDocumentNode({ node }))
+    .filter((p): p is LinearDocumentItem => p !== undefined);
+  const info = pageInfoOf({ connection });
+  return { documents, ...(info.hasNext && info.endCursor !== undefined ? { nextCursor: info.endCursor } : {}) };
+}
+
 /**
  * Build the production Linear seam. Every GraphQL request goes through ONE shared rate scheduler +
  * transient retry; the transport defaults to the SDK client's `rawRequest` but is injectable for tests.
@@ -536,31 +743,51 @@ export function makeLinearApi({
   const call: LinearRequest = ({ query, variables }) =>
     retryTransient({ operation: () => gate(() => send({ query, variables })) });
   return {
-    issues: async ({ since, cursor }) => {
-      const data = await call({ query: ISSUES_QUERY, variables: pageQueryVariables({ cursor, since }) });
-      const shaped = shapeIssuesPage({ data });
-      const issues: LinearIssueItem[] = [];
-      for (const parsed of shaped.parsed) {
-        if (parsed.commentsHasNext && parsed.commentsCursor !== undefined) {
-          const more = await remainingComments({ after: parsed.commentsCursor, call, id: parsed.id });
-          issues.push({ ...parsed.item, comments: [...parsed.item.comments, ...more] });
-        } else {
-          issues.push(parsed.item);
-        }
+    documents: cursorLane({ call, query: DOCUMENTS_QUERY, shape: shapeDocumentsPage }),
+    initiatives: cursorLane({ call, query: INITIATIVES_QUERY, shape: shapeInitiativesPage }),
+    issues: issuesLane({ call }),
+    projects: async ({ since, cursor }) =>
+      shapeProjectsPage({
+        data: await call({ query: PROJECTS_QUERY, variables: pageQueryVariables({ cursor, since }) }),
+      }),
+    users: cursorLane({ call, query: USERS_QUERY, shape: shapeUsersPage }),
+  };
+}
+
+/** A cursor-only paged lane: run `query` with `{first, after?}`, shape the result. */
+function cursorLane<T>({
+  call,
+  query,
+  shape,
+}: {
+  call: LinearRequest;
+  query: string;
+  shape: (args: { data: unknown }) => T;
+}): (args: { cursor?: string }) => Promise<T> {
+  return async ({ cursor }) => {
+    const data = await call({
+      query,
+      variables: { first: PAGE_SIZE, ...(cursor !== undefined ? { after: cursor } : {}) },
+    });
+    return shape({ data });
+  };
+}
+
+/** The issues lane: one inline query per page + a follow-up only for issues whose comments overflow a page. */
+function issuesLane({ call }: { call: LinearRequest }): LinearApi["issues"] {
+  return async ({ since, cursor }) => {
+    const data = await call({ query: ISSUES_QUERY, variables: pageQueryVariables({ cursor, since }) });
+    const shaped = shapeIssuesPage({ data });
+    const issues: LinearIssueItem[] = [];
+    for (const parsed of shaped.parsed) {
+      if (parsed.commentsHasNext && parsed.commentsCursor !== undefined) {
+        const more = await remainingComments({ after: parsed.commentsCursor, call, id: parsed.id });
+        issues.push({ ...parsed.item, comments: [...parsed.item.comments, ...more] });
+      } else {
+        issues.push(parsed.item);
       }
-      return { issues, ...(shaped.nextCursor !== undefined ? { nextCursor: shaped.nextCursor } : {}) };
-    },
-    projects: async ({ since, cursor }) => {
-      const data = await call({ query: PROJECTS_QUERY, variables: pageQueryVariables({ cursor, since }) });
-      return shapeProjectsPage({ data });
-    },
-    users: async ({ cursor }) => {
-      const data = await call({
-        query: USERS_QUERY,
-        variables: { first: PAGE_SIZE, ...(cursor !== undefined ? { after: cursor } : {}) },
-      });
-      return shapeUsersPage({ data });
-    },
+    }
+    return { issues, ...(shaped.nextCursor !== undefined ? { nextCursor: shaped.nextCursor } : {}) };
   };
 }
 

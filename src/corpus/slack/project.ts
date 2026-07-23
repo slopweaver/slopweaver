@@ -10,6 +10,7 @@
  * fetch edge built, so no opaque `Uxxxx`/`Cxxxx` id ever lands in stored text (`resolveSlackMarkup`).
  */
 
+import { CURATED_CLASS_ATTR } from "../curated/types.js";
 import { extractRefs } from "../refs.js";
 import type { CorpusAttributeValue, CorpusRecord } from "../types.js";
 
@@ -69,6 +70,47 @@ export interface SlackChannelItems {
   readonly channelName?: string;
   readonly messages: readonly SlackMessageItem[];
   readonly replies: readonly SlackReplyItem[];
+}
+
+/** A pinned message — the channel-curated knowledge a channel deliberately keeps (ref-only). */
+export interface SlackPinItem {
+  readonly channelId: string;
+  readonly channelName?: string;
+  readonly ts: string;
+  readonly tsIso: string;
+  readonly text?: string;
+  readonly author?: string;
+  readonly permalink: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
+}
+
+/** A channel bookmark — a curated link the channel keeps. */
+export interface SlackBookmarkItem {
+  readonly channelId: string;
+  readonly channelName?: string;
+  readonly id: string;
+  readonly title: string;
+  readonly link: string;
+  readonly tsIso: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
+}
+
+/** A Slack canvas — a deliberately-authored doc (ref-only: title + permalink, never bytes/signed URLs). */
+export interface SlackCanvasItem {
+  readonly id: string;
+  readonly title: string;
+  readonly tsIso: string;
+  readonly permalink: string;
+  readonly channelId?: string;
+  readonly author?: string;
+  readonly raw?: Readonly<Record<string, unknown>>;
+}
+
+/** The curated Slack surfaces gathered by the best-effort curated lane. */
+export interface SlackCuratedItems {
+  readonly pins: readonly SlackPinItem[];
+  readonly bookmarks: readonly SlackBookmarkItem[];
+  readonly canvases: readonly SlackCanvasItem[];
 }
 
 /**
@@ -248,20 +290,82 @@ function fileRecords({
   });
 }
 
+/** The empty curated surfaces (so the default is stable). */
+const EMPTY_CURATED: SlackCuratedItems = { bookmarks: [], canvases: [], pins: [] };
+
+/** One `pin` record — a channel-curated pinned message, resolved + cited by its permalink. Pure. */
+function pinRecord({ pin, maps }: { pin: SlackPinItem; maps: SlackNameMaps }): CorpusRecord {
+  const channelLabel = pin.channelName !== undefined ? `#${pin.channelName}` : pin.channelId;
+  const resolved = pin.text !== undefined ? resolveSlackMarkup({ maps, text: pin.text }) : undefined;
+  return {
+    attrs: { channel: channelLabel },
+    container: containerFor({ channelId: pin.channelId }),
+    kind: "pin",
+    refs: resolved !== undefined ? extractRefs({ text: resolved }) : [],
+    source: "slack",
+    sourceId: `${pin.channelId}:pin:${pin.ts}`,
+    text: resolved !== undefined && resolved.length > 0 ? resolved : `Pinned message in ${channelLabel}`,
+    title: `${channelLabel} pinned`,
+    tsIso: pin.tsIso,
+    url: pin.permalink,
+    ...(pin.author !== undefined ? { author: pin.author } : {}),
+    ...(pin.raw !== undefined ? { raw: pin.raw } : {}),
+  };
+}
+
+/** One `bookmark` record — a curated channel link (ref-only). Pure. */
+function bookmarkRecord({ bookmark }: { bookmark: SlackBookmarkItem }): CorpusRecord {
+  const channelLabel = bookmark.channelName !== undefined ? `#${bookmark.channelName}` : bookmark.channelId;
+  return {
+    attrs: { channel: channelLabel },
+    container: containerFor({ channelId: bookmark.channelId }),
+    kind: "bookmark",
+    refs: extractRefs({ text: bookmark.link }),
+    source: "slack",
+    sourceId: `${bookmark.channelId}:bookmark:${bookmark.id}`,
+    text: bookmark.title.length > 0 ? bookmark.title : bookmark.link,
+    title: bookmark.title.length > 0 ? bookmark.title : "bookmark",
+    tsIso: bookmark.tsIso,
+    url: bookmark.link,
+    ...(bookmark.raw !== undefined ? { raw: bookmark.raw } : {}),
+  };
+}
+
+/** One `canvas` record — a deliberately-authored doc (ref-only), classified `strategy`. Pure. */
+function canvasRecord({ canvas }: { canvas: SlackCanvasItem }): CorpusRecord {
+  return {
+    attrs: { [CURATED_CLASS_ATTR]: "strategy" },
+    container: canvas.channelId !== undefined ? containerFor({ channelId: canvas.channelId }) : "slack",
+    kind: "canvas",
+    refs: [],
+    source: "slack",
+    sourceId: `canvas:${canvas.id}`,
+    text: canvas.title.length > 0 ? canvas.title : `Canvas ${canvas.id}`,
+    title: canvas.title.length > 0 ? canvas.title : "canvas",
+    tsIso: canvas.tsIso,
+    url: canvas.permalink,
+    ...(canvas.author !== undefined ? { author: canvas.author } : {}),
+    ...(canvas.raw !== undefined ? { raw: canvas.raw } : {}),
+  };
+}
+
 /**
- * Project every channel's messages + replies (+ their attachment refs) into corpus records, resolving
- * Slack markup via the id→name maps.
+ * Project every channel's messages + replies (+ their attachment refs) and the curated surfaces
+ * (pins/bookmarks/canvases) into corpus records, resolving Slack markup via the id→name maps.
  *
  * @param channels the fetched per-channel items
  * @param maps the id→name maps for markup resolution (defaults to empty — renders generic names)
+ * @param curated the curated surfaces gathered by the best-effort lane (defaults to empty)
  * @returns the flattened corpus records
  */
 export function projectSlackRecords({
   channels,
   maps = EMPTY_MAPS,
+  curated = EMPTY_CURATED,
 }: {
   channels: readonly SlackChannelItems[];
   maps?: SlackNameMaps;
+  curated?: SlackCuratedItems;
 }): readonly CorpusRecord[] {
   const records: CorpusRecord[] = [];
   for (const channel of channels) {
@@ -271,6 +375,15 @@ export function projectSlackRecords({
     for (const reply of channel.replies) {
       records.push(...replyRecords({ maps, reply }));
     }
+  }
+  for (const pin of curated.pins) {
+    records.push(pinRecord({ maps, pin }));
+  }
+  for (const bookmark of curated.bookmarks) {
+    records.push(bookmarkRecord({ bookmark }));
+  }
+  for (const canvas of curated.canvases) {
+    records.push(canvasRecord({ canvas }));
   }
   return records;
 }

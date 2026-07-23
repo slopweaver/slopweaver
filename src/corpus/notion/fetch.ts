@@ -17,6 +17,7 @@ import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
 import { aggregateMemberWarnings } from "../members/project.js";
 import type { MemberBronzeRow } from "../members/types.js";
 import type { ExportWindow } from "../types.js";
+import { blockFileRef, extractFilePropertyRefs, extractMentions, extractRelationTargets } from "./curated.js";
 import type { NotionCommentItem, NotionDatabaseItem, NotionPageItem } from "./project.js";
 
 /** A rate-gated + transient-retried request runner — one shared per crawl (see {@link makeNotionApi}). */
@@ -41,6 +42,7 @@ export interface NotionDatabasesPage {
   readonly databases: readonly NotionDatabaseItem[];
   readonly rows: readonly NotionPageItem[];
   readonly nextCursor?: string;
+  readonly warnings?: readonly string[];
 }
 
 /** A page of raw Notion user objects from `users.list` (projected to member rows by {@link fetchNotionMembers}). */
@@ -245,7 +247,11 @@ export async function fetchNotionActivity({
     const pageLane = await pageAllPages({ api, since: window.since });
     const dbLane = await pageAllDatabases({ api, since: window.since });
     // data-source ROWS are the actual records — projected as pages (appended after the discovered pages).
-    return ok({ databases: dbLane.databases, pages: [...pageLane.pages, ...dbLane.rows], warnings: pageLane.warnings });
+    return ok({
+      databases: dbLane.databases,
+      pages: [...pageLane.pages, ...dbLane.rows],
+      warnings: [...pageLane.warnings, ...dbLane.warnings],
+    });
   } catch (error: unknown) {
     return err([`fetch failed: ${error instanceof Error ? error.message : "unknown"}`]);
   }
@@ -274,23 +280,25 @@ async function pageAllPages({
 }
 
 /** Page the `databases` lane to exhaustion, collecting database summaries + their projected row pages. */
-async function pageAllDatabases({
-  api,
-  since,
-}: {
-  api: NotionApi;
-  since: string;
-}): Promise<{ databases: readonly NotionDatabaseItem[]; rows: readonly NotionPageItem[] }> {
+async function pageAllDatabases({ api, since }: { api: NotionApi; since: string }): Promise<{
+  databases: readonly NotionDatabaseItem[];
+  rows: readonly NotionPageItem[];
+  warnings: readonly string[];
+}> {
   const databases: NotionDatabaseItem[] = [];
   const rows: NotionPageItem[] = [];
+  const warnings: string[] = [];
   let cursor: string | undefined;
   do {
     const page = await api.databases({ since, ...(cursor !== undefined ? { cursor } : {}) });
     databases.push(...page.databases);
     rows.push(...page.rows);
+    if (page.warnings !== undefined) {
+      warnings.push(...page.warnings);
+    }
     cursor = page.nextCursor;
   } while (cursor !== undefined && cursor.length > 0);
-  return { databases, rows };
+  return { databases, rows, warnings };
 }
 
 /** Best-effort title from a page/database `properties` object or `title` array. */
@@ -314,6 +322,13 @@ export function blockTextLine({ block }: { block: Record<string, unknown> }): st
   const type = typeof block["type"] === "string" ? block["type"] : undefined;
   const body = type !== undefined ? block[type] : undefined;
   return isRecord(body) ? renderRichText({ richText: body["rich_text"] }) : "";
+}
+
+/** The explicit mention target node keys in one raw block's rich text (page/database/user spans). Pure. */
+export function blockMentions({ block }: { block: Record<string, unknown> }): readonly string[] {
+  const type = typeof block["type"] === "string" ? block["type"] : undefined;
+  const body = type !== undefined ? block[type] : undefined;
+  return isRecord(body) ? extractMentions({ richText: body["rich_text"] }) : [];
 }
 
 /** The child block id to recurse into (`has_children` + a string id), or undefined. Pure. */
@@ -350,7 +365,31 @@ async function listBlockChildren({
   return { nextCursor: notionNextCursor({ value: res.next_cursor }), results: res.results };
 }
 
-/** Recursively render a page's block children to plain text, bounded by depth. Every call is rate-gated. */
+/** A page's rendered body: plain text + the explicit mention targets + ref-only file lines it contains. */
+interface RenderedBlocks {
+  readonly text: string;
+  readonly mentions: readonly string[];
+  readonly fileRefs: readonly string[];
+}
+
+/** One block's own (non-recursive) contribution: its rendered line, mention targets, and file ref. Pure. */
+function blockContribution({ block }: { block: Record<string, unknown> }): {
+  line: string;
+  mentions: readonly string[];
+  fileRefs: readonly string[];
+} {
+  const fileRef = blockFileRef({ block });
+  return {
+    fileRefs: fileRef !== undefined ? [fileRef] : [],
+    line: blockTextLine({ block }),
+    mentions: blockMentions({ block }),
+  };
+}
+
+/**
+ * Recursively render a page's block children to plain text — and collect the explicit mention targets +
+ * ref-only file/media lines along the way — bounded by depth. Every call is rate-gated.
+ */
 async function renderBlocks({
   client,
   call,
@@ -361,11 +400,13 @@ async function renderBlocks({
   call: GatedCall;
   blockId: string;
   depth: number;
-}): Promise<string> {
+}): Promise<RenderedBlocks> {
   if (depth > MAX_BLOCK_DEPTH) {
-    return "";
+    return { fileRefs: [], mentions: [], text: "" };
   }
   const lines: string[] = [];
+  const mentions: string[] = [];
+  const fileRefs: string[] = [];
   let cursor: string | undefined;
   do {
     const page = await listBlockChildren({ blockId, call, client, cursor });
@@ -373,15 +414,21 @@ async function renderBlocks({
       if (!isRecord(result)) {
         continue;
       }
-      lines.push(blockTextLine({ block: result }));
+      const contrib = blockContribution({ block: result });
+      lines.push(contrib.line);
+      mentions.push(...contrib.mentions);
+      fileRefs.push(...contrib.fileRefs);
       const childId = blockChildId({ block: result });
       if (childId !== undefined) {
-        lines.push(await renderBlocks({ blockId: childId, call, client, depth: depth + 1 }));
+        const child = await renderBlocks({ blockId: childId, call, client, depth: depth + 1 });
+        lines.push(child.text);
+        mentions.push(...child.mentions);
+        fileRefs.push(...child.fileRefs);
       }
     }
     cursor = page.nextCursor;
   } while (cursor !== undefined);
-  return lines.filter((line) => line.length > 0).join("\n\n");
+  return { fileRefs, mentions, text: lines.filter((line) => line.length > 0).join("\n\n") };
 }
 
 /** The `since` cutoff in epoch-ms, or undefined when `since` means "no cutoff" (the `--all` epoch date). */
@@ -450,6 +497,46 @@ async function pageComments({
   return { comments, warnings: [] };
 }
 
+/** Collect the in-window rows on one `dataSources.query` result page (each with its comments), rate-gated. */
+async function rowsFromQueryPage({
+  client,
+  call,
+  dataSourceId,
+  cutoff,
+  results,
+}: {
+  client: Client;
+  call: GatedCall;
+  dataSourceId: string;
+  cutoff: number | undefined;
+  results: readonly unknown[];
+}): Promise<{ rows: readonly NotionPageItem[]; warnings: readonly string[] }> {
+  const rows: NotionPageItem[] = [];
+  const warnings: string[] = [];
+  for (const result of results) {
+    const raw: unknown = result;
+    if (
+      !isRecord(raw) ||
+      typeof raw["id"] !== "string" ||
+      !withinCutoff({ cutoff, lastEdited: lastEditedOf({ raw }) })
+    ) {
+      continue; // id-less, or out of window (rows aren't ordered — filter, don't stop paging)
+    }
+    const comments = await pageComments({ call, client, pageId: raw["id"] });
+    warnings.push(...comments.warnings);
+    rows.push(
+      projectRowItem({
+        comments: comments.comments,
+        dataSourceId,
+        id: raw["id"],
+        lastEdited: lastEditedOf({ raw }),
+        raw,
+      }),
+    );
+  }
+  return { rows, warnings };
+}
+
 /** Query a data source's rows (the actual task/decision records) to exhaustion, rate-gated, cutoff-honoured. */
 async function dataSourceRows({
   client,
@@ -461,8 +548,9 @@ async function dataSourceRows({
   call: GatedCall;
   dataSourceId: string;
   cutoff: number | undefined;
-}): Promise<readonly NotionPageItem[]> {
+}): Promise<{ rows: readonly NotionPageItem[]; warnings: readonly string[] }> {
   const rows: NotionPageItem[] = [];
+  const warnings: string[] = [];
   let cursor: string | undefined;
   for (;;) {
     const res = orThrow({
@@ -479,20 +567,12 @@ async function dataSourceRows({
         provider: "notion",
       }),
     });
-    for (const result of res.results) {
-      const raw: unknown = result;
-      if (!isRecord(raw) || typeof raw["id"] !== "string") {
-        continue;
-      }
-      const lastEdited = lastEditedOf({ raw });
-      if (!withinCutoff({ cutoff, lastEdited })) {
-        continue; // rows aren't ordered — filter, don't stop paging
-      }
-      rows.push(projectRowItem({ dataSourceId, id: raw["id"], lastEdited, raw }));
-    }
+    const page = await rowsFromQueryPage({ call, client, cutoff, dataSourceId, results: res.results });
+    rows.push(...page.rows);
+    warnings.push(...page.warnings);
     const next = notionNextCursor({ value: res.next_cursor });
     if (next === undefined) {
-      return rows;
+      return { rows, warnings };
     }
     cursor = next;
   }
@@ -523,20 +603,25 @@ export function projectDatabaseItem({
   };
 }
 
-/** Project a raw Notion page into a page item (its rendered text chunked, comments attached). Pure. */
+/** Project a raw Notion page into a page item (its rendered text chunked, comments + curated refs attached). Pure. */
 export function projectPageItem({
   raw,
   id,
   lastEdited,
   text,
   comments,
+  mentionTargets = [],
+  fileRefs = [],
 }: {
   raw: Record<string, unknown>;
   id: string;
   lastEdited: string;
   text: string;
   comments: readonly NotionCommentItem[];
+  mentionTargets?: readonly string[];
+  fileRefs?: readonly string[];
 }): NotionPageItem {
+  const relationTargets = extractRelationTargets({ properties: raw["properties"] });
   return {
     chunks: chunkText({ text }),
     comments,
@@ -545,31 +630,40 @@ export function projectPageItem({
     title: titleFrom({ raw }),
     tsIso: lastEdited,
     url: typeof raw["url"] === "string" ? raw["url"] : "",
+    ...(relationTargets.length > 0 ? { relationTargets } : {}),
+    ...(mentionTargets.length > 0 ? { mentionTargets } : {}),
+    ...(fileRefs.length > 0 ? { fileRefs } : {}),
   };
 }
 
-/** Project a raw data-source ROW into a page item (its properties flattened + chunked). Pure. */
+/** Project a raw data-source ROW into a page item (properties flattened + chunked, relations/files/comments). Pure. */
 export function projectRowItem({
   raw,
   id,
   dataSourceId,
   lastEdited,
+  comments = [],
 }: {
   raw: Record<string, unknown>;
   id: string;
   dataSourceId: string;
   lastEdited: string;
+  comments?: readonly NotionCommentItem[];
 }): NotionPageItem {
   const { title, text } = renderRowProperties({ properties: raw["properties"] });
+  const relationTargets = extractRelationTargets({ properties: raw["properties"] });
+  const fileRefs = extractFilePropertyRefs({ properties: raw["properties"] });
   return {
     chunks: chunkText({ text }),
-    comments: [],
+    comments,
     id,
     parent: dataSourceId,
     raw,
     title: title.length > 0 ? title : "(row)",
     tsIso: lastEdited,
     url: typeof raw["url"] === "string" ? raw["url"] : "",
+    ...(relationTargets.length > 0 ? { relationTargets } : {}),
+    ...(fileRefs.length > 0 ? { fileRefs } : {}),
   };
 }
 
@@ -730,6 +824,7 @@ function notionDatabasesMethod({ client, call }: { client: Client; call: GatedCa
     });
     const databases: NotionDatabaseItem[] = [];
     const rows: NotionPageItem[] = [];
+    const warnings: string[] = [];
     let reachedCutoff = false;
     for (const result of results) {
       const raw: unknown = result;
@@ -742,10 +837,17 @@ function notionDatabasesMethod({ client, call }: { client: Client; call: GatedCa
         break;
       }
       databases.push(projectDatabaseItem({ id: raw["id"], lastEdited, raw }));
-      rows.push(...(await dataSourceRows({ call, client, cutoff, dataSourceId: raw["id"] })));
+      const queried = await dataSourceRows({ call, client, cutoff, dataSourceId: raw["id"] });
+      rows.push(...queried.rows);
+      warnings.push(...queried.warnings);
     }
     const next = searchNextCursor({ nextCursor, reachedCutoff });
-    return { databases, rows, ...(next !== undefined ? { nextCursor: next } : {}) };
+    return {
+      databases,
+      rows,
+      ...(next !== undefined ? { nextCursor: next } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   };
 }
 
@@ -774,10 +876,20 @@ function notionPagesMethod({ client, call }: { client: Client; call: GatedCall }
         break;
       }
       const id = raw["id"];
-      const text = await renderBlocks({ blockId: id, call, client, depth: 0 });
+      const rendered = await renderBlocks({ blockId: id, call, client, depth: 0 });
       const comments = await pageComments({ call, client, pageId: id });
       warnings.push(...comments.warnings);
-      pages.push(projectPageItem({ comments: comments.comments, id, lastEdited, raw, text }));
+      pages.push(
+        projectPageItem({
+          comments: comments.comments,
+          fileRefs: rendered.fileRefs,
+          id,
+          lastEdited,
+          mentionTargets: rendered.mentions,
+          raw,
+          text: rendered.text,
+        }),
+      );
     }
     const next = searchNextCursor({ nextCursor, reachedCutoff });
     return {

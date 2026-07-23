@@ -23,6 +23,7 @@ import {
   slopweaverHome,
 } from "../../../config.js";
 import { bronzeDir } from "../../../corpus/corpusPaths.js";
+import { fetchGithubCurated, makeGithubCuratedApi, projectGithubCurated } from "../../../corpus/github/curated.js";
 import { githubFetchItems } from "../../../corpus/github/fetch.js";
 import { enumerateOrgRepos, makeGithubOrgApi } from "../../../corpus/github/org.js";
 import { fetchOrgActivity } from "../../../corpus/github/orgActivity.js";
@@ -104,10 +105,17 @@ function githubJob({
       if (fetched.ok === false) {
         return fetched;
       }
-      return ok({
-        records: projectGithubRecords({ items: fetched.value, repo: `${repo.owner}/${repo.repo}` }),
-        warnings: fetched.warnings,
-      });
+      const container = `${repo.owner}/${repo.repo}`;
+      const activity = projectGithubRecords({ items: fetched.value, repo: container });
+      // The curated lane (discussions/releases/milestones/CODEOWNERS) is additive + best-effort — a disabled
+      // surface warns, never fails. It needs auth, so it only runs when a token is present.
+      const curated =
+        token !== undefined
+          ? await fetchGithubCurated({ api: makeGithubCuratedApi({ token }), repo })
+          : { items: undefined, warnings: [] };
+      const curatedRecords =
+        curated.items !== undefined ? projectGithubCurated({ items: curated.items, repo: container }) : [];
+      return ok({ records: [...activity, ...curatedRecords], warnings: [...fetched.warnings, ...curated.warnings] });
     },
     source: "github",
     window,
@@ -248,13 +256,19 @@ function sourceJob({
         ? fetched.value.warnings
         : [...fetched.value.warnings, ...stored.errors.map((e) => `thread-cursor persist failed: ${e}`)];
       return ok({
-        records: projectSlackRecords({ channels: fetched.value.channels, maps: fetched.value.maps }),
+        records: projectSlackRecords({
+          channels: fetched.value.channels,
+          curated: fetched.value.curated,
+          maps: fetched.value.maps,
+        }),
         warnings,
       });
     }
     if (source === "linear") {
       const fetched = await fetchLinearActivity({ api: makeLinearApi({ token }), window });
-      return fetched.ok ? ok({ records: projectLinearRecords(fetched.value), warnings: [] }) : fetched;
+      return fetched.ok
+        ? ok({ records: projectLinearRecords(fetched.value), warnings: fetched.value.warnings })
+        : fetched;
     }
     const fetched = await fetchNotionActivity({ api: makeNotionApi({ token }), window });
     return fetched.ok

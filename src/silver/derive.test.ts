@@ -31,6 +31,20 @@ describe("deriveSilver", () => {
     expect(artifacts.graph.edges).toHaveLength(1);
     expect(Array.isArray(artifacts.opportunities)).toBe(true);
   });
+
+  it("surfaces curated declared edges without touching the token graph (PR4.3, no re-blow)", () => {
+    const artifacts = deriveSilver({
+      identityMap: emptyMap,
+      records: [
+        rec({ attrs: { curatedEdges: ["sub-issue|linear:TEAM-2"] }, source: "linear", sourceId: "TEAM-1", url: "u1" }),
+        rec({ source: "linear", sourceId: "TEAM-2", url: "u2" }),
+      ],
+    });
+    expect(artifacts.curated.edges).toEqual([{ from: "linear:TEAM-1", kind: "sub-issue", to: "linear:TEAM-2" }]);
+    // no shared token ⇒ the token clique graph stays empty; the curated edge lives only on its own graph.
+    expect(artifacts.graph.edges).toEqual([]);
+    expect(artifacts.curated.capped).toBe(0);
+  });
 });
 
 describe("deriveSilver — identity resolution", () => {
@@ -72,5 +86,6 @@ describe("planDeriveSummary", () => {
     expect(lines[0]).toContain("directory:");
     expect(lines[1]).toContain("graph:");
     expect(lines.some((l) => l.startsWith("identities:"))).toBe(true);
+    expect(lines.some((l) => l.startsWith("curated:"))).toBe(true);
   });
 });

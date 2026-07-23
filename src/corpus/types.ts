@@ -26,6 +26,10 @@ export const CORPUS_SOURCES: readonly CorpusSource[] = ["github", "slack", "line
  * The unit a record represents, kept source-neutral so downstream stages never branch per source:
  * GitHub → `pr`/`issue`/`comment`/`review`; Slack → `message`/`comment`/`file`; Linear →
  * `issue`/`comment`/`project`/`status`; Notion → `page`/`database`/`comment`; `finding` is a gold section.
+ *
+ * The curated-knowledge layer (PR4.3) adds the deliberately-authored artefact kinds — `initiative`,
+ * `document`, `update` (Linear); `canvas`, `bookmark`, `pin` (Slack); `discussion`, `release`,
+ * `milestone`, `codeowners` (GitHub). Purely additive: pre-PR4.3 bronze never carries them.
  */
 export type CorpusKind =
   | "pr"
@@ -38,7 +42,17 @@ export type CorpusKind =
   | "page"
   | "database"
   | "status"
-  | "project";
+  | "project"
+  | "initiative"
+  | "document"
+  | "update"
+  | "canvas"
+  | "bookmark"
+  | "pin"
+  | "discussion"
+  | "release"
+  | "milestone"
+  | "codeowners";
 
 /** Runtime mirror of {@link CorpusKind} for round-trip validation when reading records back. */
 export const CORPUS_KINDS: readonly CorpusKind[] = [
@@ -53,6 +67,16 @@ export const CORPUS_KINDS: readonly CorpusKind[] = [
   "database",
   "status",
   "project",
+  "initiative",
+  "document",
+  "update",
+  "canvas",
+  "bookmark",
+  "pin",
+  "discussion",
+  "release",
+  "milestone",
+  "codeowners",
 ];
 
 /**
