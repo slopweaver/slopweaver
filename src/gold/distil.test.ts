@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { CorpusRecord } from "../corpus/types.js";
+import type { ProgressLearning } from "../lib/progress.js";
 import { unwrap } from "../lib/result.js";
 import type { LlmClient } from "../llm/provider.js";
 import {
   type BatchDigest,
   buildDigestPrompt,
   type DistilProgress,
+  digestPointToLearning,
   distilBatch,
   distilBatches,
   reduceToSourceDigest,
@@ -176,6 +178,59 @@ describe("distilBatches", () => {
     });
     expect(events).toHaveLength(2);
     expect(events[1]).toEqual({ called: 1, done: 2, hits: 1, skipped: 0, total: 2 });
+  });
+
+  it("announces learnings ONLY for a freshly-distilled batch, never a cache hit", async () => {
+    const learnings: ProgressLearning[] = [];
+    const { client } = countingClient(); // fresh batch → points: [{ citations: ["u"], point: "p" }]
+    const cache = new Map<string, BatchDigest>([
+      [
+        "a",
+        {
+          container: "o/r",
+          points: [{ citations: ["u"], point: "cached point" }],
+          source: "github",
+          summary: "cached",
+        },
+      ],
+    ]);
+    await distilBatches({
+      batches: [batchN("a"), batchN("b")],
+      cache,
+      client,
+      onLearning: (l) => learnings.push(l),
+    });
+    expect(learnings).toEqual([{ category: "status", confidence: "low", content: "p", sourceContentId: "u" }]);
+  });
+});
+
+describe("digestPointToLearning (pure)", () => {
+  it("classifies by keyword and sets confidence from the citation count", () => {
+    expect(digestPointToLearning({ point: { citations: ["u1", "u2", "u3"], point: "we decided to adopt X" } })).toEqual(
+      {
+        category: "decision",
+        confidence: "high",
+        content: "we decided to adopt X",
+        sourceContentId: "u1",
+      },
+    );
+    expect(digestPointToLearning({ point: { citations: ["u1", "u2"], point: "CI is failing on main" } })).toEqual({
+      category: "blocker",
+      confidence: "medium",
+      content: "CI is failing on main",
+      sourceContentId: "u1",
+    });
+    expect(digestPointToLearning({ point: { citations: ["u1"], point: "Ada owns the retriever" } })!.category).toBe(
+      "ownership",
+    );
+    expect(digestPointToLearning({ point: { citations: ["u1"], point: "we should improve recall" } })!.category).toBe(
+      "opportunity",
+    );
+    expect(digestPointToLearning({ point: { citations: ["u1"], point: "shipped v2" } })!.category).toBe("status");
+  });
+
+  it('returns undefined for an ungrounded point (no `?? ""` sentinel)', () => {
+    expect(digestPointToLearning({ point: { citations: [], point: "orphan" } })).toBeUndefined();
   });
 });
 

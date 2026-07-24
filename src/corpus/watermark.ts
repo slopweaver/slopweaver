@@ -4,21 +4,20 @@
  * the window's `until` — advancing to `until` would skip any records that land later with an earlier
  * timestamp (a gap). Merge is MAX at the leaf, so a narrower re-run can never move a cursor backwards.
  * Writes are atomic (tmp + rename) so a crash mid-write can't corrupt the cursor.
+ *
+ * Each source's cursor lives in its OWN file (`corpus/watermarks/<source>.json`) rather than one shared
+ * `.watermark.json`. That's what makes concurrent per-source refreshes safe: two sources finishing at the
+ * same moment write DIFFERENT files, so neither can clobber the other's cursor (a single shared file's
+ * read-modify-write would). The legacy combined `.watermark.json` is still READ as a migration fallback,
+ * so a home written before the split keeps resuming.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { slopweaverHome } from "../config.js";
 import { isRecord } from "../lib/parsers.js";
 import { err, ok, type Result } from "../lib/result.js";
-import { watermarkPath } from "./corpusPaths.js";
+import { sourceWatermarkPath, watermarkPath } from "./corpusPaths.js";
 import { type CorpusSource, type SourceWatermark } from "./types.js";
-
-interface WatermarkFile {
-  readonly version: 1;
-  readonly sources: Partial<Record<CorpusSource, { readonly cursor: string }>>;
-}
-
-const EMPTY: WatermarkFile = { sources: {}, version: 1 };
 
 /**
  * Max observed `tsIso` per source. Sources with no records are omitted; `fallbackUntil` fills a gap
@@ -47,28 +46,35 @@ export function computeSourceWatermarks({
   return [...seenSources].map((source) => ({ cursor: maxBySource.get(source) ?? fallbackUntil, source }));
 }
 
-/** Read + validate the watermark file; anything unrecognised degrades to an empty watermark. */
-function readWatermarkFile({ home }: { home: string }): WatermarkFile {
+/** The `cursor` string from a validated `{ cursor }` object, or undefined. Pure. */
+function cursorOf({ raw }: { raw: unknown }): string | undefined {
+  return isRecord(raw) && typeof raw["cursor"] === "string" ? raw["cursor"] : undefined;
+}
+
+/** Read a source's cursor from its OWN file (`corpus/watermarks/<source>.json`); missing/invalid ⇒ undefined. */
+function readSourceFile({ home, source }: { home: string; source: CorpusSource }): string | undefined {
+  try {
+    return cursorOf({ raw: JSON.parse(readFileSync(sourceWatermarkPath({ home, source }), "utf8")) });
+  } catch {
+    return undefined; // no per-source file yet (or unreadable) — the caller falls back to the legacy file
+  }
+}
+
+/** Read a source's cursor from the LEGACY combined `.watermark.json` (migration for pre-split homes). */
+function readLegacyCursor({ home, source }: { home: string; source: CorpusSource }): string | undefined {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(watermarkPath({ home }), "utf8"));
   } catch {
-    return EMPTY;
+    return undefined;
   }
-  if (!isRecord(raw) || !isRecord(raw["sources"])) {
-    return EMPTY;
-  }
-  const sources: Partial<Record<CorpusSource, { cursor: string }>> = {};
-  for (const [key, value] of Object.entries(raw["sources"])) {
-    if (isRecord(value) && typeof value["cursor"] === "string") {
-      sources[key as CorpusSource] = { cursor: value["cursor"] };
-    }
-  }
-  return { sources, version: 1 };
+  const sources = isRecord(raw) ? raw["sources"] : undefined;
+  return isRecord(sources) ? cursorOf({ raw: sources[source] }) : undefined;
 }
 
 /**
- * The stored cursor for a source, if any.
+ * The stored cursor for a source, if any — its own per-source file wins, else the legacy combined file
+ * (so a home written before the per-source split still resumes). Pure-ish (reads two candidate files).
  *
  * @param source the corpus source
  * @param home the world-model home (defaults to {@link slopweaverHome})
@@ -81,7 +87,7 @@ export function readWatermark({
   source: CorpusSource;
   home?: string;
 }): string | undefined {
-  return readWatermarkFile({ home }).sources[source]?.cursor;
+  return readSourceFile({ home, source }) ?? readLegacyCursor({ home, source });
 }
 
 /**
@@ -95,30 +101,36 @@ export function resolveSince({ cursor, fallbackSince }: { cursor: string | undef
   return cursor !== undefined && cursor.length > 0 ? cursor.slice(0, 10) : fallbackSince;
 }
 
-/** Merge incoming watermarks into the current file, MAX at every source cursor. */
-function mergeWatermark({
-  current,
-  incoming,
+/** Write ONE source's cursor to its own file atomically (tmp + rename). */
+function writeSourceFile({
+  home,
+  source,
+  cursor,
 }: {
-  current: WatermarkFile;
-  incoming: readonly SourceWatermark[];
-}): WatermarkFile {
-  const sources = { ...current.sources };
-  for (const { source, cursor } of incoming) {
-    const existing = sources[source]?.cursor; // a source with no prior cursor takes any non-empty incoming one
-    if (existing === undefined || cursor > existing) {
-      sources[source] = { cursor };
-    }
+  home: string;
+  source: CorpusSource;
+  cursor: string;
+}): Result<{ path: string }> {
+  const path = sourceWatermarkPath({ home, source });
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify({ cursor, version: 1 }, null, 2)}\n`, "utf8");
+    renameSync(tmp, path);
+  } catch (error: unknown) {
+    return err([error instanceof Error ? error.message : `failed to write watermark ${path}`]);
   }
-  return { sources, version: 1 };
+  return ok({ path });
 }
 
 /**
- * Advance the watermark file to include `watermarks` (MAX-merged), written atomically.
+ * Advance each source's cursor (MAX-merged against its stored value, so a narrower re-run never rewinds),
+ * writing each to its OWN file. Because sources write separate files, two concurrent per-source refreshes
+ * can't clobber each other. Written atomically per file.
  *
  * @param watermarks the per-source cursors to merge in
  * @param home the world-model home (defaults to {@link slopweaverHome})
- * @returns the written path, or an error on write failure
+ * @returns the written per-source paths, or an error on any write failure
  */
 export function advanceWatermark({
   watermarks,
@@ -126,16 +138,18 @@ export function advanceWatermark({
 }: {
   watermarks: readonly SourceWatermark[];
   home?: string;
-}): Result<{ path: string }> {
-  const path = watermarkPath({ home });
-  const merged = mergeWatermark({ current: readWatermarkFile({ home }), incoming: watermarks });
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
-    renameSync(tmp, path);
-  } catch (error: unknown) {
-    return err([error instanceof Error ? error.message : `failed to write watermark ${path}`]);
+}): Result<{ paths: readonly string[] }> {
+  const paths: string[] = [];
+  const errors: string[] = [];
+  for (const { source, cursor } of watermarks) {
+    const existing = readWatermark({ home, source }); // MAX-merge: keep the later of stored vs incoming
+    const next = existing !== undefined && existing > cursor ? existing : cursor;
+    const written = writeSourceFile({ cursor: next, home, source });
+    if (written.ok) {
+      paths.push(written.value.path);
+    } else {
+      errors.push(...written.errors);
+    }
   }
-  return ok({ path });
+  return errors.length > 0 ? err(errors) : ok({ paths });
 }

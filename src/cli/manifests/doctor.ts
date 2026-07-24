@@ -20,7 +20,7 @@ const doctorMeta = {
   parseRejectIsIoFree: true,
   requiresApproval: false,
   summary: "Env preflight: plugin version + the resolved state home and its layout",
-  usage: "usage: slopweaver doctor",
+  usage: "usage: slopweaver doctor [--json]",
 } as const;
 
 /** Lazy loader for the shared doctor handler — one module fetch, reused across the bare-noun + `run` verb. */

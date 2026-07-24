@@ -1,4 +1,14 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -37,12 +47,15 @@ describe("runInit", () => {
     const p = stateHomePaths({ home });
     for (const dir of [
       p.corpus.bronze,
+      p.corpus.members,
+      p.corpus.structures,
       p.corpus.silver,
       p.corpus.gold,
       p.corpus.cache,
       p.beliefs,
       p.ledgers,
       p.modelCache,
+      p.secrets,
     ]) {
       expect(existsSync(dir)).toBe(true);
     }
@@ -52,6 +65,21 @@ describe("runInit", () => {
     // Everything below the (pre-existing temp) home root is freshly created on a first run.
     const belowRoot = report.entries.filter((e) => e.path !== report.home).map((e) => e.outcome);
     expect([...new Set(belowRoot)]).toEqual(["created"]);
+  });
+
+  it("makes the secrets dir owner-only (0700) — connector tokens are never group/world-readable", () => {
+    runInit({ home });
+    const p = stateHomePaths({ home });
+    // Compare only the permission bits; POSIX-only, but the CI + dev machines are all POSIX.
+    expect(statSync(p.secrets).mode & 0o777).toBe(0o700);
+  });
+
+  it("tightens a pre-existing loose secrets dir to 0700 on re-run", () => {
+    const p = stateHomePaths({ home });
+    mkdirSync(p.secrets, { mode: 0o755, recursive: true });
+    chmodSync(p.secrets, 0o755);
+    runInit({ home });
+    expect(statSync(p.secrets).mode & 0o777).toBe(0o700);
   });
 
   it("is idempotent — a second run creates nothing and leaves the tree byte-identical", () => {

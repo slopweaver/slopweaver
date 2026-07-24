@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { SourceIngestJob } from "../../../corpus/ingestSource.js";
+import type { SourceProgressEvent } from "../../../corpus/progress.js";
 import type { CorpusRecord, ExportWindow } from "../../../corpus/types.js";
 import { ok } from "../../../lib/result.js";
 import type { MemberHydrationResult } from "./members.js";
-import { type RefreshDeps, runRefreshWithDeps } from "./run.js";
+import {
+  githubItemProgress,
+  githubRepoProgress,
+  hydrationHeartbeat,
+  type RefreshDeps,
+  runRefreshWithDeps,
+} from "./run.js";
 import type { StructureHydrationResult } from "./structures.js";
 
 /** A no-op source job (its `run` is never reached — `ingestSources` is faked). */
@@ -121,5 +128,47 @@ describe("runRefreshWithDeps — structural hydration step (PR4.2)", () => {
     const cap = fakeDeps({ withHydration: false });
     await runRefreshWithDeps({ argv: argv(["--source", "github"]), deps: cap.deps });
     expect(cap.progress.some((p) => p.phase === "structures")).toBe(false);
+  });
+});
+
+describe("refresh progress adapters (pure)", () => {
+  it("hydrationHeartbeat maps a members/structures event to a rich heartbeat with the source as the item", () => {
+    expect(hydrationHeartbeat({ done: 1, label: "slack", phase: "members", total: 4, written: 12 })).toEqual({
+      currentItem: { title: "slack" },
+      done: 1,
+      lane: "heartbeat",
+      metrics: { written: 12 },
+      phase: "members",
+      total: 4,
+    });
+  });
+
+  it("githubItemProgress adapts a per-item hook into a github.items source heartbeat", () => {
+    const events: SourceProgressEvent[] = [];
+    githubItemProgress({ sourceProgress: (e) => events.push(e) })({ index: 3, number: 42, total: 10 });
+    expect(events).toEqual([
+      { currentItem: { title: "#42" }, done: 3, lane: "heartbeat", phase: "items", source: "github", total: 10 },
+    ]);
+  });
+
+  it("githubRepoProgress adapts a per-repo hook into a github.repos source heartbeat naming the repo", () => {
+    const events: SourceProgressEvent[] = [];
+    githubRepoProgress({ sourceProgress: (e) => events.push(e) })({
+      done: 2,
+      recordCount: 18,
+      repo: "example/api",
+      total: 5,
+    });
+    expect(events).toEqual([
+      {
+        currentItem: { title: "example/api" },
+        done: 2,
+        lane: "heartbeat",
+        metrics: { records: 18 },
+        phase: "repos",
+        source: "github",
+        total: 5,
+      },
+    ]);
   });
 });

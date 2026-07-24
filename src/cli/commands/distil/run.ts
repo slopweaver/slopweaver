@@ -11,7 +11,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { slopweaverHome } from "../../../config.js";
+import { progressJsonEnabled, slopweaverHome } from "../../../config.js";
 import { goldDir } from "../../../corpus/corpusPaths.js";
 import { readCorpusDir, resolveCorpusDir } from "../../../corpus/corpusStore.js";
 import type { CorpusRecord } from "../../../corpus/types.js";
@@ -19,7 +19,7 @@ import { type BatchDigest, type DistilRunResult, distilBatches } from "../../../
 import { loadDistilCache, saveDistilCache } from "../../../gold/distilCache.js";
 import { type DistilBatch, groupForDistil } from "../../../gold/distilGroup.js";
 import { logger } from "../../../lib/logger.js";
-import { createProgressEmitter, progressCadence } from "../../../lib/progress.js";
+import { createRichProgressEmitter } from "../../../lib/progress.js";
 import { err, ok, type Result } from "../../../lib/result.js";
 import { orThrow, safeFs } from "../../../lib/safeBoundary.js";
 import { claudeCliClient } from "../../../llm/claudeCli.js";
@@ -85,7 +85,10 @@ async function executeDistil({
 }): Promise<DistilRunResult> {
   const plan = planDistil({ batches, cache, maxBatches });
   logger.info(`distilling ${String(batches.length)} batch(es) — ~${String(plan.wouldCall)} model call(s) to make…`);
-  const progress = createProgressEmitter({ cadence: progressCadence({ total: batches.length }), verb: "distil" });
+  const progress = createRichProgressEmitter({
+    verb: "distil",
+    ...(progressJsonEnabled() ? {} : { machineSink: () => {} }),
+  });
   const runResult = await distilBatches({
     batches,
     cache,
@@ -93,10 +96,14 @@ async function executeDistil({
     onCheckpoint: () => {
       saveDistilCache({ cache, home }); // persist NOW so a kill after this batch loses nothing
     },
+    onLearning: (learning) => {
+      progress.emit({ lane: "knowledge_extracted", learning, phase: "batch" });
+    },
     onProgress: (p) => {
-      progress.update({
-        counts: { cached: p.hits, called: p.called, skipped: p.skipped },
+      progress.emit({
         done: p.done,
+        lane: "heartbeat",
+        metrics: { cached: p.hits, called: p.called, skipped: p.skipped },
         phase: "batch",
         total: p.total,
       });
@@ -104,9 +111,10 @@ async function executeDistil({
     ...(maxBatches !== undefined ? { maxCalls: maxBatches } : {}),
   });
   progress.finish({
-    counts: { cached: runResult.hits, called: runResult.called, skipped: runResult.skipped },
     done: batches.length,
-    phase: "done",
+    lane: "heartbeat",
+    metrics: { cached: runResult.hits, called: runResult.called, skipped: runResult.skipped },
+    phase: "batch",
     total: batches.length,
   });
   runResult.errors.forEach((e) => {

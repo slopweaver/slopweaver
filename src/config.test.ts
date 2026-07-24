@@ -1,6 +1,26 @@
-import { describe, expect, it } from "vitest";
-import { parseRepositorySlug, repositoryFromGitRemote } from "./config.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { parseRepositorySlug, progressJsonEnabled, repositoryFromGitRemote } from "./config.js";
 import { unwrap } from "./lib/result.js";
+
+describe("progressJsonEnabled (env gate)", () => {
+  const original = process.env["SLOPWEAVER_PROGRESS_JSON"];
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env["SLOPWEAVER_PROGRESS_JSON"];
+    } else {
+      process.env["SLOPWEAVER_PROGRESS_JSON"] = original;
+    }
+  });
+
+  it("is OFF unless the env var is set to a non-empty value", () => {
+    delete process.env["SLOPWEAVER_PROGRESS_JSON"];
+    expect(progressJsonEnabled()).toBe(false);
+    process.env["SLOPWEAVER_PROGRESS_JSON"] = "";
+    expect(progressJsonEnabled()).toBe(false);
+    process.env["SLOPWEAVER_PROGRESS_JSON"] = "1";
+    expect(progressJsonEnabled()).toBe(true);
+  });
+});
 
 describe("repositoryFromGitRemote", () => {
   it.each([

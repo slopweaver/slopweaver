@@ -7,7 +7,7 @@
  * All paths come from the one home-path contract ({@link stateHomePaths}); this module never derives a
  * home sub-path itself. It is the effectful edge — the only writer — kept thin over that pure contract.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { STATE_HOME_VERSION, stateHomePaths } from "../stateHome.js";
@@ -49,6 +49,18 @@ function ensureDir({ path }: { path: string }): InitEntry {
   return { kind: "dir", outcome: existed ? "existed" : "created", path };
 }
 
+/**
+ * mkdir -p a PRIVATE (owner-only) directory, enforcing `0700` on create AND on a pre-existing dir (a
+ * `mkdir` mode is umask-masked and never tightens an existing dir, so we `chmod` unconditionally). This is
+ * the `secrets/` dir — connector tokens must never be group/world-readable.
+ */
+function ensurePrivateDir({ path }: { path: string }): InitEntry {
+  const existed = existsSync(path);
+  mkdirSync(path, { mode: 0o700, recursive: true });
+  chmodSync(path, 0o700);
+  return { kind: "dir", outcome: existed ? "existed" : "created", path };
+}
+
 /** Write `content` only when `path` is absent (never overwrite), recording the outcome. */
 function seedFile({ path, content }: { path: string; content: string }): InitEntry {
   if (existsSync(path)) {
@@ -71,12 +83,15 @@ export function runInit({ home }: { home?: string } = {}): InitReport {
     ensureDir({ path: paths.root }),
     ensureDir({ path: paths.corpus.root }),
     ensureDir({ path: paths.corpus.bronze }),
+    ensureDir({ path: paths.corpus.members }),
+    ensureDir({ path: paths.corpus.structures }),
     ensureDir({ path: paths.corpus.silver }),
     ensureDir({ path: paths.corpus.gold }),
     ensureDir({ path: paths.corpus.cache }),
     ensureDir({ path: paths.beliefs }),
     ensureDir({ path: paths.ledgers }),
     ensureDir({ path: paths.modelCache }),
+    ensurePrivateDir({ path: paths.secrets }),
     seedFile({ content: `${JSON.stringify({ version: STATE_HOME_VERSION }, null, 2)}\n`, path: paths.homeVersion }),
     seedFile({ content: readTemplate({ name: "identity.template.json" }), path: paths.identityJson }),
     seedFile({ content: readTemplate({ name: "profile.template.json" }), path: paths.profileJson }),

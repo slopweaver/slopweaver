@@ -20,6 +20,7 @@ import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
 import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
 import { aggregateMemberWarnings } from "../members/project.js";
 import type { MemberBronzeRow } from "../members/types.js";
+import { type SourceProgress, type SourceProgressEvent, sourceHeartbeat, sourcePreview } from "../progress.js";
 import type { ExportWindow } from "../types.js";
 import { issueAttachmentRefs, issueEdgeRefs } from "./curated.js";
 import type {
@@ -166,7 +167,15 @@ export type LinearRequest = (args: { query: string; variables: Record<string, un
  * @param window the export window (`since` is the `updatedAt >= ` bound)
  * @returns the shaped issues + projects, or `err` on a fatal failure
  */
-export async function fetchLinearActivity({ api, window }: { api: LinearApi; window: ExportWindow }): Promise<
+export async function fetchLinearActivity({
+  api,
+  window,
+  onProgress,
+}: {
+  api: LinearApi;
+  window: ExportWindow;
+  onProgress?: SourceProgress;
+}): Promise<
   Result<{
     issues: readonly LinearIssueItem[];
     projects: readonly LinearProjectItem[];
@@ -176,17 +185,15 @@ export async function fetchLinearActivity({ api, window }: { api: LinearApi; win
   }>
 > {
   try {
-    const issues = await collectCursorPages({
-      fetchPage: ({ cursor }) =>
-        api
-          .issues({ since: window.since, ...(cursor !== undefined ? { cursor } : {}) })
-          .then((page) => ({ items: page.issues, nextCursor: page.nextCursor })),
+    const issues = await collectLinearIssues({
+      api,
+      since: window.since,
+      ...(onProgress !== undefined ? { onProgress } : {}),
     });
-    const projects = await collectCursorPages({
-      fetchPage: ({ cursor }) =>
-        api
-          .projects({ since: window.since, ...(cursor !== undefined ? { cursor } : {}) })
-          .then((page) => ({ items: page.projects, nextCursor: page.nextCursor })),
+    const projects = await collectLinearProjects({
+      api,
+      since: window.since,
+      ...(onProgress !== undefined ? { onProgress } : {}),
     });
     const curated = await fetchLinearCurated({ api });
     return ok({
@@ -199,6 +206,96 @@ export async function fetchLinearActivity({ api, window }: { api: LinearApi; win
   } catch (error: unknown) {
     return err([`fetch failed: ${error instanceof Error ? error.message : "unknown"}`]);
   }
+}
+
+/** A content-preview from a Linear issue (its identifier + description/title). Pure. */
+export function linearIssuePreview({ issue }: { issue: LinearIssueItem }): SourceProgressEvent {
+  return sourcePreview({
+    phase: "issues",
+    snippet: issue.description ?? issue.title,
+    source: "linear",
+    sourceContentId: issue.identifier,
+    subject: issue.identifier,
+  });
+}
+
+/** A content-preview from a Linear project (its name + description). Pure. */
+export function linearProjectPreview({ project }: { project: LinearProjectItem }): SourceProgressEvent {
+  return sourcePreview({
+    phase: "projects",
+    snippet: project.description ?? project.name,
+    source: "linear",
+    sourceContentId: project.id,
+    subject: project.name,
+  });
+}
+
+/** Page the issues lane to exhaustion, emitting a first-item preview + a per-page heartbeat (no total ⇒ no %). */
+async function collectLinearIssues({
+  api,
+  since,
+  onProgress,
+}: {
+  api: LinearApi;
+  since: string;
+  onProgress?: SourceProgress;
+}): Promise<readonly LinearIssueItem[]> {
+  const issues: LinearIssueItem[] = [];
+  let cursor: string | undefined;
+  let page = 0;
+  do {
+    const result = await api.issues({ since, ...(cursor !== undefined ? { cursor } : {}) });
+    if (page === 0 && result.issues[0] !== undefined) {
+      onProgress?.(linearIssuePreview({ issue: result.issues[0] }));
+    }
+    issues.push(...result.issues);
+    page += 1;
+    onProgress?.(
+      sourceHeartbeat({
+        currentItem: { title: `page ${String(page)}` },
+        done: issues.length,
+        metrics: { issues: issues.length },
+        phase: "issues",
+        source: "linear",
+      }),
+    );
+    cursor = result.nextCursor;
+  } while (cursor !== undefined && cursor.length > 0);
+  return issues;
+}
+
+/** Page the projects lane to exhaustion, emitting a first-item preview + a per-page heartbeat. */
+async function collectLinearProjects({
+  api,
+  since,
+  onProgress,
+}: {
+  api: LinearApi;
+  since: string;
+  onProgress?: SourceProgress;
+}): Promise<readonly LinearProjectItem[]> {
+  const projects: LinearProjectItem[] = [];
+  let cursor: string | undefined;
+  let page = 0;
+  do {
+    const result = await api.projects({ since, ...(cursor !== undefined ? { cursor } : {}) });
+    if (page === 0 && result.projects[0] !== undefined) {
+      onProgress?.(linearProjectPreview({ project: result.projects[0] }));
+    }
+    projects.push(...result.projects);
+    page += 1;
+    onProgress?.(
+      sourceHeartbeat({
+        currentItem: { title: `page ${String(page)}` },
+        done: projects.length,
+        metrics: { projects: projects.length },
+        phase: "projects",
+        source: "linear",
+      }),
+    );
+    cursor = result.nextCursor;
+  } while (cursor !== undefined && cursor.length > 0);
+  return projects;
 }
 
 /** Best-effort curated lanes (initiatives + documents): a missing/failed lane warns, never throws. */

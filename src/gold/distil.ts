@@ -7,6 +7,7 @@
 
 import type { CorpusRecord, CorpusSource } from "../corpus/types.js";
 import { isRecord } from "../lib/parsers.js";
+import type { ProgressLearning } from "../lib/progress.js";
 import { err, ok, type Result } from "../lib/result.js";
 import type { JsonObjectSchema, LlmClient } from "../llm/provider.js";
 import { completeStructured } from "../llm/structuredComplete.js";
@@ -158,6 +159,70 @@ export interface DistilProgress {
   readonly skipped: number;
 }
 
+/** At most this many learnings surfaced per fresh batch — a taste, not a flood, of what distil extracted. */
+export const LEARNINGS_PER_BATCH = 3;
+
+/** The keyword → learning-category heuristic (first match wins; unmatched points are plain `status`). */
+const LEARNING_CATEGORIES: readonly { category: ProgressLearning["category"]; re: RegExp }[] = [
+  { category: "decision", re: /\b(decid|chose|agreed|adopt|will use|going with)/i },
+  { category: "blocker", re: /\b(block|stuck|broken|failing|regress|bug|incident)/i },
+  { category: "ownership", re: /\b(owns?|owner|responsible|maintain|leads?\b)/i },
+  { category: "opportunity", re: /\b(should|could|opportunit|improve|proposal|worth)/i },
+];
+
+/** Classify a digest point into a learning category by keyword (defaults to `status`). Pure. */
+function classifyLearning({ point }: { point: string }): ProgressLearning["category"] {
+  return LEARNING_CATEGORIES.find((entry) => entry.re.test(point))?.category ?? "status";
+}
+
+/** Learning confidence from the number of citations grounding a point (more sources ⇒ higher). Pure. */
+function confidenceFromCitations({ count }: { count: number }): ProgressLearning["confidence"] {
+  if (count >= 3) {
+    return "high";
+  }
+  return count === 2 ? "medium" : "low";
+}
+
+/**
+ * Project one grounded digest point into a streamable {@link ProgressLearning} — category by keyword,
+ * confidence by citation count, cite = the first citation. Returns undefined for an ungrounded point (which
+ * validation already drops, so this is defence-in-depth, never a `?? ""` sentinel). Pure.
+ *
+ * @param point the digest point
+ * @returns the learning, or undefined when the point carries no citation
+ */
+export function digestPointToLearning({ point }: { point: DigestPoint }): ProgressLearning | undefined {
+  const cite = point.citations[0];
+  if (cite === undefined) {
+    return undefined;
+  }
+  return {
+    category: classifyLearning({ point: point.point }),
+    confidence: confidenceFromCitations({ count: point.citations.length }),
+    content: point.point,
+    sourceContentId: cite,
+  };
+}
+
+/** Emit up to {@link LEARNINGS_PER_BATCH} learnings from a FRESH digest (never a cache hit / failed batch). */
+function announceLearnings({
+  digest,
+  onLearning,
+}: {
+  digest: BatchDigest;
+  onLearning: ((learning: ProgressLearning) => void) | undefined;
+}): void {
+  if (onLearning === undefined) {
+    return;
+  }
+  for (const point of digest.points.slice(0, LEARNINGS_PER_BATCH)) {
+    const learning = digestPointToLearning({ point });
+    if (learning !== undefined) {
+      onLearning(learning);
+    }
+  }
+}
+
 /**
  * Distil every batch, serving cache hits and calling the LLM only for misses. Mutates `cache` with each
  * fresh digest; `onCheckpoint` fires after each fresh digest so the caller can PERSIST per-batch (making
@@ -170,6 +235,7 @@ export interface DistilProgress {
  * @param client the LLM transport
  * @param maxCalls optional cap on fresh model calls (cached batches are always served)
  * @param onProgress optional per-batch progress callback (non-blocking)
+ * @param onLearning optional per-fresh-digest learning callback (the knowledge-extracted lane; never a cache hit)
  * @param onCheckpoint optional callback after each fresh digest is cached (persist the cache here)
  * @returns the digests (cached + fresh), counts, and any per-batch errors
  */
@@ -179,6 +245,7 @@ export async function distilBatches({
   client,
   maxCalls,
   onProgress,
+  onLearning,
   onCheckpoint,
 }: {
   batches: readonly DistilBatch[];
@@ -186,6 +253,7 @@ export async function distilBatches({
   client: LlmClient;
   maxCalls?: number;
   onProgress?: (progress: DistilProgress) => void;
+  onLearning?: (learning: ProgressLearning) => void;
   onCheckpoint?: () => void;
 }): Promise<DistilRunResult> {
   const digests: BatchDigest[] = [];
@@ -208,6 +276,7 @@ export async function distilBatches({
         cache.set(batch.hash, result.value);
         digests.push(result.value);
         called += 1;
+        announceLearnings({ digest: result.value, onLearning }); // learnings-as-they-arrive (fresh only)
         onCheckpoint?.(); // persist NOW so a kill after this batch loses nothing
       } else {
         errors.push(`${batch.source}/${batch.container}: ${result.errors.join("; ")}`);

@@ -1,0 +1,29 @@
+{
+  "display_information": {
+    "background_color": "#1a1a1a",
+    "description": "Read-only local world-model ingest for your team's Slack history.",
+    "name": "Slopweaver"
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": [
+        "users:read",
+        "users:read.email",
+        "channels:read",
+        "channels:history",
+        "groups:read",
+        "groups:history",
+        "files:read",
+        "pins:read",
+        "bookmarks:read",
+        "team:read",
+        "usergroups:read"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

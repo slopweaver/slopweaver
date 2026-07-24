@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { unwrap } from "../../lib/result.js";
+import type { SourceProgressEvent } from "../progress.js";
+import { rankChannelsByActivity } from "./curatedFetch.js";
 import {
   channelNameMap,
   fetchSlackActivity,
@@ -16,6 +18,7 @@ import {
   slackNextCursor,
   slackWindowBounds,
 } from "./fetch.js";
+import { slackChannelCounts, slackChannelPreview, slackChannelTitle } from "./progress.js";
 
 const ctx = { channelId: "C_A", channelName: "alpha", workspaceUrl: "https://acme.slack.com" };
 
@@ -102,6 +105,66 @@ function fakeApi({
 }
 
 const window = { since: "2023-11-01", until: "2023-12-01" };
+
+describe("slack progress helpers (pure)", () => {
+  it("titles a channel as #name, or the raw id when unnamed", () => {
+    expect(slackChannelTitle({ channel: { id: "C1", name: "eng" } })).toBe("#eng");
+    expect(slackChannelTitle({ channel: { id: "C1" } })).toBe("C1");
+  });
+
+  it("counts messages and DISTINCT threads", () => {
+    const items = {
+      channelId: "C1",
+      messages: [
+        { channelId: "C1", files: [], permalink: "p", reactions: [], ts: "1", tsIso: "" },
+        { channelId: "C1", files: [], permalink: "p", reactions: [], ts: "2", tsIso: "" },
+      ],
+      replies: [
+        { channelId: "C1", files: [], permalink: "p", reactions: [], threadTs: "1", ts: "1.1", tsIso: "" },
+        { channelId: "C1", files: [], permalink: "p", reactions: [], threadTs: "1", ts: "1.2", tsIso: "" },
+      ],
+    };
+    expect(slackChannelCounts({ items })).toEqual({ messages: 2, threads: 1 });
+  });
+
+  it("builds a preview from the first message with text (id as cite), or none when empty", () => {
+    const withText = slackChannelPreview({
+      channel: { id: "C1", name: "eng" },
+      items: {
+        channelId: "C1",
+        messages: [{ channelId: "C1", files: [], permalink: "p", reactions: [], text: "ship it", ts: "1", tsIso: "" }],
+        replies: [],
+      },
+    });
+    expect(withText).toEqual({
+      lane: "content_preview",
+      phase: "channel",
+      preview: { snippet: "ship it", sourceContentId: "C1", subject: "#eng" },
+      source: "slack",
+    });
+    const empty = slackChannelPreview({
+      channel: { id: "C1", name: "eng" },
+      items: { channelId: "C1", messages: [], replies: [] },
+    });
+    expect(empty).toBeUndefined();
+  });
+});
+
+describe("fetchSlackActivity streamed progress", () => {
+  it("emits a per-channel heartbeat + a redacted preview, with running message/thread metrics", async () => {
+    const events: SourceProgressEvent[] = [];
+    await fetchSlackActivity({ api: fakeApi({ calls: [] }), onProgress: (e) => events.push(e), window });
+    const titles = events
+      .filter((e) => e.lane === "heartbeat" && e.currentItem !== undefined)
+      .map((e) => e.currentItem!.title);
+    expect(titles).toEqual(["#alpha", "#beta"]); // one "start" heartbeat per selected channel
+    const previews = events.filter((e) => e.lane === "content_preview");
+    expect(previews.map((e) => e.preview!.subject)).toEqual(["#alpha"]); // C_B has no messages → no preview
+    expect(previews[0]!.preview!.sourceContentId).toBe("C_A");
+    const done = events.filter((e) => e.lane === "heartbeat" && e.metrics !== undefined);
+    expect(done.at(-1)!.metrics).toEqual({ messages: 1, skipped: 0, threads: 1 });
+  });
+});
 
 describe("fetchSlackActivity", () => {
   it("enumerates EVERY channel (not just member ones) and shapes messages + reactions + files + replies", async () => {
@@ -302,6 +365,28 @@ describe("slackWindowBounds", () => {
       latest: "9999999999",
       oldest: "0",
     });
+  });
+});
+
+describe("rankChannelsByActivity", () => {
+  const ch = (id: string, name: string | undefined, msgs: number, reps: number) => ({
+    channelId: id,
+    messages: Array.from({ length: msgs }, () => ({})),
+    replies: Array.from({ length: reps }, () => ({})),
+    ...(name !== undefined ? { channelName: name } : {}),
+  });
+
+  it("orders channels by total activity (messages + replies), most active first", () => {
+    const ranked = rankChannelsByActivity({
+      channels: [ch("C_low", "low", 1, 0), ch("C_high", "high", 5, 4), ch("C_mid", "mid", 3, 0)],
+    });
+    expect(ranked.map((c) => c.id)).toEqual(["C_high", "C_mid", "C_low"]);
+  });
+
+  it("preserves a channel name and omits it when absent", () => {
+    const ranked = rankChannelsByActivity({ channels: [ch("C_named", "named", 2, 0), ch("C_dm", undefined, 1, 0)] });
+    expect(ranked[0]).toEqual({ id: "C_named", name: "named" });
+    expect(ranked[1]).toEqual({ id: "C_dm" });
   });
 });
 

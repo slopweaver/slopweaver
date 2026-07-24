@@ -50,6 +50,7 @@ export const SANCTIONED_SEAMS: Readonly<Record<string, Exclude<SeamClass, "open"
   "src/lib/jsonFile.ts": "local-state",
   "src/llm/claudeCli.ts": "llm-transport",
   "src/retrieval/vectorCacheStore.ts": "local-state",
+  "src/secrets/store.ts": "local-state",
 };
 
 /** Direct side-effecting primitives the scan looks for (as a call — `name(`), so imports don't match. */

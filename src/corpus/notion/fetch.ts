@@ -16,6 +16,7 @@ import { orThrow, safeApiCall } from "../../lib/safeBoundary.js";
 import { buildMemberIdentity, finaliseMemberTrust } from "../members/email.js";
 import { aggregateMemberWarnings } from "../members/project.js";
 import type { MemberBronzeRow } from "../members/types.js";
+import { type SourceProgress, type SourceProgressEvent, sourceHeartbeat, sourcePreview } from "../progress.js";
 import type { ExportWindow } from "../types.js";
 import { blockFileRef, extractFilePropertyRefs, extractMentions, extractRelationTargets } from "./curated.js";
 import type { NotionCommentItem, NotionDatabaseItem, NotionPageItem } from "./project.js";
@@ -237,15 +238,25 @@ export function renderRowProperties({ properties }: { properties: unknown }): { 
 export async function fetchNotionActivity({
   api,
   window,
+  onProgress,
 }: {
   api: NotionApi;
   window: ExportWindow;
+  onProgress?: SourceProgress;
 }): Promise<
   Result<{ pages: readonly NotionPageItem[]; databases: readonly NotionDatabaseItem[]; warnings: readonly string[] }>
 > {
   try {
-    const pageLane = await pageAllPages({ api, since: window.since });
-    const dbLane = await pageAllDatabases({ api, since: window.since });
+    const pageLane = await pageAllPages({
+      api,
+      since: window.since,
+      ...(onProgress !== undefined ? { onProgress } : {}),
+    });
+    const dbLane = await pageAllDatabases({
+      api,
+      since: window.since,
+      ...(onProgress !== undefined ? { onProgress } : {}),
+    });
     // data-source ROWS are the actual records — projected as pages (appended after the discovered pages).
     return ok({
       databases: dbLane.databases,
@@ -257,30 +268,76 @@ export async function fetchNotionActivity({
   }
 }
 
-/** Page the `pages` lane to exhaustion, collecting shaped pages + per-page comment warnings. */
+/** A content-preview from a Notion page (its title + first rendered chunk). Pure. */
+export function notionPagePreview({ page }: { page: NotionPageItem }): SourceProgressEvent {
+  return sourcePreview({
+    phase: "pages",
+    snippet: page.chunks[0] ?? page.title,
+    source: "notion",
+    sourceContentId: page.id,
+    subject: page.title,
+  });
+}
+
+/** A content-preview from a Notion database (its title). Pure. */
+export function notionDatabasePreview({ database }: { database: NotionDatabaseItem }): SourceProgressEvent {
+  return sourcePreview({
+    phase: "databases",
+    snippet: database.title,
+    source: "notion",
+    sourceContentId: database.id,
+    subject: database.title,
+  });
+}
+
+/** Page the `pages` lane to exhaustion, collecting shaped pages + per-page comment warnings + heartbeats. */
 async function pageAllPages({
   api,
   since,
+  onProgress,
 }: {
   api: NotionApi;
   since: string;
+  onProgress?: SourceProgress;
 }): Promise<{ pages: readonly NotionPageItem[]; warnings: readonly string[] }> {
   const pages: NotionPageItem[] = [];
   const warnings: string[] = [];
   let cursor: string | undefined;
+  let index = 0;
   do {
     const page = await api.pages({ since, ...(cursor !== undefined ? { cursor } : {}) });
+    if (index === 0 && page.pages[0] !== undefined) {
+      onProgress?.(notionPagePreview({ page: page.pages[0] }));
+    }
     pages.push(...page.pages);
     if (page.warnings !== undefined) {
       warnings.push(...page.warnings);
     }
+    index += 1;
+    onProgress?.(
+      sourceHeartbeat({
+        currentItem: { title: `page ${String(index)}` },
+        done: pages.length,
+        metrics: { pages: pages.length },
+        phase: "pages",
+        source: "notion",
+      }),
+    );
     cursor = page.nextCursor;
   } while (cursor !== undefined && cursor.length > 0);
   return { pages, warnings };
 }
 
-/** Page the `databases` lane to exhaustion, collecting database summaries + their projected row pages. */
-async function pageAllDatabases({ api, since }: { api: NotionApi; since: string }): Promise<{
+/** Page the `databases` lane to exhaustion, collecting summaries + row pages + per-page heartbeats. */
+async function pageAllDatabases({
+  api,
+  since,
+  onProgress,
+}: {
+  api: NotionApi;
+  since: string;
+  onProgress?: SourceProgress;
+}): Promise<{
   databases: readonly NotionDatabaseItem[];
   rows: readonly NotionPageItem[];
   warnings: readonly string[];
@@ -289,13 +346,26 @@ async function pageAllDatabases({ api, since }: { api: NotionApi; since: string 
   const rows: NotionPageItem[] = [];
   const warnings: string[] = [];
   let cursor: string | undefined;
+  let index = 0;
   do {
     const page = await api.databases({ since, ...(cursor !== undefined ? { cursor } : {}) });
+    if (index === 0 && page.databases[0] !== undefined) {
+      onProgress?.(notionDatabasePreview({ database: page.databases[0] }));
+    }
     databases.push(...page.databases);
     rows.push(...page.rows);
     if (page.warnings !== undefined) {
       warnings.push(...page.warnings);
     }
+    index += 1;
+    onProgress?.(
+      sourceHeartbeat({
+        done: databases.length,
+        metrics: { databases: databases.length, rows: rows.length },
+        phase: "databases",
+        source: "notion",
+      }),
+    );
     cursor = page.nextCursor;
   } while (cursor !== undefined && cursor.length > 0);
   return { databases, rows, warnings };

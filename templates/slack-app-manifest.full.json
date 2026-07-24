@@ -1,0 +1,127 @@
+{
+  "display_information": {
+    "background_color": "#1a1a2e",
+    "description": "Org world-model assistant — answers grounded in your team's activity, with citations.",
+    "long_description": "Slopweaver builds a local-first world model of your team's GitHub/Slack/Linear/Notion activity and answers questions grounded in it, always with citations. This manifest provisions the FULL set of scopes the assistant uses at parity (read for ingest today; read+write + a bot user for the interactive assistant features), so you install the app once and never have to re-auth as features land. Prefer the read-only manifest if you want the lowest-risk footprint and are willing to re-auth later for write features.",
+    "name": "Slopweaver"
+  },
+  "features": {
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "always_online": true,
+      "display_name": "Slopweaver"
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "bookmarks:read",
+        "canvases:read",
+        "canvases:write",
+        "channels:history",
+        "channels:join",
+        "channels:read",
+        "chat:write",
+        "chat:write.customize",
+        "chat:write.public",
+        "commands",
+        "dnd:read",
+        "emoji:read",
+        "files:read",
+        "files:write",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "im:write",
+        "links:read",
+        "links:write",
+        "lists:read",
+        "lists:write",
+        "mpim:history",
+        "mpim:read",
+        "mpim:write",
+        "pins:read",
+        "pins:write",
+        "reactions:read",
+        "reactions:write",
+        "reminders:read",
+        "reminders:write",
+        "team:read",
+        "usergroups:read",
+        "users.profile:read",
+        "users:read",
+        "users:read.email"
+      ],
+      "user": [
+        "bookmarks:read",
+        "bookmarks:write",
+        "canvases:read",
+        "canvases:write",
+        "channels:history",
+        "channels:read",
+        "channels:write",
+        "channels:write.topic",
+        "chat:write",
+        "dnd:read",
+        "emoji:read",
+        "files:read",
+        "files:write",
+        "groups:history",
+        "groups:read",
+        "groups:write",
+        "groups:write.invites",
+        "groups:write.topic",
+        "im:history",
+        "im:read",
+        "im:write",
+        "im:write.topic",
+        "links:read",
+        "links:write",
+        "lists:read",
+        "lists:write",
+        "mpim:history",
+        "mpim:read",
+        "mpim:write",
+        "mpim:write.topic",
+        "pins:read",
+        "pins:write",
+        "reactions:read",
+        "reactions:write",
+        "reminders:read",
+        "reminders:write",
+        "search:read",
+        "team:read",
+        "usergroups:read",
+        "users.profile:read",
+        "users:read",
+        "users:read.email"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "app_home_opened",
+        "member_joined_channel",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim",
+        "reaction_added"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}
