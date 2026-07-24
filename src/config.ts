@@ -32,6 +32,17 @@ export function slopweaverHome(): string {
 }
 
 /**
+ * Whether to ALSO stream the machine-readable `slopweaver.progress` JSON lane (default OFF). A human
+ * watching a crawl wants clean heartbeat/preview lines, not JSON interleaved with them — so the JSON lane
+ * is opt-in via `SLOPWEAVER_PROGRESS_JSON` for a programmatic consumer that wants to parse progress.
+ *
+ * @returns true when the JSON progress lane should be emitted
+ */
+export function progressJsonEnabled(): boolean {
+  return Boolean(process.env["SLOPWEAVER_PROGRESS_JSON"]);
+}
+
+/**
  * Parse an `owner/repo` out of a git remote URL. Tolerant of HTTPS, SSH, `ssh://`, and SSH **host
  * aliases** (e.g. `git@github-personal:owner/repo.git`) so a repo cloned through a per-account alias
  * still resolves.
@@ -94,9 +105,10 @@ function tokenFromGhCli(): string | undefined {
 }
 
 /**
- * The GitHub token, gh-first: an explicit `GITHUB_TOKEN`/`GH_TOKEN` wins, otherwise the `gh` CLI login.
- * Undefined means "unauthenticated" — fine for public repos (lower rate limits); the refresh verb hints
- * `gh auth login` when a private fetch 404/403s.
+ * The GitHub token, gh-first: an explicit `GITHUB_TOKEN`/`GH_TOKEN` wins, otherwise the `gh` CLI login,
+ * and finally a `$SLOPWEAVER_HOME/secrets/github-token` file (the onboarding fallback for a machine with
+ * no `gh` login). Undefined means "unauthenticated" — fine for public repos (lower rate limits); the
+ * refresh verb hints `gh auth login` when a private fetch 404/403s.
  *
  * @returns the token, or undefined when unauthenticated
  */
@@ -105,7 +117,12 @@ export function githubToken(): string | undefined {
   if (fromEnv != null && fromEnv.trim().length > 0) {
     return fromEnv.trim();
   }
-  return tokenFromGhCli();
+  return tokenFromGhCli() ?? tokenFromHomeFile({ secretName: "github-token" });
+}
+
+/** Read a secret file under `$SLOPWEAVER_HOME/secrets` directly (no env names), trimmed; undefined if absent/blank. */
+function tokenFromHomeFile({ secretName }: { secretName: string }): string | undefined {
+  return tokenFromEnvOrHomeFile({ envNames: [], secretName });
 }
 
 /**

@@ -13,6 +13,7 @@
 import type { NounManifestModule } from "../manifest.js";
 import { askManifest } from "./ask.js";
 import { catalogManifest } from "./catalog.js";
+import { connectManifest } from "./connect.js";
 import { deriveManifest } from "./derive.js";
 import { devManifest } from "./dev.js";
 import { distilManifest } from "./distil.js";
@@ -21,6 +22,7 @@ import { factsManifest } from "./facts.js";
 import { identityManifest } from "./identity.js";
 import { initManifest } from "./init.js";
 import { refreshManifest } from "./refresh.js";
+import { secretsManifest } from "./secrets.js";
 
 export const MANIFEST_MODULES: readonly NounManifestModule[] = [
   {
@@ -37,6 +39,17 @@ export const MANIFEST_MODULES: readonly NounManifestModule[] = [
     noun: "refresh",
     summary: "Ingest recent GitHub activity into the local bronze corpus",
     verbs: refreshManifest,
+  },
+  {
+    noun: "connect",
+    summary: "Preflight a source (github/slack/linear/notion): reachability + the exact scopes it needs",
+    verbs: connectManifest,
+  },
+  {
+    noun: "secrets",
+    summary:
+      "Persist connector tokens under $SLOPWEAVER_HOME/secrets (0600) — no-echo prompt or piped stdin, never argv",
+    verbs: secretsManifest,
   },
   {
     noun: "derive",

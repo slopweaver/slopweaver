@@ -15,8 +15,8 @@ import type { FetchGithubItems } from "./fetch.js";
 import { projectGithubRecords } from "./project.js";
 import { computeRepoWatermarks, type RepoWatermarkAdvance } from "./repoWatermark.js";
 
-/** Per-repo progress (non-blocking) — fired as each repo's fetch completes. */
-export type OrgRepoProgress = (progress: { done: number; total: number }) => void;
+/** Per-repo progress (non-blocking) — fired as each repo's fetch completes, naming the repo + its yield. */
+export type OrgRepoProgress = (progress: { done: number; total: number; repo: string; recordCount: number }) => void;
 
 /** The combined org-activity outcome: all repos' records, warnings, and each repo's per-repo cursor advance. */
 export interface OrgActivityResult {
@@ -109,7 +109,7 @@ export async function fetchOrgActivity({
       limit(async () => {
         const outcome = await gate(() => fetchOneRepo({ fetchItems, repo, repoCursors, window }));
         done += 1;
-        onProgress?.({ done, total: repos.length });
+        onProgress?.({ done, recordCount: outcome.records.length, repo: outcome.repoKey, total: repos.length });
         return outcome;
       }),
     ),

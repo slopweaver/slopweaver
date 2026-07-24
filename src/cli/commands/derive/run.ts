@@ -8,7 +8,7 @@
  * DERIVED cross-source map is written to `silver/index/identities.json` for PR10/PR18 to consume.
  */
 import { join } from "node:path";
-import { slopweaverHome } from "../../../config.js";
+import { progressJsonEnabled, slopweaverHome } from "../../../config.js";
 import {
   silverGraphDir,
   silverIdentitiesPath,
@@ -24,7 +24,12 @@ import { readAllStructures } from "../../../corpus/structures/store.js";
 import type { CorpusRecord } from "../../../corpus/types.js";
 import { writeJsonFile } from "../../../lib/jsonFile.js";
 import { logger } from "../../../lib/logger.js";
-import { createProgressEmitter, type ProgressSink } from "../../../lib/progress.js";
+import {
+  createRichProgressEmitter,
+  DEFAULT_PROGRESS_CONFIG,
+  type ProgressSink,
+  type RichProgressEmitter,
+} from "../../../lib/progress.js";
 import { deriveSilver, planDeriveSummary } from "../../../silver/derive.js";
 import {
   buildIdentityMap,
@@ -51,30 +56,31 @@ function buildResolution({
   records,
   roster,
   memberRows,
-  sink,
+  emitter,
 }: {
   records: readonly CorpusRecord[];
   roster: readonly IdentityRecord[];
   memberRows: readonly MemberBronzeRow[];
-  sink?: ProgressSink;
+  emitter: RichProgressEmitter;
 }): { identityMap: IdentityMap; resolution: IdentityResolution } {
-  const emitter = createProgressEmitter({ verb: "derive", ...(sink !== undefined ? { sink } : {}) });
-  emitter.update({ done: 0, phase: "resolve-identities", total: records.length });
+  emitter.emit({ done: 0, lane: "heartbeat", phase: "resolve-identities", total: records.length });
   const resolution = resolveFromRecords({
     extraCandidates: memberIdentityCandidates({ rows: memberRows }),
     records,
     roster,
   });
   const linked = resolution.people.filter((person) => person.confidence !== "single-source").length;
-  emitter.finish({
-    counts: {
+  emitter.emit({
+    done: resolution.people.length,
+    lane: "heartbeat",
+    metrics: {
       conflicts: resolution.conflicts.length,
       held: resolution.candidates.length,
       linked,
       members: memberRows.length,
     },
-    done: resolution.people.length,
     phase: "resolve-identities",
+    total: records.length,
   });
   return { identityMap: buildIdentityMap({ records: roster }), resolution };
 }
@@ -190,24 +196,74 @@ export function runDeriveWithDeps({ argv, sink }: { argv: readonly string[]; sin
   structures.warnings.forEach((w) => {
     logger.warn(w);
   });
-  const { identityMap, resolution } = buildResolution({
+  return deriveAndReport({
+    dryRun,
+    home,
     memberRows: members.rows,
     records,
-    roster: loadIdentityRoster({ home }),
+    structureRows: structures.rows,
+    top,
     ...(sink !== undefined ? { sink } : {}),
+  });
+}
+
+/**
+ * Run the deterministic synthesis with staged heartbeats, write the silver artifacts (unless `--dry-run`),
+ * and print the summary. Derive is fast, so its stages are UNthrottled — each is a distinct, watchable step,
+ * not a flood. Machine JSON goes to the injected `sink` (tests) or stderr (production); stdout stays clean,
+ * and there's no learnings lane (derive does no LLM extraction). The effectful synthesis half of the shell.
+ *
+ * @returns the process exit code
+ */
+function deriveAndReport({
+  records,
+  memberRows,
+  structureRows,
+  home,
+  top,
+  dryRun,
+  sink,
+}: {
+  records: readonly CorpusRecord[];
+  memberRows: readonly MemberBronzeRow[];
+  structureRows: ReturnType<typeof readAllStructures>["rows"];
+  home: string;
+  top: number;
+  dryRun: boolean;
+  sink?: ProgressSink;
+}): number {
+  const emitter = createRichProgressEmitter({
+    config: { ...DEFAULT_PROGRESS_CONFIG, heartbeatMs: 0 },
+    verb: "derive",
+    // When a machine sink is injected (tests), silence the human lane so a unit test does no real stderr I/O
+    // and its assertions see only machine JSON. Production (no sink) keeps human lines on stderr, with the
+    // machine JSON lane off unless opted in (so the watch view is clean).
+    ...(sink !== undefined
+      ? { humanSink: () => {}, machineSink: sink }
+      : progressJsonEnabled()
+        ? {}
+        : { machineSink: () => {} }),
+  });
+  emitter.emit({ done: records.length, lane: "heartbeat", phase: "read-corpus" });
+  const { identityMap, resolution } = buildResolution({
+    emitter,
+    memberRows,
+    records,
+    roster: loadIdentityRoster({ home }),
   });
   resolution.conflicts.forEach((conflict) => {
     logger.warn(`identity conflict: ${conflict}`);
   });
-  const artifacts = deriveSilver({ identityMap, records, resolution, structureRows: structures.rows });
+  emitter.emit({ lane: "heartbeat", phase: "build-directory" });
+  const artifacts = deriveSilver({ identityMap, records, resolution, structureRows });
+  emitter.emit({ lane: "heartbeat", metrics: { edges: artifacts.graph.edges.length }, phase: "build-graphs" });
   if (artifacts.curated.capped > 0) {
     logger.warn(`curated graph: dropped ${String(artifacts.curated.capped)} edge(s) over the per-record cap`);
   }
-
   if (!dryRun) {
-    writeArtifacts({ artifacts, home, memberRows: members.rows });
+    writeArtifacts({ artifacts, home, memberRows });
   }
-
+  emitter.finish({ lane: "heartbeat", phase: "write-silver" });
   planDeriveSummary({ artifacts, top }).forEach((line) => {
     logger.out(line);
   });

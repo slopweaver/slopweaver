@@ -86,6 +86,18 @@ describe("runDeriveWithDeps — identity resolution", () => {
     expect(parsed.some((p) => p.phase === "resolve-identities")).toBe(true);
   });
 
+  it("streams the ordered derive stages (unthrottled) through the injected sink", () => {
+    const home = seedHome({ roster: ROSTER });
+    const lines: string[] = [];
+    runDeriveWithDeps({ argv: ["x", "y", "derive", "--home", home], sink: (line) => lines.push(line) });
+    const phases = lines.map((l) => (JSON.parse(l) as { phase: string }).phase);
+    // Each stage is a distinct watchable step — the crawl-free synthesis lane runs unthrottled.
+    expect(phases).toContain("read-corpus");
+    expect(phases).toContain("build-directory");
+    expect(phases).toContain("build-graphs");
+    expect(phases).toContain("write-silver");
+  });
+
   it("skips a malformed roster entry without aborting the derive", () => {
     const roster = JSON.stringify([
       { id: "person:ada", identities: [{ nativeId: "ada", source: "github" }] },

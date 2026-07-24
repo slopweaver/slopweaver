@@ -82,6 +82,26 @@ describe("fetchOrgActivity", () => {
     ]);
   });
 
+  it("emits a per-repo progress event naming the repo + its record yield", async () => {
+    const events: { done: number; total: number; repo: string; recordCount: number }[] = [];
+    await fetchOrgActivity({
+      concurrency: 1, // serial so the done counter is deterministic
+      fetchItems: fakeFetch({
+        calls: [],
+        itemsByRepo: { "acme/app": [item({ number: 1, tsIso: "2026-07-02T00:00:00.000Z" })] },
+      }),
+      onProgress: (p) => events.push(p),
+      ratePerSec: 1000,
+      repoCursors: new Map(),
+      repos: REPOS,
+      window: WINDOW,
+    });
+    expect(events).toEqual([
+      { done: 1, recordCount: 1, repo: "acme/app", total: 2 },
+      { done: 2, recordCount: 0, repo: "acme/lib", total: 2 },
+    ]);
+  });
+
   it("isolates one repo's fetch failure as a warning and does NOT advance that repo", async () => {
     const result = await fetchOrgActivity({
       concurrency: 2,

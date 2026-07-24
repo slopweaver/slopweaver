@@ -155,6 +155,26 @@ export function watermarkPath({ home = slopweaverHome() }: { home?: string } = {
 }
 
 /**
+ * The PER-SOURCE watermark file (`corpus/watermarks/<source>.json`). Each source writes ONLY its own file,
+ * so concurrent per-source refreshes (onboard runs them in parallel) can never clobber each other's resume
+ * cursor the way a single shared `.watermark.json` read-modify-write would. The legacy combined file stays
+ * readable as a migration fallback (see {@link ../corpus/watermark.readWatermark}).
+ *
+ * @param source the corpus source
+ * @param home the world-model home (defaults to {@link slopweaverHome})
+ * @returns the absolute per-source watermark file path
+ */
+export function sourceWatermarkPath({
+  source,
+  home = slopweaverHome(),
+}: {
+  source: CorpusSource;
+  home?: string;
+}): string {
+  return join(stateHomePaths({ home }).corpus.root, "watermarks", `${source}.json`);
+}
+
+/**
  * The silver index dir (directory / opportunities / identities JSON).
  *
  * @param home the world-model home (defaults to {@link slopweaverHome})

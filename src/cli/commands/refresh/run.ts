@@ -17,6 +17,7 @@ import {
   linearToken,
   notionToken,
   parseRepositorySlug,
+  progressJsonEnabled,
   resolveRepository,
   slackBotToken,
   slackUserToken,
@@ -24,9 +25,9 @@ import {
 } from "../../../config.js";
 import { bronzeDir } from "../../../corpus/corpusPaths.js";
 import { fetchGithubCurated, makeGithubCuratedApi, projectGithubCurated } from "../../../corpus/github/curated.js";
-import { githubFetchItems } from "../../../corpus/github/fetch.js";
+import { type FetchProgress, githubFetchItems } from "../../../corpus/github/fetch.js";
 import { enumerateOrgRepos, makeGithubOrgApi } from "../../../corpus/github/org.js";
-import { fetchOrgActivity } from "../../../corpus/github/orgActivity.js";
+import { fetchOrgActivity, type OrgRepoProgress } from "../../../corpus/github/orgActivity.js";
 import { projectGithubRecords } from "../../../corpus/github/project.js";
 import { advanceGithubRepoWatermarks, readGithubRepoWatermarks } from "../../../corpus/github/repoWatermark.js";
 import { ingestSources, type SourceIngestJob } from "../../../corpus/ingestSource.js";
@@ -34,6 +35,7 @@ import { fetchLinearActivity, makeLinearApi } from "../../../corpus/linear/fetch
 import { projectLinearRecords } from "../../../corpus/linear/project.js";
 import { fetchNotionActivity, makeNotionApi } from "../../../corpus/notion/fetch.js";
 import { projectNotionRecords } from "../../../corpus/notion/project.js";
+import { type SourceProgress, sourceHeartbeat, toRichProgressEvent } from "../../../corpus/progress.js";
 import { fetchSlackActivity, makeSlackApi, resolveSlackReadToken } from "../../../corpus/slack/fetch.js";
 import { projectSlackRecords } from "../../../corpus/slack/project.js";
 import { readThreadCursors, writeThreadCursors } from "../../../corpus/slack/threadCursors.js";
@@ -41,7 +43,7 @@ import type { CorpusRecord, CorpusSource, ExportWindow } from "../../../corpus/t
 import { readWatermark } from "../../../corpus/watermark.js";
 import { yyyyMmDdTodayPlus } from "../../../lib/date.js";
 import { logger } from "../../../lib/logger.js";
-import { createProgressEmitter } from "../../../lib/progress.js";
+import { createRichProgressEmitter, type RichProgressEvent, unrefIntervalStallTimer } from "../../../lib/progress.js";
 import { ok, type Result } from "../../../lib/result.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
@@ -83,10 +85,12 @@ function githubJob({
   repoSlug,
   window,
   noEnrich,
+  onProgress,
 }: {
   repoSlug: string | undefined;
   window: ExportWindow;
   noEnrich: boolean;
+  onProgress?: FetchProgress;
 }): Result<SourceIngestJob> {
   const repoResult = repoSlug !== undefined ? parseRepositorySlug({ slug: repoSlug }) : resolveRepository();
   if (repoResult.ok === false) {
@@ -101,7 +105,11 @@ function githubJob({
   return ok({
     label: `${repo.owner}/${repo.repo}`,
     run: async (): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> => {
-      const fetched = await githubFetchItems({ enrich, ...(token !== undefined ? { token } : {}) })({ repo, window });
+      const fetched = await githubFetchItems({
+        enrich,
+        ...(token !== undefined ? { token } : {}),
+        ...(onProgress !== undefined ? { onProgress } : {}),
+      })({ repo, window });
       if (fetched.ok === false) {
         return fetched;
       }
@@ -131,9 +139,6 @@ function resolveGithubOrg({ options }: { options: RefreshOptions }): Result<stri
   return repoResult.ok ? ok(repoResult.value.owner) : repoResult;
 }
 
-/** Progress hook fired as each org repo finishes its fetch (non-blocking). */
-type RepoProgress = (progress: { done: number; total: number }) => void;
-
 /**
  * Build the GitHub ORG-MODE ingest job (`--all-repos`): enumerate + select the org's repos, fan the existing
  * per-repo pipeline over them (concurrency-capped + rate-paced), and resume each from its own per-repo
@@ -148,7 +153,7 @@ function githubOrgJob({
   options: RefreshOptions;
   window: ExportWindow;
   home: string;
-  onRepoProgress?: RepoProgress;
+  onRepoProgress?: OrgRepoProgress;
 }): Result<SourceIngestJob> {
   const orgResult = resolveGithubOrg({ options });
   if (orgResult.ok === false) {
@@ -193,7 +198,7 @@ async function runGithubOrgActivity({
   home: string;
   enrich: boolean;
   token?: string;
-  onRepoProgress?: RepoProgress;
+  onRepoProgress?: OrgRepoProgress;
 }): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> {
   const enumerated = await enumerateOrgRepos({
     api: makeGithubOrgApi({ token }),
@@ -233,19 +238,23 @@ function sourceJob({
   window,
   slackChannels,
   home,
+  onProgress,
 }: {
   source: TokenedSource;
   token: string;
   window: ExportWindow;
   slackChannels: readonly string[];
   home: string;
+  onProgress?: SourceProgress;
 }): SourceIngestJob {
+  const progress = onProgress !== undefined ? { onProgress } : {};
   const run = async (): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> => {
     if (source === "slack") {
       const fetched = await fetchSlackActivity({
         api: makeSlackApi({ token }),
         threadCursors: readThreadCursors({ home }),
         window,
+        ...progress,
         ...(slackChannels.length > 0 ? { channelFilter: slackChannels } : {}),
       });
       if (fetched.ok === false) {
@@ -265,12 +274,12 @@ function sourceJob({
       });
     }
     if (source === "linear") {
-      const fetched = await fetchLinearActivity({ api: makeLinearApi({ token }), window });
+      const fetched = await fetchLinearActivity({ api: makeLinearApi({ token }), window, ...progress });
       return fetched.ok
         ? ok({ records: projectLinearRecords(fetched.value), warnings: fetched.value.warnings })
         : fetched;
     }
-    const fetched = await fetchNotionActivity({ api: makeNotionApi({ token }), window });
+    const fetched = await fetchNotionActivity({ api: makeNotionApi({ token }), window, ...progress });
     return fetched.ok
       ? ok({ records: projectNotionRecords(fetched.value), warnings: fetched.value.warnings })
       : fetched;
@@ -354,6 +363,8 @@ export interface RefreshDeps {
     info: (m: string) => void;
   };
   readonly onProgress?: (p: { phase: string; label: string; done: number; total: number; written?: number }) => void;
+  /** The connector-level streamed progress seam (PR4.4c) — per-channel/repo/page heartbeats + previews. */
+  readonly sourceProgress?: SourceProgress;
 }
 
 /**
@@ -385,7 +396,47 @@ function buildOneSourceJob({
     deps.logger.warn(read.warning);
   }
   const token = source === "slack" ? read!.token! : deps.resolveTokens()[source]!;
-  return ok(deps.buildSourceJob({ home, slackChannels: options.slackChannels, source, token, window }));
+  return ok(
+    deps.buildSourceJob({
+      home,
+      slackChannels: options.slackChannels,
+      source,
+      token,
+      window,
+      ...(deps.sourceProgress !== undefined ? { onProgress: deps.sourceProgress } : {}),
+    }),
+  );
+}
+
+/** Adapt the connector progress seam into GitHub's per-item hook (single-repo mode). */
+export function githubItemProgress({ sourceProgress }: { sourceProgress: SourceProgress }): FetchProgress {
+  return ({ number, index, total }) => {
+    sourceProgress(
+      sourceHeartbeat({
+        currentItem: { title: `#${String(number)}` },
+        done: index,
+        phase: "items",
+        source: "github",
+        total,
+      }),
+    );
+  };
+}
+
+/** Adapt the connector progress seam into GitHub's per-repo hook (org mode) — names the repo + its yield. */
+export function githubRepoProgress({ sourceProgress }: { sourceProgress: SourceProgress }): OrgRepoProgress {
+  return ({ done, total, repo, recordCount }) => {
+    sourceProgress(
+      sourceHeartbeat({
+        currentItem: { title: repo },
+        done,
+        metrics: { records: recordCount },
+        phase: "repos",
+        source: "github",
+        total,
+      }),
+    );
+  };
 }
 
 /** Build the GitHub ingest job: the org-mode fan-out when `--all-repos` (+ seam), else the single-repo job. */
@@ -400,14 +451,17 @@ function buildGithubSourceJob({
   home: string;
   deps: RefreshDeps;
 }): Result<SourceIngestJob> {
+  const sourceProgress = deps.sourceProgress;
   if (!options.allRepos || deps.buildGithubOrgJob === undefined) {
-    return deps.buildGithubJob({ noEnrich: options.noEnrich, repoSlug: options.repo, window });
+    const onProgress = sourceProgress !== undefined ? githubItemProgress({ sourceProgress }) : undefined;
+    return deps.buildGithubJob({
+      noEnrich: options.noEnrich,
+      repoSlug: options.repo,
+      window,
+      ...(onProgress !== undefined ? { onProgress } : {}),
+    });
   }
-  const onRepoProgress =
-    deps.onProgress !== undefined
-      ? ({ done, total }: { done: number; total: number }) =>
-          deps.onProgress?.({ done, label: "org repos", phase: "github.repos", total })
-      : undefined;
+  const onRepoProgress = sourceProgress !== undefined ? githubRepoProgress({ sourceProgress }) : undefined;
   return deps.buildGithubOrgJob({ home, options, window, ...(onRepoProgress !== undefined ? { onRepoProgress } : {}) });
 }
 
@@ -690,9 +744,43 @@ async function productionHydrateStructure({
   });
 }
 
+/**
+ * Map a coarse hydration event (`members`/`structures`) to a rich heartbeat. Ingest `start`/`done` events
+ * are NOT surfaced here — the connector stream already narrates the crawl and the summary reports the
+ * written counts, so re-emitting them would just add noise. Pure.
+ */
+export function hydrationHeartbeat({
+  phase,
+  label,
+  done,
+  total,
+  written,
+}: {
+  phase: string;
+  label: string;
+  done: number;
+  total: number;
+  written?: number;
+}): RichProgressEvent {
+  return {
+    currentItem: { title: label },
+    done,
+    lane: "heartbeat",
+    phase,
+    total,
+    ...(written !== undefined ? { metrics: { written } } : {}),
+  };
+}
+
 /** Production dependencies for {@link runRefreshWithDeps} (real token reads, connector factories, ingest). */
 function productionRefreshDeps(): RefreshDeps {
-  const progress = createProgressEmitter({ verb: "refresh" });
+  // The long crawl is where a wedged API call actually stalls — so refresh wires the non-blocking watchdog.
+  // Human lines stream to stderr; the machine JSON lane is off unless opted in (so the watch view is clean).
+  const emitter = createRichProgressEmitter({
+    stallTimer: unrefIntervalStallTimer,
+    verb: "refresh",
+    ...(progressJsonEnabled() ? {} : { machineSink: () => {} }),
+  });
   return {
     buildGithubJob: githubJob,
     buildGithubOrgJob: githubOrgJob,
@@ -717,16 +805,16 @@ function productionRefreshDeps(): RefreshDeps {
     },
     nowDate: () => new Date(),
     onProgress: (p) => {
-      progress.update({
-        counts: p.written !== undefined ? { written: p.written } : {},
-        done: p.done,
-        phase: `${p.phase}:${p.label}`,
-        total: p.total,
-      });
+      if (p.phase === "members" || p.phase === "structures") {
+        emitter.emit(hydrationHeartbeat(p));
+      }
     },
     readWatermark,
     resolveTokens,
     slackReadToken,
+    sourceProgress: (event) => {
+      emitter.emit(toRichProgressEvent({ event }));
+    },
   };
 }
 

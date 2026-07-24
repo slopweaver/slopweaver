@@ -1,9 +1,10 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInit } from "../../../init/stateInit.js";
-import { doctorReport } from "./run.js";
+import { stateHomePaths } from "../../../stateHome.js";
+import { doctorJsonReport, doctorReport } from "./run.js";
 
 let home: string;
 beforeEach(() => {
@@ -38,5 +39,35 @@ describe("doctorReport", () => {
   it("is read-only — reporting creates nothing", () => {
     doctorReport({ envHome: home, home, version: "9.9.9" });
     expect(readdirSync(home)).toEqual([]);
+  });
+});
+
+describe("doctorJsonReport", () => {
+  it("reports a stable, structured shape for an initialised home", () => {
+    runInit({ home });
+    const report = doctorJsonReport({ envHome: home, home, version: "9.9.9" });
+    expect(report.version).toBe("9.9.9");
+    expect(report.home).toBe(home);
+    expect(report.initialised).toBe(true);
+    expect(report.statuses["identity"]).toBe("present-valid");
+    expect(report.statuses["profile"]).toBe("present-valid");
+    expect(report.statuses["secrets"]).toBe("exists (empty)");
+    expect(report.paths["secrets"]).toBe(stateHomePaths({ home }).secrets);
+  });
+
+  it("reports an uninitialised home as not initialised, with missing seeds", () => {
+    const report = doctorJsonReport({ envHome: undefined, home, version: "9.9.9" });
+    expect(report.initialised).toBe(false);
+    expect(report.envHome).toBe(null);
+    expect(report.statuses["identity"]).toBe("missing");
+    expect(report.statuses["bronze"]).toBe("missing");
+  });
+
+  it("never emits identity or profile CONTENTS — only a parse status", () => {
+    runInit({ home });
+    const p = stateHomePaths({ home });
+    writeFileSync(p.profileJson, JSON.stringify({ displayName: "SENSITIVE-NAME", id: "x" }), "utf8");
+    const serialised = JSON.stringify(doctorJsonReport({ envHome: home, home, version: "9.9.9" }));
+    expect(serialised).not.toContain("SENSITIVE-NAME");
   });
 });

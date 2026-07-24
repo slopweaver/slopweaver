@@ -17,7 +17,7 @@ import { stateHomePaths } from "../../../stateHome.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_OK } from "../../exitCodes.js";
 
-const USAGE = "usage: slopweaver doctor";
+const USAGE = "usage: slopweaver doctor [--json]";
 
 /** Read the plugin version from the package manifest at the repo root (resolves identically under tsx + dist). */
 function pluginVersion(): string {
@@ -109,6 +109,72 @@ export function doctorReport({
   return lines;
 }
 
+/** The parse-only status of a JSON seed file — never its contents (present-valid / present-invalid / missing). */
+function seedStatus({ path, valid }: { path: string; valid: (value: unknown) => boolean }): string {
+  if (!existsSync(path)) {
+    return "missing";
+  }
+  return valid(readJsonFile({ path })) ? "present-valid" : "present-invalid";
+}
+
+/**
+ * The MACHINE-READABLE doctor report — a stable, value-free shape the `/slopweaver:onboard` slash command
+ * branches on. It reports paths + presence/parse statuses ONLY: never a secret value, never identity or
+ * profile CONTENTS (identity/profile carry only `present-valid`/`present-invalid`/`missing`). Read-only.
+ *
+ * @param home the state home to report on
+ * @param envHome the raw `$SLOPWEAVER_HOME` (or undefined when unset)
+ * @param version the plugin version string
+ * @returns the structured report
+ */
+export function doctorJsonReport({
+  home,
+  envHome,
+  version,
+}: {
+  home: string;
+  envHome: string | undefined;
+  version: string;
+}): {
+  readonly version: string;
+  readonly home: string;
+  readonly envHome: string | null;
+  readonly initialised: boolean;
+  readonly paths: Readonly<Record<string, string>>;
+  readonly statuses: Readonly<Record<string, string>>;
+} {
+  const paths = stateHomePaths({ home });
+  const homeVersion = readJsonFile({ path: paths.homeVersion });
+  return {
+    envHome: envHome !== undefined && envHome.length > 0 ? envHome : null,
+    home,
+    initialised: isRecord(homeVersion) && typeof homeVersion["version"] === "number",
+    paths: {
+      bronze: paths.corpus.bronze,
+      gold: paths.corpus.gold,
+      identity: paths.identityJson,
+      members: paths.corpus.members,
+      profile: paths.profileJson,
+      root: paths.root,
+      secrets: paths.secrets,
+      silver: paths.corpus.silver,
+      structures: paths.corpus.structures,
+    },
+    statuses: {
+      bronze: dirStatus({ path: paths.corpus.bronze }),
+      denylist: existsSync(paths.hygieneDenylist) ? "present" : "missing",
+      gold: dirStatus({ path: paths.corpus.gold }),
+      identity: seedStatus({ path: paths.identityJson, valid: (v) => Array.isArray(v) }),
+      members: dirStatus({ path: paths.corpus.members }),
+      profile: seedStatus({ path: paths.profileJson, valid: (v) => parseProfile({ value: v }).ok }),
+      secrets: dirStatus({ path: paths.secrets }),
+      silver: dirStatus({ path: paths.corpus.silver }),
+      structures: dirStatus({ path: paths.corpus.structures }),
+    },
+    version,
+  };
+}
+
 export function runDoctor(argv: readonly string[]): number {
   const rest = new Set(argv.slice(3));
   if (rest.has("--help") || rest.has("-h")) {
@@ -116,7 +182,13 @@ export function runDoctor(argv: readonly string[]): number {
     return EXIT_OK;
   }
   const envHome = process.env["SLOPWEAVER_HOME"];
-  for (const line of doctorReport({ envHome, home: stateHomePaths().root, version: pluginVersion() })) {
+  const home = stateHomePaths().root;
+  const version = pluginVersion();
+  if (rest.has("--json")) {
+    logger.out(JSON.stringify(doctorJsonReport({ envHome, home, version }), null, 2));
+    return EXIT_OK;
+  }
+  for (const line of doctorReport({ envHome, home, version })) {
     logger.out(line);
   }
   return EXIT_OK;

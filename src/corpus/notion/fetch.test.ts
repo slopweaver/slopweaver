@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { unwrap } from "../../lib/result.js";
+import type { SourceProgressEvent } from "../progress.js";
 import {
   blockChildId,
   blockTextLine,
@@ -9,7 +10,9 @@ import {
   fetchNotionMembers,
   lastEditedOf,
   type NotionApi,
+  notionDatabasePreview,
   notionNextCursor,
+  notionPagePreview,
   projectCommentItem,
   projectDatabaseItem,
   projectNotionUser,
@@ -171,6 +174,61 @@ describe("since cutoff (Notion search has no server-side date filter)", () => {
 
   it("keeps an undated result defensively (never silently drops)", () => {
     expect(withinCutoff({ cutoff: cutoffMs({ since: "2026-04-01" }), lastEdited: "" })).toBe(true);
+  });
+});
+
+describe("notion progress helpers (pure)", () => {
+  it("builds a page preview from its title + first chunk", () => {
+    expect(
+      notionPagePreview({
+        page: { chunks: ["the roadmap for Q3"], comments: [], id: "pg1", title: "Roadmap", tsIso: "", url: "u" },
+      }),
+    ).toEqual({
+      lane: "content_preview",
+      phase: "pages",
+      preview: { snippet: "the roadmap for Q3", sourceContentId: "pg1", subject: "Roadmap" },
+      source: "notion",
+    });
+  });
+
+  it("builds a database preview from its title", () => {
+    expect(
+      notionDatabasePreview({ database: { description: "", id: "db1", title: "Registry", tsIso: "", url: "u" } }),
+    ).toEqual({
+      lane: "content_preview",
+      phase: "databases",
+      preview: { snippet: "Registry", sourceContentId: "db1", subject: "Registry" },
+      source: "notion",
+    });
+  });
+});
+
+describe("fetchNotionActivity streamed progress", () => {
+  it("emits a first-item preview + a per-page heartbeat for pages and databases", async () => {
+    const events: SourceProgressEvent[] = [];
+    const api: NotionApi = {
+      databases: async () => ({
+        databases: [{ description: "", id: "db1", title: "Registry", tsIso: "2026-05-01T00:00:00.000Z", url: "u" }],
+        rows: [],
+      }),
+      pages: async () => ({
+        pages: [
+          { chunks: ["hello"], comments: [], id: "pg1", title: "One", tsIso: "2026-05-01T00:00:00.000Z", url: "u" },
+        ],
+      }),
+      users: async () => ({ results: [] }),
+    };
+    await fetchNotionActivity({
+      api,
+      onProgress: (e) => events.push(e),
+      window: { since: "2026-01-01", until: "2026-06-01" },
+    });
+    const previews = events.filter((e) => e.lane === "content_preview");
+    expect(previews.map((e) => e.preview!.subject)).toEqual(["One", "Registry"]);
+    const pageBeat = events.findLast((e) => e.lane === "heartbeat" && e.phase === "pages");
+    expect(pageBeat!.metrics!["pages"]).toBe(1);
+    const dbBeat = events.findLast((e) => e.lane === "heartbeat" && e.phase === "databases");
+    expect(dbBeat!.metrics!["databases"]).toBe(1);
   });
 });
 
