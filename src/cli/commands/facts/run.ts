@@ -13,11 +13,13 @@ import { logger } from "../../../lib/logger.js";
 import type { Result } from "../../../lib/result.js";
 import { retrieveRecords } from "../../../retrieval/askEngine.js";
 import { loadCorpus } from "../../../retrieval/loadCorpus.js";
-import { decayParamsFromDays } from "../../../retrieval/recencyDecay.js";
+import type { OwnerIdentity } from "../../../retrieval/ownerScope.js";
 import type { SemanticPreparation } from "../../../retrieval/semanticRetrieval.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_EXPECTED_EMPTY, EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
 import { factsExitCode, renderFactsLines, validateFactsQuestion } from "../query/core.js";
+import { loadOwnerContext } from "../query/ownerContext.js";
+import { planQueryRetrieval } from "../query/retrievalPlan.js";
 import { prepareSemanticForQuery } from "../query/shell.js";
 import { parseQueryArgs } from "../queryArgs.js";
 
@@ -36,6 +38,10 @@ export interface FactsDeps {
     records: readonly CorpusRecord[];
     semantic: boolean;
   }) => Promise<SemanticPreparation>;
+  /** Resolve the owner's cross-source identity (PR4.5) — `{ owner: undefined }` disables the owner lens. */
+  readonly ownerContext: (args: { home: string; records: readonly CorpusRecord[] }) => {
+    owner: OwnerIdentity | undefined;
+  };
   readonly retrieveRecords: typeof retrieveRecords;
   readonly logger: { out: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
 }
@@ -82,15 +88,22 @@ export async function runFactsWithDeps({ argv, deps }: { argv: readonly string[]
   corpus.warnings.forEach((w) => {
     deps.logger.warn(w);
   });
-  const records = corpus.value;
-  const semantic = await deps.prepareSemantic({ home, question: args.question, records, semantic: args.semantic });
-
-  const slice = deps.retrieveRecords({
-    decay: decayParamsFromDays({ days: args.halfLifeDays, nowMs }),
+  const plan = await planQueryRetrieval({
+    halfLifeDays: args.halfLifeDays,
+    home,
+    nowMs,
+    ownerContext: deps.ownerContext,
+    prepareSemantic: deps.prepareSemantic,
     question: args.question,
-    records,
+    records: corpus.value,
+    semantic: args.semantic,
+  });
+  const slice = deps.retrieveRecords({
+    question: plan.query,
+    records: plan.records,
     sliceLimit: args.limit,
-    ...(semantic.context !== undefined ? { semantic: semantic.context } : {}),
+    ...(plan.decay !== undefined ? { decay: plan.decay } : {}),
+    ...(plan.semantic.context !== undefined ? { semantic: plan.semantic.context } : {}),
     ...(args.alpha !== undefined ? { alpha: args.alpha } : {}),
   });
   for (const line of renderFactsLines({ slice })) {
@@ -116,6 +129,7 @@ function productionFactsDeps(): FactsDeps {
       },
     },
     nowMs: () => Date.now(),
+    ownerContext: loadOwnerContext,
     prepareSemantic: prepareSemanticForQuery,
     retrieveRecords,
   };

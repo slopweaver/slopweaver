@@ -5,8 +5,13 @@
  * every later stage works unchanged.
  *
  * v0.1 ships GitHub only, so `CorpusSource` is a one-member union today; it widens as connectors land.
- * There is deliberately NO visibility/ownership field — v0.1 has no private lane, so every record is
- * equally readable and the reader never has to fail-closed on an unparseable access tag.
+ *
+ * PR4.5 adds ONE additive privacy axis — {@link CorpusVisibility} — carried on the OPTIONAL `visibility`
+ * field. It stays a "you world model" lens, not a second store: the corpus is one broad set, and a
+ * per-record `public`/`private` mark (default public; absent ⇒ public) lets a query-time scope filter
+ * withhold private-lane records (Slack private channels / DMs / mpim) from a non-owner while the owner
+ * still sees everything. Only {@link CorpusRecord.visibility} `=== "private"` is restrictive; a legacy
+ * record written before this field reads back as public, so no fail-closed on an unparseable tag.
  */
 
 /**
@@ -15,6 +20,14 @@
  * alongside bronze). The union widens as connectors are added.
  */
 export type CorpusSource = "github" | "slack" | "linear" | "notion" | "gold";
+
+/**
+ * A record's read scope. `public` (the default, and the read-back of any unmarked legacy record) is
+ * visible to everyone; `private` is the owner-only lane — private Slack channels, DMs, and mpim group
+ * DMs. Stamped at a SINGLE choke-point ({@link ../corpus/visibility.stampVisibility}) so nothing reaches
+ * disk unstamped, and filtered at answer time by {@link ../retrieval/accessScope.scopeRecordsForAsker}.
+ */
+export type CorpusVisibility = "public" | "private";
 
 /**
  * The sources the refresh loop fetches + watermarks. `gold` is deliberately excluded — it's synthesised
@@ -109,6 +122,12 @@ export interface CorpusRecord {
   readonly text: string;
   /** Cross-refs extracted from the content (`#123`, `@mentions`, URLs) — the raw material for the graph. */
   readonly refs: readonly string[];
+  /**
+   * Read scope (PR4.5). OPTIONAL + additive: absent ⇒ `public`, so pre-PR4.5 bronze reads back as public
+   * and public records serialise byte-identically (no fingerprint churn). Only ever set to `"private"` by
+   * the single {@link ../corpus/visibility.stampVisibility} choke-point (Slack private-lane records).
+   */
+  readonly visibility?: CorpusVisibility;
   /**
    * Rich structured metadata pulled generously from the source SDK (state, labels, reactions, assignee,
    * parent, chunk index, …) — the curated, typed, queryable subset. Deliberately NOT embedded (the vector

@@ -48,6 +48,7 @@ function fakeDeps(over: Partial<AskDeps> = {}): {
       warn: (m) => out.push(m),
     },
     nowMs: () => 0,
+    ownerContext: () => ({ owner: undefined }),
     prepareSemantic: ({ semantic }) => {
       semanticCalls.push(semantic);
       return Promise.resolve({ degraded: false });
@@ -104,5 +105,38 @@ describe("runAskWithDeps", () => {
     const code = await runAskWithDeps({ argv: ["n", "n", "ask"], deps });
     expect(code).toBe(EXIT_USAGE);
     expect(errs).toContain("ask needs a question");
+  });
+
+  it("gives the owner (local CLI) every lane even on an ordinary org ask — private not hidden from yourself", async () => {
+    const privateRec: CorpusRecord = { ...record, sourceId: "dm1", visibility: "private" };
+    let searched: readonly CorpusRecord[] = [];
+    const { deps } = fakeDeps({
+      answerQuestion: async ({ records }) => {
+        searched = records;
+        return ok(answer({}));
+      },
+      loadCorpus: () => ok([record, privateRec]),
+      ownerContext: () => ({ owner: undefined }),
+    });
+    await runAskWithDeps({ argv: ["n", "n", "ask", "what did the team ship"], deps });
+    expect(searched.map((r) => r.sourceId)).toEqual(["s1", "dm1"]);
+  });
+
+  it("gives a first-person owner ask the private lane + a handle-injected retrieval query", async () => {
+    const privateRec: CorpusRecord = { ...record, sourceId: "dm1", visibility: "private" };
+    let searched: readonly CorpusRecord[] = [];
+    let retrievalQuery: string | undefined;
+    const { deps } = fakeDeps({
+      answerQuestion: async ({ records, retrievalQuery: rq }) => {
+        searched = records;
+        retrievalQuery = rq;
+        return ok(answer({}));
+      },
+      loadCorpus: () => ok([record, privateRec]),
+      ownerContext: () => ({ owner: { handles: ["U_OWNER"], personId: "owner-1" } }),
+    });
+    await runAskWithDeps({ argv: ["n", "n", "ask", "what are my open PRs"], deps });
+    expect(searched.map((r) => r.sourceId)).toEqual(["s1", "dm1"]);
+    expect(retrievalQuery).toBe("what are my open PRs U_OWNER");
   });
 });

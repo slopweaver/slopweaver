@@ -17,6 +17,25 @@ import { err, ok, type Result } from "./lib/result.js";
 export const PROFILE_SCHEMA_VERSION = 1;
 
 const SOURCES_ERROR = "profile.json sources must be an array of strings";
+const SLACK_BOT_ERROR = "profile.json slackBot must be an object with an ownerUserId string";
+
+/** A string-array field with a shared domain error (used for the owner-bot id lists). */
+const stringArray = z.array(z.string({ error: SLACK_BOT_ERROR }), { error: SLACK_BOT_ERROR });
+
+/**
+ * The OPTIONAL owner-bot declaration (PR4.5 me-to-me): the ids the owner's own Slack bot posts under, so a
+ * bot-authored message resolves back to the owner. Every id list is optional (defaults empty). Absent ⇒
+ * me-to-me is a no-op. Additive at schemaVersion 1 — a profile without it still validates.
+ */
+const slackBotSchema = z.object(
+  {
+    appIds: stringArray.default([]),
+    botIds: stringArray.default([]),
+    botUserIds: stringArray.default([]),
+    ownerUserId: z.string({ error: SLACK_BOT_ERROR }),
+  },
+  { error: SLACK_BOT_ERROR },
+);
 
 /** The parse-edge schema. Object-level + per-field `error:` reproduce the domain-specific messages exactly. */
 const profileSchema = z.object(
@@ -28,6 +47,7 @@ const profileSchema = z.object(
       error: (issue: { readonly input: unknown }) =>
         `profile.json schemaVersion must be ${String(PROFILE_SCHEMA_VERSION)}, got ${JSON.stringify(issue.input)}`,
     }),
+    slackBot: slackBotSchema.optional(),
     sources: z.array(z.string({ error: SOURCES_ERROR }), { error: SOURCES_ERROR }),
   },
   { error: "profile.json is not a JSON object" },
@@ -45,6 +65,17 @@ export interface Profile {
   readonly gitNamespace: string;
   /** The corpus sources this profile draws on (e.g. `github`); empty until set. */
   readonly sources: readonly string[];
+  /**
+   * The owner's own Slack bot identity (PR4.5 me-to-me), when configured. Absent ⇒ me-to-me is off. Every
+   * id list is optional (defaults empty at use). Never carries a real identifier in the repo — the seed
+   * template ships blank and a real value lives only under `$SLOPWEAVER_HOME`.
+   */
+  readonly slackBot?: {
+    readonly ownerUserId: string;
+    readonly botUserIds: readonly string[];
+    readonly appIds: readonly string[];
+    readonly botIds: readonly string[];
+  };
 }
 
 /**
@@ -57,8 +88,18 @@ export interface Profile {
  */
 export function parseProfile({ value }: { value: unknown }): Result<Profile> {
   const parsed = profileSchema.safeParse(value);
-  if (parsed.success) {
-    return ok(parsed.data);
+  if (!parsed.success) {
+    return err(parsed.error.issues.map((issue) => issue.message));
   }
-  return err(parsed.error.issues.map((issue) => issue.message));
+  const { displayName, gitNamespace, id, schemaVersion, sources, slackBot } = parsed.data;
+  // Build the readonly contract explicitly: the optional `slackBot` is conditionally spread (so it never
+  // reaches the value as an explicit `undefined` under exactOptionalPropertyTypes).
+  return ok({
+    displayName,
+    gitNamespace,
+    id,
+    schemaVersion,
+    sources,
+    ...(slackBot !== undefined ? { slackBot } : {}),
+  });
 }

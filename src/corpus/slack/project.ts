@@ -12,7 +12,9 @@
 
 import { CURATED_CLASS_ATTR } from "../curated/types.js";
 import { extractRefs } from "../refs.js";
-import type { CorpusAttributeValue, CorpusRecord } from "../types.js";
+import type { CorpusAttributeValue, CorpusRecord, CorpusVisibility } from "../types.js";
+import { stampVisibility } from "../visibility.js";
+import { resolveOwnerBotToOwner, type SlackOwnerBotIdentity } from "./ownerBot.js";
 
 /** The id→name maps (users, channels) built once per refresh, used to resolve Slack markup. */
 export interface SlackNameMaps {
@@ -64,12 +66,32 @@ export interface SlackReplyItem {
   readonly raw?: Readonly<Record<string, unknown>>;
 }
 
-/** One channel's fetched activity: top-level messages + thread replies. */
+/** One channel's fetched activity: top-level messages + thread replies (+ its privacy signal). */
 export interface SlackChannelItems {
   readonly channelId: string;
   readonly channelName?: string;
   readonly messages: readonly SlackMessageItem[];
   readonly replies: readonly SlackReplyItem[];
+  /** Privacy signal from `conversations.list` — any true ⇒ the channel's records project to `private`. */
+  readonly isPrivate?: boolean;
+  readonly isIm?: boolean;
+  readonly isMpim?: boolean;
+}
+
+/**
+ * The visibility a channel's records inherit: `private` for a private channel, a DM (`im`), or a group DM
+ * (`mpim`); `public` otherwise (including a channel with no privacy signal). Pure — the projector routes
+ * every one of the channel's records through {@link ../visibility.stampVisibility} with this value.
+ *
+ * @param channel the channel's privacy signal
+ * @returns `"private"` iff the channel is private/DM/mpim, else `"public"`
+ */
+export function slackChannelVisibility({
+  channel,
+}: {
+  channel: Pick<SlackChannelItems, "isPrivate" | "isIm" | "isMpim">;
+}): CorpusVisibility {
+  return channel.isPrivate === true || channel.isIm === true || channel.isMpim === true ? "private" : "public";
 }
 
 /** A pinned message — the channel-curated knowledge a channel deliberately keeps (ref-only). */
@@ -164,13 +186,38 @@ function fileNames({ files }: { files: readonly SlackAttachmentRef[] }): readonl
   return files.map((file) => file.title ?? file.name ?? file.id);
 }
 
+/**
+ * The record author after me-to-me resolution: when the post is the owner's own bot, the author resolves
+ * back to the owner's Slack user id; otherwise the original author is kept. Pure.
+ */
+function authorFor({
+  author,
+  raw,
+  ownerBot,
+}: {
+  author: string | undefined;
+  raw: Readonly<Record<string, unknown>> | undefined;
+  ownerBot: SlackOwnerBotIdentity | undefined;
+}): string | undefined {
+  return resolveOwnerBotToOwner({ author, ownerBot, raw }) ?? author;
+}
+
 /** Project one message into its `message` record plus a `file` record per attachment. */
-function messageRecords({ message, maps }: { message: SlackMessageItem; maps: SlackNameMaps }): CorpusRecord[] {
+function messageRecords({
+  message,
+  maps,
+  ownerBot,
+}: {
+  message: SlackMessageItem;
+  maps: SlackNameMaps;
+  ownerBot: SlackOwnerBotIdentity | undefined;
+}): CorpusRecord[] {
   const container = containerFor({ channelId: message.channelId });
   const resolved = message.text !== undefined ? resolveSlackMarkup({ maps, text: message.text }) : undefined;
   const parts = [resolved, reactionSummary({ reactions: message.reactions }), fileSummary({ files: message.files })];
   const text = parts.filter((part): part is string => part !== undefined && part.length > 0).join("\n\n");
   const channelLabel = message.channelName !== undefined ? `#${message.channelName}` : message.channelId;
+  const author = authorFor({ author: message.author, ownerBot, raw: message.raw });
   const attrs: Record<string, CorpusAttributeValue> = { channel: channelLabel };
   if (message.reactions.length > 0) {
     attrs["reactions"] = message.reactions;
@@ -190,7 +237,7 @@ function messageRecords({ message, maps }: { message: SlackMessageItem; maps: Sl
       title: `${channelLabel} message`,
       tsIso: message.tsIso,
       url: message.permalink,
-      ...(message.author !== undefined ? { author: message.author } : {}),
+      ...(author !== undefined ? { author } : {}),
       ...(message.raw !== undefined ? { raw: message.raw } : {}),
     },
   ];
@@ -209,13 +256,22 @@ function messageRecords({ message, maps }: { message: SlackMessageItem; maps: Sl
 }
 
 /** Project a thread reply into a `comment` record plus a `file` record per attachment. */
-function replyRecords({ reply, maps }: { reply: SlackReplyItem; maps: SlackNameMaps }): CorpusRecord[] {
+function replyRecords({
+  reply,
+  maps,
+  ownerBot,
+}: {
+  reply: SlackReplyItem;
+  maps: SlackNameMaps;
+  ownerBot: SlackOwnerBotIdentity | undefined;
+}): CorpusRecord[] {
   const container = containerFor({ channelId: reply.channelId });
   const resolved = reply.text !== undefined ? resolveSlackMarkup({ maps, text: reply.text }) : undefined;
   const text = [resolved, fileSummary({ files: reply.files })]
     .filter((part): part is string => part !== undefined && part.length > 0)
     .join("\n\n");
   const channelLabel = reply.channelName !== undefined ? `#${reply.channelName}` : reply.channelId;
+  const author = authorFor({ author: reply.author, ownerBot, raw: reply.raw });
   const attrs: Record<string, CorpusAttributeValue> = { channel: channelLabel, threadTs: reply.threadTs };
   if (reply.files.length > 0) {
     attrs["files"] = fileNames({ files: reply.files });
@@ -231,7 +287,7 @@ function replyRecords({ reply, maps }: { reply: SlackReplyItem; maps: SlackNameM
       text: text.length > 0 ? text : "(empty reply)",
       tsIso: reply.tsIso,
       url: reply.permalink,
-      ...(reply.author !== undefined ? { author: reply.author } : {}),
+      ...(author !== undefined ? { author } : {}),
       ...(reply.raw !== undefined ? { raw: reply.raw } : {}),
     },
   ];
@@ -349,41 +405,69 @@ function canvasRecord({ canvas }: { canvas: SlackCanvasItem }): CorpusRecord {
   };
 }
 
+/** The channelId → visibility map for the fetched channels, so curated surfaces inherit their lane. Pure. */
+function channelVisibilityMap({
+  channels,
+}: {
+  channels: readonly SlackChannelItems[];
+}): ReadonlyMap<string, CorpusVisibility> {
+  return new Map(channels.map((channel) => [channel.channelId, slackChannelVisibility({ channel })]));
+}
+
 /**
  * Project every channel's messages + replies (+ their attachment refs) and the curated surfaces
- * (pins/bookmarks/canvases) into corpus records, resolving Slack markup via the id→name maps.
+ * (pins/bookmarks/canvases) into corpus records, resolving Slack markup via the id→name maps. PR4.5:
+ * every record is routed through the single {@link ../visibility.stampVisibility} choke-point with its
+ * channel's visibility (private channel / DM / mpim ⇒ `private`), and the owner's own bot posts resolve
+ * back to the owner (me-to-me). Curated surfaces inherit their channel's visibility (unknown ⇒ public).
  *
  * @param channels the fetched per-channel items
  * @param maps the id→name maps for markup resolution (defaults to empty — renders generic names)
  * @param curated the curated surfaces gathered by the best-effort lane (defaults to empty)
- * @returns the flattened corpus records
+ * @param ownerBot the owner's declared bot identity for me-to-me resolution (default: none ⇒ no-op)
+ * @returns the flattened, visibility-stamped corpus records
  */
 export function projectSlackRecords({
   channels,
   maps = EMPTY_MAPS,
   curated = EMPTY_CURATED,
+  ownerBot,
 }: {
   channels: readonly SlackChannelItems[];
   maps?: SlackNameMaps;
   curated?: SlackCuratedItems;
+  ownerBot?: SlackOwnerBotIdentity;
 }): readonly CorpusRecord[] {
   const records: CorpusRecord[] = [];
   for (const channel of channels) {
+    const visibility = slackChannelVisibility({ channel });
+    const stamp = (record: CorpusRecord): CorpusRecord => stampVisibility({ record, visibility });
     for (const message of channel.messages) {
-      records.push(...messageRecords({ maps, message }));
+      records.push(...messageRecords({ maps, message, ownerBot }).map(stamp));
     }
     for (const reply of channel.replies) {
-      records.push(...replyRecords({ maps, reply }));
+      records.push(...replyRecords({ maps, ownerBot, reply }).map(stamp));
     }
   }
+  const byChannel = channelVisibilityMap({ channels });
+  // Curated surfaces inherit their channel's visibility. Pins/bookmarks always come from a crawled channel
+  // (so it's in the map), but canvases come from the workspace-wide `files.list` and may belong to a
+  // channel NOT in `channels` (or none at all) — an unknown channel FAILS CLOSED to `private` so a private
+  // channel's canvas can never leak as public. The owner still sees it via the owner lens.
+  const curatedVisibility = (channelId: string | undefined): CorpusVisibility =>
+    channelId !== undefined ? (byChannel.get(channelId) ?? "private") : "private";
   for (const pin of curated.pins) {
-    records.push(pinRecord({ maps, pin }));
+    records.push(stampVisibility({ record: pinRecord({ maps, pin }), visibility: curatedVisibility(pin.channelId) }));
   }
   for (const bookmark of curated.bookmarks) {
-    records.push(bookmarkRecord({ bookmark }));
+    records.push(
+      stampVisibility({ record: bookmarkRecord({ bookmark }), visibility: curatedVisibility(bookmark.channelId) }),
+    );
   }
   for (const canvas of curated.canvases) {
-    records.push(canvasRecord({ canvas }));
+    records.push(
+      stampVisibility({ record: canvasRecord({ canvas }), visibility: curatedVisibility(canvas.channelId) }),
+    );
   }
   return records;
 }

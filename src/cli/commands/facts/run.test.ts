@@ -27,6 +27,7 @@ function fakeDeps(over: Partial<FactsDeps> = {}): { deps: FactsDeps; out: string
       warn: (m) => out.push(m),
     },
     nowMs: () => 0,
+    ownerContext: () => ({ owner: undefined }),
     prepareSemantic: () => Promise.resolve({ degraded: false }),
     retrieveRecords: () => [record],
     ...over,
@@ -63,5 +64,35 @@ describe("runFactsWithDeps", () => {
     const { deps, out } = fakeDeps();
     expect(await runFactsWithDeps({ argv: ["n", "n", "facts", "q"], deps })).toBe(EXIT_OK);
     expect(out).toEqual(["[slack] (s1) https://example.test/s1", "  hello world", ""]);
+  });
+
+  it("searches every lane for the owner (local CLI) on an org ask — private not hidden from yourself", async () => {
+    const privateRec: CorpusRecord = { ...record, sourceId: "dm1", visibility: "private" };
+    let searched: readonly CorpusRecord[] = [];
+    const { deps } = fakeDeps({
+      loadCorpus: () => ok([record, privateRec]),
+      ownerContext: () => ({ owner: undefined }),
+      retrieveRecords: ({ records }) => {
+        searched = records;
+        return [];
+      },
+    });
+    await runFactsWithDeps({ argv: ["n", "n", "facts", "what did the team ship"], deps });
+    expect(searched.map((r) => r.sourceId)).toEqual(["s1", "dm1"]);
+  });
+
+  it("searches the private lane for a first-person owner ask", async () => {
+    const privateRec: CorpusRecord = { ...record, sourceId: "dm1", visibility: "private" };
+    let searched: readonly CorpusRecord[] = [];
+    const { deps } = fakeDeps({
+      loadCorpus: () => ok([record, privateRec]),
+      ownerContext: () => ({ owner: { handles: ["U_OWNER"], personId: "owner-1" } }),
+      retrieveRecords: ({ records }) => {
+        searched = records;
+        return [];
+      },
+    });
+    await runFactsWithDeps({ argv: ["n", "n", "facts", "what is assigned to me"], deps });
+    expect(searched.map((r) => r.sourceId)).toEqual(["s1", "dm1"]);
   });
 });

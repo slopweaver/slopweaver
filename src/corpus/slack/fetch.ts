@@ -69,6 +69,19 @@ export interface SlackChannelsPage {
   readonly nextCursor?: string;
 }
 
+/**
+ * A discovered channel + the privacy signal already present in its `conversations.list` payload. The
+ * booleans drive the PR4.5 visibility stamp (a private channel / DM / mpim projects to `private`); they
+ * were previously discarded. Absent ⇒ treated as a public channel.
+ */
+export interface SlackChannelRef {
+  readonly id: string;
+  readonly name?: string;
+  readonly isPrivate?: boolean;
+  readonly isIm?: boolean;
+  readonly isMpim?: boolean;
+}
+
 /** A page of messages from `conversations.history`/`.replies`. */
 export interface SlackMessagesPage {
   readonly messages: readonly unknown[];
@@ -280,6 +293,22 @@ interface ChannelContext {
   readonly workspaceUrl: string;
   readonly channelId: string;
   readonly channelName: string | undefined;
+  readonly isPrivate?: boolean;
+  readonly isIm?: boolean;
+  readonly isMpim?: boolean;
+}
+
+/** The channel-privacy booleans of a ref/context, spread-ready (a false/absent flag stays absent). Pure. */
+function channelPrivacy({ channel }: { channel: Pick<SlackChannelRef, "isPrivate" | "isIm" | "isMpim"> }): {
+  isPrivate?: boolean;
+  isIm?: boolean;
+  isMpim?: boolean;
+} {
+  return {
+    ...(channel.isPrivate === true ? { isPrivate: true } : {}),
+    ...(channel.isIm === true ? { isIm: true } : {}),
+    ...(channel.isMpim === true ? { isMpim: true } : {}),
+  };
 }
 
 /**
@@ -387,9 +416,9 @@ export function selectChannels({
   discovered,
   channelFilter,
 }: {
-  discovered: readonly { id: string; name?: string }[];
+  discovered: readonly SlackChannelRef[];
   channelFilter: readonly string[] | undefined;
-}): readonly { id: string; name?: string }[] {
+}): readonly SlackChannelRef[] {
   if (channelFilter === undefined) {
     return discovered;
   }
@@ -522,6 +551,7 @@ async function fetchChannel({
       messages: crawl.messages,
       replies: crawl.replies,
       ...(channelName !== undefined ? { channelName } : {}),
+      ...channelPrivacy({ channel: ctx }),
     },
     warnings: crawl.warnings,
   };
@@ -716,27 +746,40 @@ async function discoverUsers({
 
 /** Enumerate EVERY channel `conversations.list` returns (paged) — no membership pre-filter; a channel
  * we cannot read is dropped later, at its history call, with a warning (breadth is the point). */
-/** The `{id, name?}` channels from one `conversations.list` page (skips non-object / id-less rows). Pure. */
-export function channelsFromPage({
-  channels,
-}: {
-  channels: readonly unknown[];
-}): readonly { id: string; name?: string }[] {
-  const out: { id: string; name?: string }[] = [];
+/**
+ * The channel refs from one `conversations.list` page (skips non-object / id-less rows). Preserves the
+ * `is_private`/`is_im`/`is_mpim` privacy booleans so projection can stamp private-lane records. Pure.
+ *
+ * @param channels the raw page channels
+ * @returns the shaped channel refs (privacy booleans included only when the source set them true)
+ */
+/** The privacy booleans from a raw `conversations.list` channel, spread-ready (a false/absent flag stays absent). */
+function rawChannelPrivacy({ raw }: { raw: Readonly<Record<string, unknown>> }): {
+  isPrivate?: boolean;
+  isIm?: boolean;
+  isMpim?: boolean;
+} {
+  return {
+    ...(raw["is_private"] === true ? { isPrivate: true } : {}),
+    ...(raw["is_im"] === true ? { isIm: true } : {}),
+    ...(raw["is_mpim"] === true ? { isMpim: true } : {}),
+  };
+}
+
+export function channelsFromPage({ channels }: { channels: readonly unknown[] }): readonly SlackChannelRef[] {
+  const out: SlackChannelRef[] = [];
   for (const raw of channels) {
-    if (!isRecord(raw)) {
+    const id = isRecord(raw) ? optStr({ value: raw["id"] }) : undefined;
+    if (!isRecord(raw) || id === undefined) {
       continue;
     }
-    const id = optStr({ value: raw["id"] });
     const name = optStr({ value: raw["name"] });
-    if (id !== undefined) {
-      out.push({ id, ...(name !== undefined ? { name } : {}) });
-    }
+    out.push({ id, ...(name !== undefined ? { name } : {}), ...rawChannelPrivacy({ raw }) });
   }
   return out;
 }
 
-async function discoverChannels({ api }: { api: SlackApi }): Promise<readonly { id: string; name?: string }[]> {
+async function discoverChannels({ api }: { api: SlackApi }): Promise<readonly SlackChannelRef[]> {
   return collectCursorPages({
     fetchPage: ({ cursor }) =>
       api
@@ -779,7 +822,7 @@ export async function fetchSlackActivity({
   }>
 > {
   let workspaceUrl: string | undefined;
-  let discovered: readonly { id: string; name?: string }[];
+  let discovered: readonly SlackChannelRef[];
   try {
     workspaceUrl = await api.workspaceUrl();
     discovered = await discoverChannels({ api });
@@ -824,7 +867,7 @@ async function crawlChannels({
   onProgress,
 }: {
   api: SlackApi;
-  selected: readonly { id: string; name?: string }[];
+  selected: readonly SlackChannelRef[];
   workspaceUrl: string;
   bounds: { oldest: string; latest: string };
   threadCursors: ThreadCursors;
@@ -844,7 +887,7 @@ async function crawlChannels({
     try {
       const result = await fetchChannel({
         api,
-        ctx: { channelId: channel.id, channelName: channel.name, workspaceUrl },
+        ctx: { channelId: channel.id, channelName: channel.name, workspaceUrl, ...channelPrivacy({ channel }) },
         latest: bounds.latest,
         oldest: bounds.oldest,
         threadCursors,

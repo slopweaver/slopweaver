@@ -94,6 +94,18 @@ describe("writeCorpusRecords", () => {
     const rawChanged = writeCorpusRecords({ home, records: [rec({ raw: { v: 2 } })], window });
     expect(unwrap(rawChanged)).toMatchObject({ deduped: 1, written: 0 }); // same content ⇒ no new line
   });
+
+  it("round-trips a private record's visibility to disk and back", () => {
+    writeCorpusRecords({ home, records: [rec({ sourceId: "#dm", visibility: "private" })], window });
+    const back = unwrap(readCorpusDir({ dir: bronzeSourceDir({ home, source: "github" }) }));
+    expect(back[0]!.visibility).toBe("private");
+  });
+
+  it("stays dedup-compatible with a public record written before visibility existed (no churn)", () => {
+    writeCorpusRecords({ home, records: [rec()], window }); // legacy public line (no visibility byte)
+    const again = writeCorpusRecords({ home, records: [rec({ visibility: "public" })], window });
+    expect(unwrap(again)).toMatchObject({ deduped: 1, written: 0 });
+  });
 });
 
 describe("serialiseRecord (bronze byte-shape lock)", () => {
@@ -109,6 +121,19 @@ describe("serialiseRecord (bronze byte-shape lock)", () => {
     });
     expect(line).toBe(
       '{"container":"o/r","kind":"pr","refs":[],"source":"github","sourceId":"#1","text":"hi","tsIso":"2024-01-02T00:00:00Z","url":"u","author":"alice","title":"T","attrs":{"alpha":"a","zebra":"z"},"raw":{"n":1}}',
+    );
+  });
+
+  it("omits visibility for a public record (byte-identical to pre-PR4.5 bronze)", () => {
+    expect(serialiseRecord({ record: rec({ visibility: "public" }) })).toBe(
+      '{"container":"o/r","kind":"pr","refs":[],"source":"github","sourceId":"#1","text":"hi","tsIso":"2024-01-02T00:00:00Z","url":"u"}',
+    );
+  });
+
+  it("serialises visibility only when private, after title and before attrs", () => {
+    const line = serialiseRecord({ record: rec({ attrs: { s: "x" }, title: "T", visibility: "private" }) });
+    expect(line).toBe(
+      '{"container":"o/r","kind":"pr","refs":[],"source":"github","sourceId":"#1","text":"hi","tsIso":"2024-01-02T00:00:00Z","url":"u","title":"T","visibility":"private","attrs":{"s":"x"}}',
     );
   });
 });

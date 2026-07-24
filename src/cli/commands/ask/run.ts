@@ -18,11 +18,13 @@ import type { LlmClient } from "../../../llm/provider.js";
 import { type Answer } from "../../../retrieval/answerFromSlice.js";
 import { answerQuestion } from "../../../retrieval/askEngine.js";
 import { loadCorpus } from "../../../retrieval/loadCorpus.js";
-import { decayParamsFromDays } from "../../../retrieval/recencyDecay.js";
+import type { OwnerIdentity } from "../../../retrieval/ownerScope.js";
 import type { SemanticPreparation } from "../../../retrieval/semanticRetrieval.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_ERROR, EXIT_EXPECTED_EMPTY, EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
 import { askExitCode, renderAskTextLines, validateAskQuestion } from "../query/core.js";
+import { loadOwnerContext } from "../query/ownerContext.js";
+import { planQueryRetrieval } from "../query/retrievalPlan.js";
 import { prepareSemanticForQuery } from "../query/shell.js";
 import { parseQueryArgs } from "../queryArgs.js";
 import { renderAskJson } from "./askJson.js";
@@ -42,6 +44,10 @@ export interface AskDeps {
     records: readonly CorpusRecord[];
     semantic: boolean;
   }) => Promise<SemanticPreparation>;
+  /** Resolve the owner's cross-source identity (PR4.5) — `{ owner: undefined }` disables the owner lens. */
+  readonly ownerContext: (args: { home: string; records: readonly CorpusRecord[] }) => {
+    owner: OwnerIdentity | undefined;
+  };
   readonly answerQuestion: typeof answerQuestion;
   readonly client: LlmClient;
   readonly logger: { out: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
@@ -89,25 +95,48 @@ export async function runAskWithDeps({ argv, deps }: { argv: readonly string[]; 
   corpus.warnings.forEach((w) => {
     deps.logger.warn(w);
   });
-  const records = corpus.value;
-  const semantic = await deps.prepareSemantic({ home, question: args.question, records, semantic: args.semantic });
-
+  const plan = await planQueryRetrieval({
+    halfLifeDays: args.halfLifeDays,
+    home,
+    nowMs,
+    ownerContext: deps.ownerContext,
+    prepareSemantic: deps.prepareSemantic,
+    question: args.question,
+    records: corpus.value,
+    semantic: args.semantic,
+  });
   const answer = await deps.answerQuestion({
     client: deps.client,
-    decay: decayParamsFromDays({ days: args.halfLifeDays, nowMs }),
     question: args.question,
-    records,
+    records: plan.records,
+    retrievalQuery: plan.query,
     sliceLimit: args.limit,
-    ...(semantic.context !== undefined ? { semantic: semantic.context } : {}),
+    ...(plan.decay !== undefined ? { decay: plan.decay } : {}),
+    ...(plan.semantic.context !== undefined ? { semantic: plan.semantic.context } : {}),
     ...(args.alpha !== undefined ? { alpha: args.alpha } : {}),
   });
+  return emitAnswer({ answer, deps, json: args.json, question: args.question });
+}
+
+/** Emit the answer engine's result: log every error + exit error, or render the answer. Thin. */
+function emitAnswer({
+  answer,
+  deps,
+  json,
+  question,
+}: {
+  answer: Result<Answer>;
+  deps: AskDeps;
+  json: boolean;
+  question: string;
+}): number {
   if (answer.ok === false) {
     answer.errors.forEach((e) => {
       deps.logger.error(e);
     });
     return EXIT_ERROR;
   }
-  return renderAskResult({ answer: answer.value, json: args.json, out: deps.logger.out, question: args.question });
+  return renderAskResult({ answer: answer.value, json, out: deps.logger.out, question });
 }
 
 /** Emit the answer (JSON or pretty) and return the exit code. Thin — the lines come from the pure core. */
@@ -151,6 +180,7 @@ function productionAskDeps(): AskDeps {
       },
     },
     nowMs: () => Date.now(),
+    ownerContext: loadOwnerContext,
     prepareSemantic: prepareSemanticForQuery,
   };
 }

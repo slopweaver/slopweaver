@@ -54,6 +54,11 @@ function orderedRecord({ record }: { record: CorpusRecord }): Record<string, unk
   if (record.title !== undefined) {
     ordered["title"] = record.title;
   }
+  // `visibility` (PR4.5) is serialised ONLY when `private`, so a public record's bytes (and thus its
+  // dedup fingerprint) are identical to pre-PR4.5 bronze — no churn, and unmarked legacy reads as public.
+  if (record.visibility === "private") {
+    ordered["visibility"] = "private";
+  }
   // `attrs` is appended last (after the v0.1 fields) and only when non-empty, so old readers/writers are
   // unaffected and the fingerprint changes only on a genuine metadata change.
   if (record.attrs !== undefined && Object.keys(record.attrs).length > 0) {

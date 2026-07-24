@@ -155,6 +155,11 @@ function loadDistilInputs({ options, home }: { options: DistilOptions; home: str
     return err(dir.errors);
   }
   const read = readCorpusDir({ dir: dir.value });
+  // PR4.5 DECISION (see retrieval/accessScope.ts): the owner sees every lane, so gold summarises the WHOLE
+  // corpus — private-lane records included. We deliberately do NOT filter private out here: gold is part
+  // of the owner's own world model, and hiding a DM/private-channel discussion from your own summaries is
+  // exactly the self-hiding we rejected. The private/public split gates only a (future) non-owner asker;
+  // if a shared corpus is ever built, filter here on `visibilityForRecord` to keep private out of shared gold.
   const records = read.ok ? read.value : [];
   const batches = groupForDistil({
     records,
