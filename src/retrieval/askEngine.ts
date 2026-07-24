@@ -61,9 +61,13 @@ export function retrieveRecords({
 }
 
 /**
- * Answer a question over the corpus: retrieve a slice, then compose a grounded answer.
+ * Answer a question over the corpus: retrieve a slice, then compose a grounded answer. Retrieval ranks on
+ * `retrievalQuery` when given (the owner lens injects identity handles there, PR4.5), else `question`; the
+ * answer is ALWAYS composed against the original `question`, so the injected handles never leak into the
+ * prompt the model reads.
  *
- * @param question the query
+ * @param question the original query (used for the answer prompt)
+ * @param retrievalQuery an optional rewritten query for ranking only (defaults to `question`)
  * @param client the LLM transport
  * @param records the corpus
  * @param sliceLimit max records to ground in
@@ -74,6 +78,7 @@ export function retrieveRecords({
  */
 export async function answerQuestion({
   question,
+  retrievalQuery,
   client,
   records,
   sliceLimit,
@@ -82,6 +87,7 @@ export async function answerQuestion({
   alpha,
 }: {
   question: string;
+  retrievalQuery?: string;
   client: LlmClient;
   records: readonly CorpusRecord[];
   sliceLimit: number;
@@ -90,7 +96,7 @@ export async function answerQuestion({
   alpha?: number;
 }): Promise<Result<Answer>> {
   const slice = retrieveRecords({
-    question,
+    question: retrievalQuery ?? question,
     records,
     sliceLimit,
     ...(decay !== undefined ? { decay } : {}),

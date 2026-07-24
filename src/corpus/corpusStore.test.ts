@@ -40,6 +40,22 @@ describe("parseCorpusRecords", () => {
     expect(record.attrs).toBeUndefined();
   });
 
+  it("reads an explicit private visibility back", () => {
+    const record = unwrap(parseCorpusRecords({ content: line({ visibility: "private" }) }))[0]!;
+    expect(record.visibility).toBe("private");
+  });
+
+  it("reads an unmarked legacy record as public (visibility absent)", () => {
+    const record = unwrap(parseCorpusRecords({ content: line() }))[0]!;
+    expect(record.visibility).toBeUndefined();
+  });
+
+  it("drops an unrecognised visibility value WITHOUT dropping the record (reads as public)", () => {
+    const record = unwrap(parseCorpusRecords({ content: line({ visibility: "secret" }) }))[0]!;
+    expect(record.sourceId).toBe("#1");
+    expect(record.visibility).toBeUndefined();
+  });
+
   it("round-trips a rich attrs payload (scalars + string array)", () => {
     const attrs = { draft: false, labels: ["bug", "retrieval"], state: "open" };
     const record = unwrap(parseCorpusRecords({ content: line({ attrs }) }))[0]!;

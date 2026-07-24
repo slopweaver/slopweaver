@@ -99,10 +99,14 @@ function assembleCorpusRecord({ core, value }: { core: CorpusRowCore; value: Rec
   // `raw` is the opaque full source payload — kept verbatim (never field-validated), dropped only if it
   // isn't an object. A malformed raw never drops the record.
   const parsedRaw = isRecord(raw) ? raw : undefined;
+  // `visibility` (PR4.5): ONLY an explicit `"private"` survives; absent/anything-else reads as public (the
+  // default-public migration contract), so a legacy row is never fail-closed into the private lane.
+  const isPrivate = value["visibility"] === "private";
   return {
     ...core,
     ...(isNonEmptyString(author) ? { author } : {}),
     ...(isNonEmptyString(title) ? { title } : {}),
+    ...(isPrivate ? { visibility: "private" as const } : {}),
     ...(parsedAttrs !== undefined ? { attrs: parsedAttrs } : {}),
     ...(parsedRaw !== undefined ? { raw: parsedRaw } : {}),
   };

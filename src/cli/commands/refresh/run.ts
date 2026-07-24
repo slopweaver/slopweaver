@@ -37,6 +37,7 @@ import { fetchNotionActivity, makeNotionApi } from "../../../corpus/notion/fetch
 import { projectNotionRecords } from "../../../corpus/notion/project.js";
 import { type SourceProgress, sourceHeartbeat, toRichProgressEvent } from "../../../corpus/progress.js";
 import { fetchSlackActivity, makeSlackApi, resolveSlackReadToken } from "../../../corpus/slack/fetch.js";
+import { slackOwnerBotIdentity } from "../../../corpus/slack/ownerBot.js";
 import { projectSlackRecords } from "../../../corpus/slack/project.js";
 import { readThreadCursors, writeThreadCursors } from "../../../corpus/slack/threadCursors.js";
 import type { CorpusRecord, CorpusSource, ExportWindow } from "../../../corpus/types.js";
@@ -45,6 +46,7 @@ import { yyyyMmDdTodayPlus } from "../../../lib/date.js";
 import { logger } from "../../../lib/logger.js";
 import { createRichProgressEmitter, type RichProgressEvent, unrefIntervalStallTimer } from "../../../lib/progress.js";
 import { ok, type Result } from "../../../lib/result.js";
+import { loadProfile } from "../../../profileStore.js";
 import { defineCommand } from "../../defineCommand.js";
 import { EXIT_OK, EXIT_USAGE } from "../../exitCodes.js";
 import {
@@ -231,6 +233,50 @@ async function runGithubOrgActivity({
   });
 }
 
+/**
+ * Fetch + project Slack activity into records. PR4.5: the owner's own bot identity (from `profile.json`,
+ * when set) is resolved back to the owner in projection (me-to-me), and every record inherits its
+ * channel's visibility via the projector's single stamp choke-point. Extracted to keep `sourceJob` lean.
+ */
+async function ingestSlack({
+  token,
+  window,
+  slackChannels,
+  home,
+  progress,
+}: {
+  token: string;
+  window: ExportWindow;
+  slackChannels: readonly string[];
+  home: string;
+  progress: { onProgress?: SourceProgress };
+}): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> {
+  const fetched = await fetchSlackActivity({
+    api: makeSlackApi({ token }),
+    threadCursors: readThreadCursors({ home }),
+    window,
+    ...progress,
+    ...(slackChannels.length > 0 ? { channelFilter: slackChannels } : {}),
+  });
+  if (fetched.ok === false) {
+    return fetched;
+  }
+  const stored = writeThreadCursors({ cursors: fetched.value.threadCursors, home });
+  const warnings = stored.ok
+    ? fetched.value.warnings
+    : [...fetched.value.warnings, ...stored.errors.map((e) => `thread-cursor persist failed: ${e}`)];
+  const ownerBot = slackOwnerBotIdentity({ slackBot: loadProfile({ home })?.slackBot });
+  return ok({
+    records: projectSlackRecords({
+      channels: fetched.value.channels,
+      curated: fetched.value.curated,
+      maps: fetched.value.maps,
+      ...(ownerBot !== undefined ? { ownerBot } : {}),
+    }),
+    warnings,
+  });
+}
+
 /** Build a Slack/Linear/Notion job from its token + window (token presence checked by the caller). */
 function sourceJob({
   source,
@@ -250,28 +296,7 @@ function sourceJob({
   const progress = onProgress !== undefined ? { onProgress } : {};
   const run = async (): Promise<Result<{ records: readonly CorpusRecord[]; warnings: readonly string[] }>> => {
     if (source === "slack") {
-      const fetched = await fetchSlackActivity({
-        api: makeSlackApi({ token }),
-        threadCursors: readThreadCursors({ home }),
-        window,
-        ...progress,
-        ...(slackChannels.length > 0 ? { channelFilter: slackChannels } : {}),
-      });
-      if (fetched.ok === false) {
-        return fetched;
-      }
-      const stored = writeThreadCursors({ cursors: fetched.value.threadCursors, home });
-      const warnings = stored.ok
-        ? fetched.value.warnings
-        : [...fetched.value.warnings, ...stored.errors.map((e) => `thread-cursor persist failed: ${e}`)];
-      return ok({
-        records: projectSlackRecords({
-          channels: fetched.value.channels,
-          curated: fetched.value.curated,
-          maps: fetched.value.maps,
-        }),
-        warnings,
-      });
+      return ingestSlack({ home, progress, slackChannels, token, window });
     }
     if (source === "linear") {
       const fetched = await fetchLinearActivity({ api: makeLinearApi({ token }), window, ...progress });

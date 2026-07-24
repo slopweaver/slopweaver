@@ -28,6 +28,39 @@ describe("parseProfile", () => {
     expect(unwrap(result).sources).toEqual(["github"]);
   });
 
+  it("parses the optional owner-bot declaration, defaulting absent id lists to empty (PR4.5)", () => {
+    const result = parseProfile({
+      value: {
+        displayName: "Dev",
+        gitNamespace: "octocat",
+        id: "me",
+        schemaVersion: 1,
+        slackBot: { botUserIds: ["U_OWNER_BOT"], ownerUserId: "U_OWNER" },
+        sources: [],
+      },
+    });
+    expect(unwrap(result).slackBot).toEqual({
+      appIds: [],
+      botIds: [],
+      botUserIds: ["U_OWNER_BOT"],
+      ownerUserId: "U_OWNER",
+    });
+  });
+
+  it("leaves slackBot absent when not declared (me-to-me off)", () => {
+    const result = parseProfile({
+      value: { displayName: "", gitNamespace: "", id: "me", schemaVersion: 1, sources: [] },
+    });
+    expect(unwrap(result).slackBot).toBeUndefined();
+  });
+
+  it("rejects a slackBot without an ownerUserId", () => {
+    const result = parseProfile({
+      value: { displayName: "", gitNamespace: "", id: "me", schemaVersion: 1, slackBot: {}, sources: [] },
+    });
+    expect(result.ok).toBe(false);
+  });
+
   it("rejects a wrong schemaVersion", () => {
     const result = parseProfile({
       value: { displayName: "", gitNamespace: "", id: "me", schemaVersion: 2, sources: [] },

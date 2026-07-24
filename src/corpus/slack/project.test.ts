@@ -5,6 +5,7 @@ import {
   type SlackChannelItems,
   type SlackCuratedItems,
   type SlackNameMaps,
+  slackChannelVisibility,
 } from "./project.js";
 
 const maps: SlackNameMaps = {
@@ -172,6 +173,70 @@ describe("projectSlackRecords", () => {
   });
 });
 
+describe("slackChannelVisibility", () => {
+  it("marks a public channel public", () => {
+    expect(slackChannelVisibility({ channel: {} })).toBe("public");
+  });
+
+  it("marks a private channel, a DM, or an mpim private", () => {
+    expect(slackChannelVisibility({ channel: { isPrivate: true } })).toBe("private");
+    expect(slackChannelVisibility({ channel: { isIm: true } })).toBe("private");
+    expect(slackChannelVisibility({ channel: { isMpim: true } })).toBe("private");
+  });
+});
+
+describe("projectSlackRecords — visibility + me-to-me (PR4.5)", () => {
+  it("stamps EVERY record of a public channel as public (no visibility field)", () => {
+    const records = projectSlackRecords({ channels: [channel] });
+    expect(records.length).toBeGreaterThan(0);
+    expect(records.every((r) => r.visibility === undefined)).toBe(true);
+  });
+
+  it("stamps EVERY record of a private channel (message + reply + file) private", () => {
+    const records = projectSlackRecords({ channels: [{ ...channel, isPrivate: true }] });
+    expect(records.length).toBeGreaterThan(0);
+    expect(records.every((r) => r.visibility === "private")).toBe(true);
+  });
+
+  it("stamps a DM channel's records private", () => {
+    const records = projectSlackRecords({ channels: [{ ...channel, isIm: true }] });
+    expect(records.every((r) => r.visibility === "private")).toBe(true);
+  });
+
+  it("resolves a message posted by the owner's own bot back to the owner (me-to-me)", () => {
+    const botChannel: SlackChannelItems = {
+      channelId: "C_PUBLIC_ALPHA",
+      messages: [
+        {
+          author: "U_OWNER_BOT",
+          channelId: "C_PUBLIC_ALPHA",
+          files: [],
+          permalink: "https://acme.slack.com/archives/C_PUBLIC_ALPHA/p1700000000000900",
+          raw: { app_id: "A_OWNER_APP", text: "on it", user: "U_OWNER_BOT" },
+          reactions: [],
+          text: "on it",
+          ts: "1700000000.000900",
+          tsIso: "2023-11-14T22:13:20.000Z",
+        },
+      ],
+      replies: [],
+    };
+    const records = projectSlackRecords({
+      channels: [botChannel],
+      ownerBot: { appIds: ["A_OWNER_APP"], botIds: [], botUserIds: ["U_OWNER_BOT"], ownerSlackUserId: "U_OWNER" },
+    });
+    expect(records.find((r) => r.kind === "message")!.author).toBe("U_OWNER");
+  });
+
+  it("leaves a non-owner author unchanged when an owner bot is configured", () => {
+    const records = projectSlackRecords({
+      channels: [channel],
+      ownerBot: { appIds: [], botIds: [], botUserIds: ["U_OWNER_BOT"], ownerSlackUserId: "U_OWNER" },
+    });
+    expect(records.find((r) => r.kind === "message")!.author).toBe("U1");
+  });
+});
+
 describe("resolveSlackMarkup", () => {
   it("resolves a known user mention to @DisplayName", () => {
     expect(resolveSlackMarkup({ maps, text: "ping <@U1> now" })).toBe("ping @Ada now");
@@ -261,5 +326,22 @@ describe("projectSlackRecords — curated surfaces (PR4.3)", () => {
     expect(record.sourceId).toBe("canvas:F1");
     expect(record.attrs!["classification"]).toBe("strategy");
     expect(record.url).toBe("https://acme.slack.com/canvas/F1");
+  });
+
+  it("fails a canvas with an unknown/absent channel CLOSED to private (never leaks as public)", () => {
+    const record = projectSlackRecords({ channels: [], curated }).find((r) => r.kind === "canvas")!;
+    expect(record.visibility).toBe("private");
+  });
+
+  it("keeps a curated surface public when its channel is crawled and public", () => {
+    const channels: SlackChannelItems[] = [{ channelId: "C1", messages: [], replies: [] }];
+    const record = projectSlackRecords({ channels, curated }).find((r) => r.kind === "pin")!;
+    expect(record.visibility).toBeUndefined();
+  });
+
+  it("stamps a curated surface private when its channel is crawled and private", () => {
+    const channels: SlackChannelItems[] = [{ channelId: "C1", isPrivate: true, messages: [], replies: [] }];
+    const record = projectSlackRecords({ channels, curated }).find((r) => r.kind === "bookmark")!;
+    expect(record.visibility).toBe("private");
   });
 });

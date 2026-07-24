@@ -4,6 +4,7 @@ import type { SourceProgressEvent } from "../progress.js";
 import { rankChannelsByActivity } from "./curatedFetch.js";
 import {
   channelNameMap,
+  channelsFromPage,
   fetchSlackActivity,
   fetchSlackMembers,
   mergeCursorUpdates,
@@ -324,6 +325,29 @@ describe("shapeRepliesPage", () => {
     expect(replies).toHaveLength(1);
     expect(replies[0]!.ts).toBe("1700000100.000200");
     expect(replies[0]!.threadTs).toBe("1700000000.000100");
+  });
+});
+
+describe("channelsFromPage", () => {
+  it("preserves the is_private / is_im / is_mpim privacy signal (previously discarded)", () => {
+    const page = [
+      { id: "C_PUB", name: "general" },
+      { id: "C_PRIV", is_private: true, name: "secret" },
+      { id: "D_DM", is_im: true },
+      { id: "G_MPIM", is_mpim: true },
+    ];
+    expect(channelsFromPage({ channels: page })).toEqual([
+      { id: "C_PUB", name: "general" },
+      { id: "C_PRIV", isPrivate: true, name: "secret" },
+      { id: "D_DM", isIm: true },
+      { id: "G_MPIM", isMpim: true },
+    ]);
+  });
+
+  it("omits a false/absent privacy flag rather than carrying it as false", () => {
+    expect(channelsFromPage({ channels: [{ id: "C_PUB", is_private: false, name: "general" }] })).toEqual([
+      { id: "C_PUB", name: "general" },
+    ]);
   });
 });
 
